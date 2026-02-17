@@ -1,0 +1,63 @@
+language=ru prob=1.000
+expected_words=186 recognized_words=240 matched=106
+covered_lines=47/76
+avg_abs_shift_sec=12.442 max_abs_shift_sec=61.930
+
+Top shifted lines (abs >= 0.45s):
+41 t_old= 90.40 t_new=152.33 shift=+61.93 matchWords=2 | Там молодки,
+42 t_old= 92.57 t_new=152.38 shift=+59.81 matchWords=2 | Там молодки,
+43 t_old= 94.74 t_new=152.43 shift=+57.69 matchWords=2 | Там молодки скачут-пляшут,
+44 t_old= 97.09 t_new=152.48 shift=+55.39 matchWords=2 | Там молодки скачут-пляшут,
+45 t_old= 99.44 t_new=152.53 shift=+53.09 matchWords=2 | Скачут, пляшут,
+46 t_old=101.63 t_new=152.58 shift=+50.95 matchWords=2 | Скачут, пляшут,
+47 t_old=103.82 t_new=152.63 shift=+48.81 matchWords=2 | Скачут, пляшут, платком машут,
+48 t_old=106.13 t_new=152.68 shift=+46.55 matchWords=2 | Скачут, пляшут, платком машут.
+49 t_old=108.44 t_new=152.73 shift=+44.29 matchWords=0 | Селязень мой,
+50 t_old=110.86 t_new=152.78 shift=+41.92 matchWords=0 | Селязень мой,
+51 t_old=113.28 t_new=152.83 shift=+39.55 matchWords=0 | Селязень мой сиз-косастай,
+52 t_old=115.31 t_new=152.88 shift=+37.57 matchWords=0 | Селязень мой сиз-косастай,
+53 t_old=117.34 t_new=152.93 shift=+35.59 matchWords=0 | Молоденькай,
+54 t_old=119.77 t_new=152.98 shift=+33.21 matchWords=0 | Молоденькай,
+55 t_old=122.20 t_new=153.03 shift=+30.83 matchWords=0 | Молоденькай, кудревастай,
+56 t_old=124.46 t_new=153.08 shift=+28.62 matchWords=0 | Молоденькай, кудревастай.
+57 t_old=126.72 t_new=153.13 shift=+26.41 matchWords=0 | Поплывёшь ты,
+58 t_old=128.88 t_new=153.18 shift=+24.30 matchWords=0 | Поплывёшь ты,
+59 t_old=131.04 t_new=153.23 shift=+22.19 matchWords=0 | Поплывёшь ты вдоль Дунаю,
+60 t_old=133.10 t_new=153.28 shift=+20.18 matchWords=0 | Поплывёшь ты вдоль Дунаю.
+61 t_old=135.16 t_new=153.33 shift=+18.17 matchWords=0 | Вдоль Дунаю,
+62 t_old=137.56 t_new=153.38 shift=+15.82 matchWords=0 | Вдоль Дунаю,
+63 t_old=139.96 t_new=153.43 shift=+13.47 matchWords=0 | Вдоль Дунаю погуляю,
+64 t_old=142.01 t_new=153.48 shift=+11.47 matchWords=0 | Вдоль Дунаю погуляю.
+65 t_old=144.06 t_new=153.53 shift=+9.47 matchWords=1 | Там девушки,
+66 t_old=146.42 t_new=153.58 shift=+7.16 matchWords=1 | Там девушки,
+67 t_old=148.78 t_new=153.63 shift=+4.85 matchWords=1 | Там девушки скачут-пляшут,
+01 t_old=  0.90 t_new=  4.27 shift=+3.37 matchWords=2 | Селязень мой,
+68 t_old=151.04 t_new=153.68 shift=+2.64 matchWords=1 | Там девушки скачут-пляшут,
+40 t_old= 88.32 t_new= 90.89 shift=+2.57 matchWords=3 | Вдоль Дунаю погуляю.
+09 t_old= 16.96 t_new= 19.13 shift=+2.17 matchWords=2 | Поплывёшь ты,
+10 t_old= 19.20 t_new= 21.03 shift=+1.83 matchWords=2 | Поплывёшь ты,
+71 t_old=157.60 t_new=155.85 shift=-1.75 matchWords=3 | Белы ручки воздымают,
+75 t_old=166.48 t_new=164.73 shift=-1.75 matchWords=4 | На головку их складают,
+30 t_old= 64.58 t_new= 66.31 shift=+1.73 matchWords=1 | Молоденькай,
+39 t_old= 86.24 t_new= 87.91 shift=+1.67 matchWords=3 | Вдоль Дунаю погуляю,
+12 t_old= 23.86 t_new= 25.45 shift=+1.59 matchWords=2 | Поплывёшь ты вдоль Дунаю.
+20 t_old= 41.87 t_new= 43.43 shift=+1.56 matchWords=4 | Там старушки скачут, пляшут.
+72 t_old=159.85 t_new=158.33 shift=-1.52 matchWords=3 | Белы ручки воздымают,
+08 t_old= 15.03 t_new= 16.49 shift=+1.46 matchWords=2 | Молоденькай, кудревастай.
+70 t_old=155.45 t_new=153.99 shift=-1.46 matchWords=2 | Белы ручки,
+11 t_old= 21.44 t_new= 22.89 shift=+1.45 matchWords=4 | Поплывёшь ты вдоль Дунаю,
+74 t_old=164.29 t_new=162.85 shift=-1.44 matchWords=2 | На головку,
+76 t_old=168.68 t_new=167.25 shift=-1.43 matchWords=4 | На головку их складают.
+05 t_old=  9.42 t_new= 10.67 shift=+1.25 matchWords=1 | Молоденькай,
+15 t_old= 31.18 t_new= 29.93 shift=-1.25 matchWords=3 | Вдоль Дунаю погуляю,
+04 t_old=  7.46 t_new=  6.25 shift=-1.21 matchWords=1 | Селязень мой сиз-косастай,
+73 t_old=162.10 t_new=160.91 shift=-1.19 matchWords=2 | На головку,
+16 t_old= 33.23 t_new= 34.41 shift=+1.18 matchWords=3 | Вдоль Дунаю погуляю.
+02 t_old=  3.20 t_new=  4.32 shift=+1.12 matchWords=0 | Селязень мой,
+07 t_old= 13.10 t_new= 14.15 shift=+1.05 matchWords=2 | Молоденькай, кудревастай,
+06 t_old= 11.26 t_new= 12.29 shift=+1.03 matchWords=1 | Молоденькай,
+33 t_old= 71.98 t_new= 72.91 shift=+0.93 matchWords=2 | Поплывёшь ты,
+32 t_old= 69.50 t_new= 70.23 shift=+0.73 matchWords=2 | Молоденькай, кудревастай.
+31 t_old= 67.02 t_new= 67.71 shift=+0.69 matchWords=2 | Молоденькай, кудревастай,
+14 t_old= 28.73 t_new= 28.11 shift=-0.62 matchWords=2 | Вдоль Дунаю,
+19 t_old= 39.50 t_new= 39.01 shift=-0.49 matchWords=4 | Там старушки скачут, пляшут,

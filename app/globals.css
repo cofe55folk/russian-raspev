@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f2f2f2;
+  --foreground: #212529;
+  --rr-brand-bg: #091628;
+  --rr-brand-deep: #0e2238;
+  --rr-brand-mid: #20466d;
+  --rr-brand-accent: #78a9d6;
+  --rr-brand-gold: #d1ad63;
+  --rr-surface: #e8ecef;
+  --rr-surface-2: #d8dee5;
+  --rr-ink: #1a2432;
+  --rr-ink-soft: #4b5a6b;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+
+.rr-brand-gradient {
+  background:
+    radial-gradient(1200px 500px at 85% -5%, rgba(120, 169, 214, 0.33), transparent 58%),
+    radial-gradient(1100px 500px at 10% 0%, rgba(209, 173, 99, 0.22), transparent 52%),
+    linear-gradient(140deg, var(--rr-brand-bg), var(--rr-brand-deep) 46%, var(--rr-brand-mid));
+}
+
+.rr-container {
+  width: min(1160px, 94%);
+  margin-inline: auto;
+}
+
+.rr-main {
+  background: #f1f1f1;
+  color: #18181b;
+  padding-bottom: 2.5rem;
+}
+
+.rr-panel {
+  background: #e5e5e5;
+  border-radius: 2px;
+}
+
+.rr-sidebar-title {
+  margin-bottom: 0.5rem;
+  font-size: 1.05rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  color: #27272a;
+}
+
+.rr-section-title {
+  font-size: clamp(1.6rem, 2.6vw, 2.25rem);
+  line-height: 1.15;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.rr-card-title {
+  font-size: clamp(1.25rem, 1.8vw, 1.6rem);
+  line-height: 1.2;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.rr-card-text {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #52525b;
+}
+
+.rr-meta {
+  font-size: 0.78rem;
+  color: #71717a;
+}
+
+.rr-input {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+  background: #f5f5f5;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.rr-primary-btn {
+  border-radius: 2px;
+  background: #5f82aa;
+  color: #fff;
+  transition: background 120ms ease;
+}
+
+.rr-primary-btn:hover {
+  background: #7398c2;
+}
+
+.rr-primary-btn:focus-visible,
+.rr-pagination-btn:focus-visible,
+.rr-play-btn:focus-visible {
+  outline: 2px solid #2f5d92;
+  outline-offset: 2px;
+}
+
+.rr-play-btn {
+  display: grid;
+  place-items: center;
+  height: 54px;
+  width: 54px;
+  border-radius: 9999px;
+  background: #6e93ba;
+  color: #fff;
+}
+
+.rr-tab {
+  color: #52525b;
+}
+
+.rr-tab-active {
+  color: #5f82aa;
+  font-weight: 600;
+}
+
+.rr-link-soft {
+  color: #5f82aa;
+  transition: color 120ms ease;
+}
+
+.rr-link-soft:hover {
+  color: #3f6a95;
+}
+
+.rr-pagination-btn {
+  height: 36px;
+  width: 36px;
+  border-radius: 2px;
+  background: #e3e3e3;
+  color: #3f3f46;
+  font-size: 0.875rem;
+}
+
+.rr-pagination-btn:hover {
+  background: #d7d7d7;
+}
+
+.rr-pagination-btn-active {
+  background: #5f82aa;
+  color: #fff;
+}
+
+/* Player transport buttons */
+.btn-round {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  background: rgba(39, 39, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.25);
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.btn-round:hover {
+  background: rgba(63, 63, 70, 0.72);
+}
+
+.btn-round:active {
+  transform: translateY(1px);
+}
+
+.btn-round--active {
+  background: rgba(250, 204, 21, 0.95);
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  color: #111827;
+}
+
+/* Unified thin range style for player controls */
+.range-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-thin:focus {
+  outline: none;
+}
+
+.range-thin::-webkit-slider-runnable-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.range-thin::-moz-range-track {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+.range-thin::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.range-short {
+  width: 180px;
+  max-width: 100%;
+}

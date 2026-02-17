@@ -1,0 +1,297 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+/* Thin range slider */
+.range-thin {
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  outline: none;
+}
+
+/* WebKit thumb */
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 0;
+}
+
+/* Firefox */
+.range-thin::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 0;
+}
+
+.range-thin::-moz-range-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+/* Make control sliders shorter (not the master timeline which is w-full) */
+.range-short {
+  width: 220px;
+  max-width: 100%;
+}
+/* --- thin sliders (GarageBand-ish) --- */
+.range-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 999px;
+  outline: none;
+}
+
+.range-thin::-webkit-slider-runnable-track {
+  height: 2px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 999px;
+}
+
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-top: -4px; /* центрируем на тонкой линии */
+  border-radius: 999px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(0,0,0,0.25);
+}
+
+.range-thin::-moz-range-track {
+  height: 2px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 999px;
+}
+
+.range-thin::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(0,0,0,0.25);
+}
+
+.range-short {
+  width: 220px;
+  max-width: 100%;
+}
+/* тонкие range + удобный хитбокс */
+.range-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.20);
+  outline: none;
+}
+
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+}
+
+.range-thin::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  cursor: pointer;
+  border: none;
+}
+
+.range-short {
+  width: 220px;
+  max-width: 100%;
+}
+
+/* увеличиваем “зону попадания” без увеличения толщины */
+.range-hit {
+  padding: 10px 0; /* хитбокс выше */
+}
+/* ===== Audio UI (GarageBand-ish) ===== */
+.range-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 10px;              /* функциональная зона (ловить удобно) */
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.range-thin:focus {
+  outline: none;
+}
+
+/* Track (полоса) */
+.range-thin::-webkit-slider-runnable-track {
+  height: 2px;               /* визуально тонкая */
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+}
+
+.range-thin::-moz-range-track {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+}
+
+/* Thumb (ползунок) — маленький, но с нормальной зоной */
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  margin-top: -4px;          /* центрируем на 2px-треке */
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.06); /* расширяем “hit area” */
+}
+
+.range-thin::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.06);
+}
+
+/* Короткие ползунки для пан/питч/спид/реверб/громкость */
+.range-short {
+  max-width: 220px;
+}
+@media (max-width: 768px) {
+  .range-short { max-width: 100%; }
+}
+/* --- Transport buttons (GarageBand-ish) --- */
+.btn-round {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+
+  background: rgba(39, 39, 42, 0.7); /* zinc-800/70 */
+  border: 1px solid rgba(255, 255, 255, 0.12);
+
+  /* soft outer + subtle inset */
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.25);
+
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.btn-round:hover {
+  background: rgba(63, 63, 70, 0.72); /* zinc-700/70 */
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.40),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.25);
+}
+
+.btn-round:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 8px 16px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -12px 18px rgba(0, 0, 0, 0.30);
+}
+
+.btn-round--active {
+  background: rgba(250, 204, 21, 0.95); /* yellow-400 */
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  color: #111827; /* nearly black */
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.18);
+}
+
+/* --- Thin sliders: bigger hit area but thin visual --- */
+.range-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px; /* hit area (functional) */
+  background: transparent;
+  cursor: pointer;
+}
+
+.range-thin::-webkit-slider-runnable-track {
+  height: 3px;                 /* visual thin line */
+  background: rgba(255,255,255,0.22);
+  border-radius: 999px;
+}
+
+.range-thin::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;          /* centers thumb on 3px track */
+  border-radius: 999px;
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+}
+
+.range-thin::-moz-range-track {
+  height: 3px;
+  background: rgba(255,255,255,0.22);
+  border-radius: 999px;
+}
+.range-thin::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(255,255,255,0.95);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+}
+
+/* optional: shorter sliders */
+.range-short {
+  width: 180px;
+  max-width: 100%;
+}

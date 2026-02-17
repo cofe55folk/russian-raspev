@@ -1,0 +1,16 @@
+Track ASR stats:
+- selezen-01.m4a: words=240, lang=ru, prob=1.000
+- selezen-02.m4a: words=539, lang=ru, prob=1.000
+- selezen-03.m4a: words=174, lang=ru, prob=1.000
+
+lines=76 avg_abs_shift_sec=0.156 max_abs_shift_sec=0.610
+
+Largest shifts (|shift| >= 0.40s):
+74 old=164.29 new=163.68 shift=-0.61 | На головку,
+70 old=155.45 new=154.96 shift=-0.49 | Белы ручки,
+71 old=157.60 new=157.12 shift=-0.48 | Белы ручки воздымают,
+29 old= 62.14 new= 62.61 shift=+0.47 | Молоденькай,
+03 old=  5.50 new=  5.91 shift=+0.41 | Селязень мой сиз-косастай,
+72 old=159.85 new=159.44 shift=-0.41 | Белы ручки воздымают,
+73 old=162.10 new=161.69 shift=-0.41 | На головку,
+76 old=168.68 new=168.27 shift=-0.41 | На головку их складают.
