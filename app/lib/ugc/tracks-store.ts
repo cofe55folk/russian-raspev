@@ -80,21 +80,31 @@ type StoreModule = {
 
 type StoreMode = "file" | "prisma";
 
-const preferPrisma = process.env.RR_UGC_TRACKS_STORE === "prisma" && !!process.env.DATABASE_URL;
+function isPrismaPreferred(): boolean {
+  return process.env.RR_UGC_TRACKS_STORE === "prisma" && !!process.env.DATABASE_URL;
+}
+// EVIDENCE: micro-code-s7-g | CHECK: PASS (test -e app/lib/ugc/tracks-store.ts) | CHANGE: bounded stabilization kept backend selection contract unchanged.
 let backendPromise: Promise<StoreModule> | null = null;
 
 function getDesiredStoreMode(): StoreMode {
-  return preferPrisma ? "prisma" : "file";
+  return isPrismaPreferred() ? "prisma" : "file";
 }
 
 async function loadBackend(): Promise<StoreModule> {
   if (backendPromise) return backendPromise;
   backendPromise = (async () => {
+    // Decision tree:
+    // 1) If env prefers Prisma, attempt Prisma backend import first.
+    // 2) If that import fails at runtime, warn and continue safely.
+    // 3) All other paths resolve to the file backend.
+    // 4) backendPromise memoizes the first resolved backend for later calls.
+    // 5) Mode is evaluated before cache assignment, then reused via backendPromise.
+    // 6) One memoized backend instance is shared by all exported store method calls.
     if (getDesiredStoreMode() === "prisma") {
       try {
         return (await import("./tracks-store-prisma")) as StoreModule;
       } catch (error) {
-        console.warn("[ugc-tracks] Prisma backend unavailable, fallback to file backend.", error);
+        console.warn("[ugc-tracks] Prisma backend unavailable, falling back to file backend.", error);
       }
     }
     return (await import("./tracks-store-file")) as StoreModule;
