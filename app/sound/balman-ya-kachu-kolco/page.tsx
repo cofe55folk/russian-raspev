@@ -1,14 +1,8 @@
 "use client";
 
-import MultiTrackPlayer, { type TrackDef } from "../../components/MultiTrackPlayer";
 import PageHero from "../../components/PageHero";
 import SongTabs from "../../components/SongTabs";
-
-const tracks: TrackDef[] = [
-  { name: "Я качу кольцо 01", src: "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01.mp3" },
-  { name: "Я качу кольцо 02", src: "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02.mp3" },
-  { name: "Я качу кольцо 03", src: "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03.mp3" },
-];
+import SoundCardPlayerSlot from "../../components/SoundCardPlayerSlot";
 
 const content = {
   text: [
@@ -62,8 +56,8 @@ const content = {
     "Столь милёшенько,",
     "Столь милёшенько.",
   ],
-  expanded: ["Распетый текст и таймкоды для суфлера будут добавлены следующим шагом."],
-  notes: ["Нотная расшифровка будет добавлена позже."],
+  expanded: [],
+  notes: [],
   about: [
     "Жанр: хороводная игровая, вечерочная.",
     "Локализация: с. Балман Куйбышевского района Новосибирской области.",
@@ -79,11 +73,10 @@ export default function BalmanYaKachuKolcoPage() {
       />
 
       <section className="rr-container">
-        <MultiTrackPlayer tracks={tracks} />
+        <SoundCardPlayerSlot slug="balman-ya-kachu-kolco" />
       </section>
 
       <SongTabs content={content} showPlayer={false} />
     </main>
   );
 }
-

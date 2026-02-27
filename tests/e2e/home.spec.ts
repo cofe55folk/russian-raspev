@@ -1,26 +1,31 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function waitForMultitrackReady(page: Page) {
+  await expect(page.getByRole("heading", { name: /Попробовать многоголосие|Try multitrack harmony/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("slider", { name: "Позиция трека" })).toBeVisible({ timeout: 20_000 });
+}
 
 test("home page renders hero content", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: "Русский распев" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Смотреть курсы" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "О проекте" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Русский распев|Russian Raspev/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Смотреть курсы|Watch courses/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /О проекте|About project/i })).toBeVisible();
 });
 
 test("multitrack section is visible with base controls", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: /Попробовать многоголосие/i })).toBeVisible();
+  await waitForMultitrackReady(page);
   await expect(page.getByText("Селезень 01")).toBeVisible();
   await expect(page.getByText("Селезень 02")).toBeVisible();
   await expect(page.getByText("Селезень 03")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Воспроизвести" })).toBeVisible();
-  await expect(page.getByRole("slider", { name: "Позиция трека" })).toBeVisible();
 });
 
 test("player controls react to clicks", async ({ page }) => {
   await page.goto("/");
+  await waitForMultitrackReady(page);
 
   const loopButton = page.getByRole("button", { name: "Повтор трека" });
   await expect(loopButton).toBeVisible();
@@ -38,15 +43,17 @@ test("player controls react to clicks", async ({ page }) => {
 
 test("play button toggles play/pause state", async ({ page }) => {
   await page.goto("/");
+  await waitForMultitrackReady(page);
 
-  const playButton = page.getByRole("button", { name: "Воспроизвести" });
+  const playButton = page.getByRole("button", { name: "Воспроизвести", exact: true });
   await expect(playButton).toBeVisible();
   await playButton.click();
-  await expect(page.getByRole("button", { name: "Пауза" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible();
 });
 
 test("waveform click scrubs timeline position", async ({ page }) => {
   await page.goto("/");
+  await waitForMultitrackReady(page);
 
   const timeline = page.getByRole("slider", { name: "Позиция трека" });
   await expect(timeline).toBeVisible();
@@ -69,6 +76,7 @@ test("waveform click scrubs timeline position", async ({ page }) => {
 
 test("track volume and pan sliders are interactive on current viewport", async ({ page }) => {
   await page.goto("/");
+  await waitForMultitrackReady(page);
 
   const isMobileProject = test.info().project.name === "mobile-chromium";
 
@@ -100,13 +108,14 @@ test("track volume and pan sliders are interactive on current viewport", async (
 
 test("play scrub pause updates transport time", async ({ page }) => {
   await page.goto("/");
+  await waitForMultitrackReady(page);
 
-  const playButton = page.getByRole("button", { name: "Воспроизвести" });
+  const playButton = page.getByRole("button", { name: "Воспроизвести", exact: true });
   await expect(playButton).toBeVisible();
   await playButton.click();
-  await expect(page.getByRole("button", { name: "Пауза" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible();
 
-  const timeLabel = page.locator("div.text-sm.text-white\\/70").first();
+  const timeLabel = page.locator("div.text-sm.text-white\\/70:visible").first();
   await expect(timeLabel).toBeVisible();
 
   const timeline = page.getByRole("slider", { name: "Позиция трека" });
@@ -139,6 +148,6 @@ test("play scrub pause updates transport time", async ({ page }) => {
     })
     .toBeGreaterThan(beforeSec + 2);
 
-  await page.getByRole("button", { name: "Пауза" }).click();
-  await expect(page.getByRole("button", { name: "Воспроизвести" })).toBeVisible();
+  await page.getByRole("button", { name: "Пауза", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible();
 });

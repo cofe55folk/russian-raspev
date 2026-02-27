@@ -78,11 +78,12 @@ test("guest + track playback does not jump backward in time", async ({ page }) =
   }, { base64: wavBase64 });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "Гостевая дорожка" }).click();
   await expect(page.getByRole("button", { name: "Гость + трек" })).toBeVisible();
 
   await page.getByRole("button", { name: "Solo Селезень 01" }).click();
   await page.getByRole("button", { name: "Гость + трек" }).click();
-  await expect(page.getByRole("button", { name: "Пауза вместе" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Остановить Гость + трек" })).toBeVisible();
 
   const regressions = await page.evaluate(async () => {
     const audio = document.querySelector("audio");
@@ -105,4 +106,3 @@ test("guest + track playback does not jump backward in time", async ({ page }) =
   expect(regressions).toBeGreaterThanOrEqual(0);
   expect(regressions).toBeLessThanOrEqual(1);
 });
-

@@ -1,21 +1,31 @@
 import Image from "next/image";
 import Link from "next/link";
+import {
+  getEducationHref,
+  getHomeHref,
+  getSoundHref,
+  getSoundTrackHref,
+  getVideoHref,
+} from "../lib/i18n/routing";
+import { readRequestLocale } from "../lib/i18n/server";
+import type { Locale } from "../lib/i18n/types";
 
+type PillarRoute = "sound" | "education" | "video";
 const pillars = [
   {
     title: "Архив и многодорожечный звук",
     text: "Разбор традиционного многоголосия по партиям: слушать, выключать, заучивать и собирать целое звучание.",
-    href: "/sound",
+    route: "sound" as const,
   },
   {
     title: "Обучение и практика",
     text: "Видеокурсы, разборы, марафоны и живые занятия по традиционной вокальной технике.",
-    href: "/education",
+    route: "education" as const,
   },
   {
     title: "Видео и события",
     text: "Концерты, полевые экспедиции, лекции и календарь мероприятий проекта.",
-    href: "/video",
+    route: "video" as const,
   },
 ];
 
@@ -26,7 +36,15 @@ const features = [
   "Личный бренд + архивная платформа в одном стиле",
 ];
 
-export default function ConceptPage() {
+function resolvePillarHref(route: PillarRoute, locale: Locale): string {
+  if (route === "sound") return getSoundHref(locale);
+  if (route === "education") return getEducationHref(locale);
+  return getVideoHref(locale);
+}
+
+export default async function ConceptPage() {
+  const locale = await readRequestLocale();
+
   return (
     <main className="min-h-screen bg-[var(--rr-surface)] text-[var(--rr-ink)] pb-20">
       <section className="relative overflow-hidden rr-brand-gradient text-white pt-28 md:pt-34 pb-16 md:pb-24">
@@ -47,10 +65,10 @@ export default function ConceptPage() {
               Современный сайт музыканта-исследователя: обучение, события, видео и архив с акцентом на многоголосие.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/sound" className="rounded-md bg-[var(--rr-brand-accent)] px-6 py-3 text-sm font-semibold text-[#08192b] hover:brightness-105">
+              <Link href={getSoundHref(locale)} className="rounded-md bg-[var(--rr-brand-accent)] px-6 py-3 text-sm font-semibold text-[#08192b] hover:brightness-105">
                 Открыть раздел Звук
               </Link>
-              <Link href="/" className="rounded-md border border-white/35 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10">
+              <Link href={getHomeHref(locale)} className="rounded-md border border-white/35 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10">
                 На главную
               </Link>
             </div>
@@ -73,7 +91,7 @@ export default function ConceptPage() {
             <article key={item.title} className="rounded-2xl border border-[#cad2dc] bg-[var(--rr-surface-2)] p-5 shadow-[0_10px_28px_rgba(9,22,40,0.08)]">
               <h2 className="text-xl font-semibold">{item.title}</h2>
               <p className="mt-2 text-[15px] leading-7 text-[var(--rr-ink-soft)]">{item.text}</p>
-              <Link href={item.href} className="mt-4 inline-flex text-sm font-semibold text-[#1f4f80] hover:text-[#163f68]">
+              <Link href={resolvePillarHref(item.route, locale)} className="mt-4 inline-flex text-sm font-semibold text-[#1f4f80] hover:text-[#163f68]">
                 Перейти →
               </Link>
             </article>
@@ -105,7 +123,7 @@ export default function ConceptPage() {
             <li>3. Полировать плеер, карту, навигацию и адаптив.</li>
             <li>4. Сделать единый UI-kit для быстрых будущих правок.</li>
           </ol>
-          <Link href="/sound/selezen" className="mt-6 inline-flex rounded-md bg-[var(--rr-brand-accent)] px-4 py-2 text-sm font-semibold text-[#0a1f33] hover:brightness-105">
+          <Link href={getSoundTrackHref(locale, "selezen")} className="mt-6 inline-flex rounded-md bg-[var(--rr-brand-accent)] px-4 py-2 text-sm font-semibold text-[#0a1f33] hover:brightness-105">
             Проверить в реальном треке
           </Link>
         </aside>
@@ -113,4 +131,3 @@ export default function ConceptPage() {
     </main>
   );
 }
-

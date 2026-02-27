@@ -1,3 +1,5 @@
+import { stopGlobalVideoForAudioStart } from "./mediaMutualExclusion"
+
 export type GlobalAudioProgress = {
   current: number
   duration: number
@@ -10,6 +12,7 @@ export type GlobalAudioController = {
   subtitle?: string
   getTitle?: () => string
   getSubtitle?: () => string
+  prime?: () => void
   stop: () => void
   play: () => void
   pause: () => void
@@ -56,6 +59,7 @@ export function getGlobalAudioController(): GlobalAudioController | null {
 
 export function requestGlobalAudio(controller: GlobalAudioController) {
   const s = state()
+  stopGlobalVideoForAudioStart()
   if (s.active && s.active.id !== controller.id) {
     try {
       s.active.stop()

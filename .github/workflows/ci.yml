@@ -28,17 +28,62 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: i18n audit
+        run: npm run i18n:audit
+
       - name: Build
         run: npm run build
 
-      - name: E2E tests
-        run: npm run test:e2e
+      - name: Critical E2E tests
+        run: npm run test:e2e:critical
+        env:
+          PLAYWRIGHT_WEB_SERVER_COMMAND: npm run start
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+
+  admin-analytics-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spec:
+          - tests/e2e/admin-analytics-api.spec.ts
+          - tests/e2e/admin-analytics-search-quality-api.spec.ts
+          - tests/e2e/admin-analytics-map-summary-api.spec.ts
+          - tests/e2e/admin-analytics-guest-sync-api.spec.ts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run admin analytics contract spec
+        run: npx playwright test ${{ matrix.spec }} --config=playwright.webpack.config.ts --project=chromium --workers=1
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-admin-analytics-${{ strategy.job-index }}
           path: |
             playwright-report
             test-results

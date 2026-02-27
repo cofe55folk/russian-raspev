@@ -1,73 +1,53 @@
 "use client";
 
-import MultiTrackPlayer, { type TrackDef } from "../../components/MultiTrackPlayer";
 import PageHero from "../../components/PageHero";
 import SongTabs from "../../components/SongTabs";
-
-const balmanSeyuVeyuTracks: TrackDef[] = [
-  { name: "Балман 01", src: "/audio/balman-seyu_veyu/balman-seyu-veyu-01.m4a" },
-  { name: "Балман 02", src: "/audio/balman-seyu_veyu/balman-seyu-veyu-02.m4a" },
-  { name: "Балман 03", src: "/audio/balman-seyu_veyu/balman-seyu-veyu-03.m4a" },
-];
+import SoundCardPlayerSlot from "../../components/SoundCardPlayerSlot";
 
 const balmanSeyuVeyuContent = {
   text: [
     "Сею-вею, сею-вею,",
     "Сею-вею белый-то леночек,",
     "Сею-вею белы- то леночек, лен.",
-    "",
     "Уродися, уродися,",
     "Уродися, белый то леночек,",
     "Уродися, белый то леночек, лён.",
-    "",
     "Тонок, долог, тонок, долог,",
     "Тонок, долог, волокнистый,",
     "Тонок, долог, волокнистый, лён.",
-    "",
     "Стал леночек, стал леночек,",
     "Стал леночек поспевати,",
     "Стал леночек поспевати, лён.",
-    "",
     "Я младенька, я младенька,",
     "Я младенька - горе горевати,",
     "Я младенька - горе горевати, лён.",
-    "",
     "С кем я буду, с кем я буду,",
     "С кем я буду лён(ы) рвати,",
     "С кем я буду лён(ы) рвати, лён.",
-    "",
     "Рвати-брати, рвати-брати,",
     "Рвати-брати, подстилати,",
     "Рвати-брати, подстилати, лён.",
-    "",
     "Свёкор молвил, свёкор молвил,",
     "Свёкор молвил: Я с тобою!",
     "Свёкор молвил: Я с тобою! Лён.",
-    "",
     "Я с тобою, я с тобою,",
     "Я с тобою, со снохой!",
     "Я с тобою, со снохой! Лён.",
-    "",
     "То не рванье, то не рванье,",
     "То не рванье - всё горе-руганье,",
     "То не рванье - всё горе-руганье, лён.",
-    "",
     "Милый молвил, Милый молвил,",
     "Милый молвил: Я с тобою!",
     "Милый молвил: Я с тобою! Лён.",
-    "",
     "Я с тобою, я с тобою,",
     "Я с тобою, со женою!",
     "Я с тобою, со женою! Лён.",
-    "",
     "То не рванье, то не рванье,",
     "То не рванье - с милым целованье!",
     "То не рванье - с милым целованье! Лён.",
   ],
-  expanded: [
-    "Распетый текст и таймкоды для суфлера будут добавлены следующим шагом.",
-  ],
-  notes: ["Нотная расшифровка будет добавлена позже."],
+  expanded: [],
+  notes: [],
   about: [
     "В карточке подключены 3 мультитрек-дорожки.",
     "После добавления таймкодов можно включить синхронный суфлер.",
@@ -83,13 +63,10 @@ export default function BalmanSeyuVeyuPage() {
       />
 
       <section className="rr-container">
-        <MultiTrackPlayer
-          tracks={balmanSeyuVeyuTracks}
-          teleprompterSourceUrl="/audio/balman-seyu_veyu/balman-seyu-veyu-01-lyrics.yandex-preview.json"
-        />
+        <SoundCardPlayerSlot slug="balman-seyu-veyu" />
       </section>
 
-      <SongTabs content={balmanSeyuVeyuContent} showPlayer={false} />
+      <SongTabs content={balmanSeyuVeyuContent} showPlayer={false} textGroupSize={3} textGroupGapClassName="mt-2.5" />
     </main>
   );
 }

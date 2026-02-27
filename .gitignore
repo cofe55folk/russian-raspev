@@ -32,6 +32,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# devtools research sensitive artifacts
+docs/research/devtools/**/capture.har
+
 # env files (can opt-in for committing if needed)
 .env*
 

@@ -1,3 +1,7 @@
+"use client";
+
+import { useI18n } from "./i18n/I18nProvider";
+
 type FilterSidebarProps = {
   groups: Array<{
     title: string;
@@ -6,13 +10,15 @@ type FilterSidebarProps = {
 };
 
 export default function FilterSidebar({ groups }: FilterSidebarProps) {
+  const { t } = useI18n();
+
   return (
     <div className="space-y-5">
       <div>
-        <div className="mb-2 text-lg font-semibold text-zinc-800">Поиск</div>
+        <div className="mb-2 text-lg font-semibold text-zinc-800">{t("common.search")}</div>
         <input
           className="w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm outline-none placeholder:text-zinc-400"
-          placeholder="Поиск"
+          placeholder={t("common.search")}
         />
       </div>
 

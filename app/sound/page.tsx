@@ -1,361 +1,116 @@
-"use client";
+"use client"
 
-import Image from "next/image";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import MultiTrackPlayer, { type TrackDef } from "../components/MultiTrackPlayer";
-import PageHero from "../components/PageHero";
-import { clearGlobalAudio, requestGlobalAudio, type GlobalAudioController } from "../lib/globalAudioManager";
-
-type SoundItem = {
-  id: number;
-  slug: string;
-  title: string;
-  genre?: string;
-  modernPerformer?: string;
-  authenticPerformer?: string;
-  leadSinger?: string;
-  recordingAuthor?: string;
-  archiveInfo?: string;
-  previewSrc?: string;
-  masterSources?: string[];
-  coverSrc?: string | null;
-};
-
-const tracks: SoundItem[] = [
-  {
-    id: 1,
-    slug: "selezen",
-    title: "Селезень сиз-косастый",
-    genre: "хороводная",
-    modernPerformer: "Багринцев Евгений",
-    archiveInfo: "с. Крутиха, Кыштовского р-на Новосибирской обл.",
-    previewSrc: "/audio/selezen/selezen-01.m4a",
-    masterSources: ["/audio/selezen/selezen-01.m4a", "/audio/selezen/selezen-02.m4a", "/audio/selezen/selezen-03.m4a"],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 2,
-    slug: "balman-ty-zorya-moya",
-    title: "Ты заря моя ты зоренька",
-    genre: "хороводная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Балман, Куйбышевский район",
-    archiveInfo: "Новосибирская область, с. Балман",
-    previewSrc: "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-01.mp3",
-    masterSources: [
-      "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-01.mp3",
-      "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-02.mp3",
-      "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-03.mp3",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 3,
-    slug: "balman-seyu-veyu",
-    title: "Сею-вею",
-    genre: "хороводная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Балман, Куйбышевский район",
-    archiveInfo: "Новосибирская область, с. Балман",
-    previewSrc: "/audio/balman-seyu_veyu/balman-seyu-veyu-01.m4a",
-    masterSources: [
-      "/audio/balman-seyu_veyu/balman-seyu-veyu-01.m4a",
-      "/audio/balman-seyu_veyu/balman-seyu-veyu-02.m4a",
-      "/audio/balman-seyu_veyu/balman-seyu-veyu-03.m4a",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 4,
-    slug: "balman-lipynka",
-    title: "Липынька",
-    genre: "хороводная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Балман, Куйбышевский район",
-    archiveInfo: "Новосибирская область, с. Балман",
-    previewSrc: "/audio/balman-Lipynka/balman-Lipynka-01.m4a",
-    masterSources: ["/audio/balman-Lipynka/balman-Lipynka-01.m4a", "/audio/balman-Lipynka/balman-Lipynka-02.m4a", "/audio/balman-Lipynka/balman-Lipynka-03.m4a"],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 5,
-    slug: "balman-kumushki-skachite",
-    title: "Кумушки скачите",
-    genre: "хороводная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Балман, Куйбышевский район",
-    archiveInfo: "Новосибирская область, с. Балман",
-    previewSrc: "/audio/balman-kumushki_skachite/balman-kumushki_skachite-01.mp3",
-    masterSources: [
-      "/audio/balman-kumushki_skachite/balman-kumushki_skachite-01.mp3",
-      "/audio/balman-kumushki_skachite/balman-kumushki_skachite-02.mp3",
-      "/audio/balman-kumushki_skachite/balman-kumushki_skachite-03.mp3",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 6,
-    slug: "balman-vechor-devku",
-    title: "Вечор девку",
-    genre: "хороводная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Балман, Куйбышевский район",
-    archiveInfo: "Новосибирская область, с. Балман",
-    previewSrc: "/audio/balman-vechor_devku/balman-vechor_devku-01.mp3",
-    masterSources: [
-      "/audio/balman-vechor_devku/balman-vechor_devku-01.mp3",
-      "/audio/balman-vechor_devku/balman-vechor_devku-02.mp3",
-      "/audio/balman-vechor_devku/balman-vechor_devku-03.mp3",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 7,
-    slug: "balman-ya-kachu-kolco",
-    title: "Я качу кольцо",
-    genre: "хороводная игровая, вечерочная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Балман, Куйбышевский район",
-    archiveInfo: "Новосибирская область, с. Балман",
-    previewSrc: "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01.mp3",
-    masterSources: [
-      "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01.mp3",
-      "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02.mp3",
-      "/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03.mp3",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 8,
-    slug: "talbakul-poteryala-ya-kolechko",
-    title: "Потеряла я колечко",
-    genre: "лирическая протяжная, романс",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Талбакуль, Колосовский район",
-    archiveInfo: "Новосибирская область, с. Талбакуль",
-    previewSrc: "/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01.m4a",
-    masterSources: [
-      "/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01.m4a",
-      "/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02.m4a",
-      "/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03.m4a",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  {
-    id: 9,
-    slug: "tomsk-bogoslovka-po-moryam",
-    title: "По морям",
-    genre: "лирическая протяжная",
-    modernPerformer: "Ансамбль «Русский распев»",
-    authenticPerformer: "Жители с. Богословка, Зырянский район",
-    archiveInfo: "Томская область, с. Богословка",
-    previewSrc: "/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01.m4a",
-    masterSources: [
-      "/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01.m4a",
-      "/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02.m4a",
-      "/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03.m4a",
-    ],
-    coverSrc: "/hero.jpg",
-  },
-  ...Array.from({ length: 10 }, (_, i) => ({
-    id: i + 10,
-    slug: `mne-mladcu-malym-spalos-${i + 1}`,
-    title: "Мне младцу малым спалось",
-    coverSrc: null,
-  })),
-];
+import Link from "next/link"
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
+import CardViewTracker from "../components/analytics/CardViewTracker"
+import PageHero from "../components/PageHero"
+import ContentReactionsBar from "../components/community/ContentReactionsBar"
+import { useI18n } from "../components/i18n/I18nProvider"
+import { getGlobalAudioController } from "../lib/globalAudioManager"
+import { toIntlLocale } from "../lib/i18n/format"
+import { getAuthHref, getSoundTrackHref } from "../lib/i18n/routing"
+import { getMiniPlayerStateSnapshot, subscribeMiniPlayerState } from "../lib/miniPlayerStateStore"
+import { localizeSoundItem, SOUND_ITEMS, type LocalizedSoundItem } from "../lib/soundCatalog"
+import { dispatchSoundRoutePlay } from "../lib/soundRoutePlayerBus"
 
 function hasValue(value?: string) {
-  return !!value && value.trim().length > 0 && value.trim().toLowerCase() !== "уточняется";
+  return !!value && value.trim().length > 0 && value.trim().toLowerCase() !== "уточняется"
 }
 
-function composeSecondLine(item: SoundItem) {
+function normalizeGenreToken(raw: string) {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.;:!?]+$/g, "")
+}
+
+function composeSecondLine(item: LocalizedSoundItem) {
   return [item.archiveInfo, item.authenticPerformer, item.leadSinger, item.recordingAuthor]
     .filter((value): value is string => hasValue(value))
-    .join(" · ");
-}
-
-function toTrackDefs(item: SoundItem): TrackDef[] {
-  const srcs = item.masterSources?.length ? item.masterSources : (item.previewSrc ? [item.previewSrc] : []);
-  return srcs.map((src, idx) => ({ name: `${item.title} ${String(idx + 1).padStart(2, "0")}`, src }));
+    .join(" · ")
 }
 
 export default function SoundPage() {
-  const previewItems = useMemo(() => tracks.filter((t) => !!t.previewSrc), []);
+  const { locale, t } = useI18n()
+  const intlLocale = toIntlLocale(locale)
+  const miniPlayerState = useSyncExternalStore(subscribeMiniPlayerState, getMiniPlayerStateSnapshot, getMiniPlayerStateSnapshot)
+  const isPreviewPlaying = !!miniPlayerState.progress.playing
+  const activeTitle = miniPlayerState.title
+  const [sessionLoaded, setSessionLoaded] = useState(false)
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null)
 
-  const [activePreviewId, setActivePreviewId] = useState<number | null>(null);
-  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
-  const [activeTracks, setActiveTracks] = useState<TrackDef[] | null>(null);
-  const [playerKey, setPlayerKey] = useState(0);
-  const [previewLoop, setPreviewLoop] = useState(false);
-
-  const backendControllerRef = useRef<GlobalAudioController | null>(null);
-  const soundControllerRef = useRef<GlobalAudioController | null>(null);
-  const activePreviewIdRef = useRef<number | null>(null);
-  const activePreviewIdxRef = useRef<number>(-1);
-  const pendingAutoPlayRef = useRef(false);
-
-  const playByIndex = useCallback((idx: number) => {
-    if (idx < 0 || idx >= previewItems.length) return;
-    const item = previewItems[idx];
-    const defs = toTrackDefs(item);
-    if (!defs.length) return;
-    pendingAutoPlayRef.current = true;
-    setActivePreviewId(item.id);
-    activePreviewIdRef.current = item.id;
-    activePreviewIdxRef.current = idx;
-    setActiveTracks(defs);
-    setPlayerKey((k) => k + 1);
-  }, [previewItems]);
-
-  const togglePreview = useCallback((item: SoundItem) => {
-    if (!item.previewSrc) return;
-    if (activePreviewIdRef.current === item.id && backendControllerRef.current) {
-      if (soundControllerRef.current) requestGlobalAudio(soundControllerRef.current);
-      backendControllerRef.current.toggle();
-      return;
-    }
-    const idx = previewItems.findIndex((t) => t.id === item.id);
-    if (idx < 0) return;
-    if (soundControllerRef.current) requestGlobalAudio(soundControllerRef.current);
-    playByIndex(idx);
-  }, [playByIndex, previewItems]);
-
-  const onBackendControllerReady = useCallback((controller: GlobalAudioController | null) => {
-    backendControllerRef.current = controller;
-    if (!controller || !pendingAutoPlayRef.current) return;
-    pendingAutoPlayRef.current = false;
-    if (soundControllerRef.current) requestGlobalAudio(soundControllerRef.current);
-    controller.play();
-  }, []);
+  const tracks = useMemo(() => SOUND_ITEMS.map((item) => localizeSoundItem(item, locale)), [locale])
+  const genreItems = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          tracks.flatMap((item) =>
+            (item.genre ?? "")
+              .split(",")
+              .map((part) => normalizeGenreToken(part))
+              .filter(Boolean)
+          )
+        )
+      ).map((genre) => genre[0].toLocaleUpperCase(intlLocale) + genre.slice(1)),
+    [intlLocale, tracks]
+  )
 
   useEffect(() => {
-    soundControllerRef.current = {
-      id: "rr-sound-page-preview",
-      title: activePreviewId != null ? (tracks.find((t) => t.id === activePreviewId)?.title ?? "Предпрослушка") : "Предпрослушка",
-      subtitle: activePreviewId != null ? (tracks.find((t) => t.id === activePreviewId)?.archiveInfo ?? "") : "",
-      getTitle: () => {
-        const idx = activePreviewIdxRef.current;
-        if (idx >= 0 && idx < previewItems.length) return previewItems[idx].title;
-        return "Предпрослушка";
-      },
-      getSubtitle: () => {
-        const idx = activePreviewIdxRef.current;
-        if (idx >= 0 && idx < previewItems.length) return previewItems[idx].archiveInfo ?? "";
-        return "";
-      },
-      getPlaylist: () =>
-        previewItems.map((t) => ({
-          id: String(t.id),
-          title: t.title,
-          subtitle: t.archiveInfo ?? "",
-        })),
-      getPlaylistIndex: () => activePreviewIdxRef.current,
-      jumpTo: (index: number) => {
-        if (soundControllerRef.current) requestGlobalAudio(soundControllerRef.current);
-        playByIndex(index);
-      },
-      stop: () => {
-        backendControllerRef.current?.stop();
-        setIsPreviewPlaying(false);
-      },
-      play: () => {
-        if (soundControllerRef.current) requestGlobalAudio(soundControllerRef.current);
-        if (backendControllerRef.current && activePreviewIdxRef.current >= 0) {
-          backendControllerRef.current.play();
-          return;
-        }
-        if (activePreviewIdxRef.current >= 0) playByIndex(activePreviewIdxRef.current);
-        else playByIndex(0);
-      },
-      pause: () => {
-        backendControllerRef.current?.pause();
-        setIsPreviewPlaying(false);
-      },
-      toggle: () => {
-        if (soundControllerRef.current) requestGlobalAudio(soundControllerRef.current);
-        if (backendControllerRef.current && activePreviewIdxRef.current >= 0) {
-          backendControllerRef.current.toggle();
-          return;
-        }
-        if (activePreviewIdxRef.current >= 0) playByIndex(activePreviewIdxRef.current);
-        else playByIndex(0);
-      },
-      prev: () => {
-        const idx = activePreviewIdxRef.current >= 0 ? activePreviewIdxRef.current : 0;
-        playByIndex((idx - 1 + previewItems.length) % previewItems.length);
-      },
-      next: () => {
-        const idx = activePreviewIdxRef.current >= 0 ? activePreviewIdxRef.current : -1;
-        playByIndex((idx + 1 + previewItems.length) % previewItems.length);
-      },
-      seek: (timeSec: number) => {
-        backendControllerRef.current?.seek(timeSec);
-      },
-      getProgress: () => {
-        if (backendControllerRef.current) return backendControllerRef.current.getProgress();
-        return { current: 0, duration: 0, playing: false };
-      },
-      getLoop: () => previewLoop,
-      setLoop: (loop: boolean) => {
-        setPreviewLoop(loop);
-        backendControllerRef.current?.setLoop?.(loop);
-      },
-    };
-  }, [activePreviewId, playByIndex, previewItems, previewLoop]);
-
-  useEffect(() => {
-    const t = window.setInterval(() => {
-      const progress = backendControllerRef.current?.getProgress();
-      setIsPreviewPlaying(!!progress?.playing);
-      if (progress && !progress.playing && progress.current <= 0.001 && activePreviewIdRef.current != null) {
-        setIsPreviewPlaying(false);
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" })
+        const payload = (await response.json()) as { session?: { userId?: string } | null }
+        if (cancelled) return
+        setSessionLoaded(true)
+        setSessionUserId(payload.session?.userId || null)
+      } catch {
+        if (cancelled) return
+        setSessionLoaded(true)
+        setSessionUserId(null)
       }
-    }, 180);
-    return () => {
-      window.clearInterval(t);
-    };
-  }, []);
+    })()
 
-  useEffect(() => {
     return () => {
-      backendControllerRef.current?.stop();
-      clearGlobalAudio(soundControllerRef.current?.id);
-    };
-  }, []);
+      cancelled = true
+    }
+  }, [])
+
+  const togglePreview = (item: (typeof SOUND_ITEMS)[number]) => {
+    if (!item.previewSrc) return
+    const active = getGlobalAudioController()
+    const activeIsRoutePlayer = active?.id === "rr-sound-route-player"
+    const activeTitleNow = active ? (active.getTitle ? active.getTitle() : active.title) : ""
+
+    if (activeIsRoutePlayer && activeTitleNow === item.title) {
+      active?.toggle()
+      return
+    }
+
+    dispatchSoundRoutePlay({ slug: item.slug, autoplay: true })
+  }
 
   return (
     <main className="rr-main">
-      {activeTracks ? (
-        <div className="hidden" aria-hidden>
-          <MultiTrackPlayer
-            key={`sound-preview-${playerKey}`}
-            tracks={activeTracks}
-            onControllerReady={onBackendControllerReady}
-            registerGlobalAudio={false}
-          />
-        </div>
-      ) : null}
-
-      <PageHero title="Звук" />
+      <PageHero title={t("nav.sound")} />
 
       <section className="rr-container mt-10 grid gap-8 lg:grid-cols-[270px_1fr]">
         <aside className="rr-panel h-fit p-4">
           <div className="mb-6">
-            <div className="rr-sidebar-title">Поиск</div>
-            <input className="rr-input" placeholder="Поиск" />
+            <div className="rr-sidebar-title">{t("common.search")}</div>
+            <input className="rr-input" placeholder={t("common.search")} />
           </div>
 
-          <div className="rr-sidebar-title">Категории</div>
-          <button className="mb-2 w-full rounded-sm bg-zinc-200 px-3 py-2 text-left text-sm">Показать</button>
+          <div className="rr-sidebar-title">{t("common.categories")}</div>
+          <button className="mb-2 w-full rounded-sm bg-zinc-200 px-3 py-2 text-left text-sm">{t("common.show")}</button>
 
-          <div className="rr-sidebar-title">Этнографический регион</div>
-          <button className="mb-2 w-full rounded-sm bg-zinc-200 px-3 py-2 text-left text-sm">Показать</button>
+          <div className="rr-sidebar-title">{t("common.ethnographicRegion")}</div>
+          <button className="mb-2 w-full rounded-sm bg-zinc-200 px-3 py-2 text-left text-sm">{t("common.show")}</button>
 
-          <div className="rr-sidebar-title">Жанр</div>
+          <div className="rr-sidebar-title">{t("common.genre")}</div>
           <ul className="space-y-1 text-sm text-zinc-700">
-            {["Протяжная", "Хороводная", "Свадебная", "Плясовая", "Величальная", "Историческая", "Былинная"].map((item) => (
+            {genreItems.map((item) => (
               <li key={item} className="rounded-sm px-2 py-1 hover:bg-zinc-200">
                 · {item}
               </li>
@@ -366,33 +121,34 @@ export default function SoundPage() {
         <div>
           <div className="mb-6 flex items-center justify-between text-sm">
             <div className="flex gap-5">
-              <button className="rr-tab-active">Лучшее</button>
-              <button className="rr-tab">Свежее</button>
+              <button className="rr-tab-active">{t("common.best")}</button>
+              <button className="rr-tab">{t("common.latest")}</button>
             </div>
-            <div className="text-zinc-600">Выводить по <span className="font-semibold">6</span> 12 24 36 Все</div>
+            <div className="text-zinc-600">{t("sound.itemsPerPage")} <span className="font-semibold">6</span> 12 24 36 {t("articles.scope.all")}</div>
           </div>
 
           <div className="space-y-2">
+            {sessionLoaded && !sessionUserId ? (
+              <div className="rounded-sm border border-[#d8c8a6] bg-[#fff7e8] px-3 py-2 text-sm text-[#6b4d1f]" data-testid="sound-list-guest-cta">
+                <span>{t("sound.reactionsLoginHint")} </span>
+                <Link href={getAuthHref(locale)} className="font-semibold text-[#2f6fb8] hover:underline">
+                  {t("sound.reactionsLoginCta")}
+                </Link>
+              </div>
+            ) : null}
             {tracks.map((item) => {
-              const secondLine = composeSecondLine(item);
-              const isCurrent = activePreviewId === item.id;
-              const isPlaying = isCurrent && isPreviewPlaying;
+              const secondLine = composeSecondLine(item)
+              const isCurrent = activeTitle === item.title
+              const isPlaying = isCurrent && isPreviewPlaying
               return (
                 <article key={item.id} className="rounded-md border border-[#d4c39f] bg-[#f5efe2] px-2 py-1.5 text-[#1f2937]">
+                  <CardViewTracker contentType="sound" contentId={item.slug} />
                   <div className="flex items-start gap-2">
-                    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-sm border border-[#b9a783]">
-                      {item.coverSrc ? (
-                        <>
-                          <Image src={item.coverSrc} alt={item.title} fill sizes="56px" className="object-cover" />
-                          <div className="absolute inset-0 bg-black/45" />
-                        </>
-                      ) : (
-                        <div className="h-full w-full bg-zinc-900/85" />
-                      )}
+                    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-sm border border-[#b9a783] bg-zinc-900/85">
                       <button
                         type="button"
-                        aria-label={isPlaying ? "Пауза мастер-канала" : "Плей мастер-канала"}
-                        title={item.previewSrc ? "Прослушать мастер-канал" : "Мастер-канал пока не добавлен"}
+                        aria-label={isPlaying ? t("sound.preview.pauseMasterAria") : t("sound.preview.playMasterAria")}
+                        title={item.previewSrc ? t("sound.preview.listenMasterTitle") : t("sound.preview.missingMasterTitle")}
                         disabled={!item.previewSrc}
                         onClick={() => togglePreview(item)}
                         className={`absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 ${
@@ -412,7 +168,7 @@ export default function SoundPage() {
                       </button>
                     </div>
 
-                    <Link href={`/sound/${item.slug}`} className="min-w-0 flex-1 rounded-sm px-1 py-0.5 hover:bg-[#eadfca]">
+                    <Link href={getSoundTrackHref(locale, item.slug)} className="min-w-0 flex-1 rounded-sm px-1 py-0.5 hover:bg-[#eadfca]">
                       <div className="truncate text-[16px] leading-5 text-[#1f2937]">
                         <span className="font-semibold text-[#0f172a]">{item.title}</span>
                         {hasValue(item.genre) ? <span className="text-[#334155]">, {item.genre}</span> : null}
@@ -421,8 +177,18 @@ export default function SoundPage() {
                       <span className="hidden" data-modern-performer={item.modernPerformer ?? ""} />
                     </Link>
                   </div>
+                  <ContentReactionsBar
+                    contentType="sound"
+                    contentId={item.slug}
+                    contentTitle={item.title}
+                    contentHref={getSoundTrackHref(locale, item.slug)}
+                    tone="light"
+                    showAuthLink={false}
+                    className="mt-1.5 pl-[64px]"
+                    testId={`sound-list-reactions-${item.slug}`}
+                  />
                 </article>
-              );
+              )
             })}
           </div>
 
@@ -441,5 +207,5 @@ export default function SoundPage() {
         </div>
       </section>
     </main>
-  );
+  )
 }

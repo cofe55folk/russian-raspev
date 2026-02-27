@@ -1,14 +1,8 @@
 "use client";
 
-import MultiTrackPlayer, { type TrackDef } from "../../components/MultiTrackPlayer";
 import PageHero from "../../components/PageHero";
 import SongTabs from "../../components/SongTabs";
-
-const balmanTracks: TrackDef[] = [
-  { name: "Балман 01", src: "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-01.mp3" },
-  { name: "Балман 02", src: "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-02.mp3" },
-  { name: "Балман 03", src: "/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-03.mp3" },
-];
+import SoundCardPlayerSlot from "../../components/SoundCardPlayerSlot";
 
 const balmanContent = {
   text: [
@@ -16,13 +10,10 @@ const balmanContent = {
     "Жанр: хороводная",
     "Локализация: село Балман, Куйбышевский район, Новосибирская область.",
   ],
-  expanded: [
-    "Распетый текст и суфлёр для этой песни будут заполнены после загрузки финального текста.",
-  ],
-  notes: ["Нотная расшифровка готовится."],
+  expanded: [],
+  notes: [],
   about: [
     "Мультитрек-плеер подключен к трём дорожкам записи.",
-    "После загрузки текста будет добавлен синхронный караоке-суфлёр.",
   ],
 };
 
@@ -140,10 +131,7 @@ export default function BalmanTrackPage() {
       />
 
       <section className="rr-container">
-        <MultiTrackPlayer
-          tracks={balmanTracks}
-          teleprompterSourceUrl="/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-lyrics.anchor-preview.json"
-        />
+        <SoundCardPlayerSlot slug="balman-ty-zorya-moya" />
       </section>
 
       <SongTabs content={balmanContent} showPlayer={false} textColumns={balmanTextColumns} />

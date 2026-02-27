@@ -1,0 +1,423 @@
+{
+  "generatedAt": "2026-02-25T20:30:14.821Z",
+  "sourceBriefPath": "/Users/evgenij/russian-raspev/WORK_BRIEF.md",
+  "policy": {
+    "boardIsRuntimeSource": true,
+    "briefIsReferenceOnly": true
+  },
+  "p0": [
+    {
+      "id": "S4",
+      "title": "Agreed implementation priorities",
+      "sectionNumber": 4,
+      "priority": 0,
+      "status": "open",
+      "deps": [],
+      "artifact_path": "",
+      "definition_of_done": [
+        "Priority order is consistent with `Execution control layer` and reflected in active PR queue.",
+        "Any new task that conflicts with this order is explicitly marked as lower-priority or deferred with owner/ETA.",
+        "Artifact path is explicitly defined and points to a real file or folder.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S5",
+      "title": "Roadmap (2 sprints, updated)",
+      "sectionNumber": 5,
+      "priority": 0,
+      "status": "closed",
+      "deps": [],
+      "artifact_path": "docs/ops/recovery-core/s5-roadmap-micro-close.md",
+      "definition_of_done": [
+        "Sprint 1 and Sprint 2 scopes are both explicitly bounded and have non-overlapping focus.",
+        "Each sprint objective can be validated by a concrete gate command from section `11A`.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/ops/recovery-core/s5-roadmap-micro-close.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S7",
+      "title": "Prisma parity: exact priority guidance",
+      "sectionNumber": 7,
+      "priority": 0,
+      "status": "open",
+      "deps": [],
+      "artifact_path": "app/lib/ugc/tracks-store.ts",
+      "definition_of_done": [
+        "Decision tree for Prisma timing is explicit and executable without additional assumptions.",
+        "Mode-gating source of truth is documented with concrete code reference.",
+        "Artifact exists and is readable at app/lib/ugc/tracks-store.ts.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S11",
+      "title": "Handoff checklist for another chat",
+      "sectionNumber": 11,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        1,
+        2,
+        4
+      ],
+      "artifact_path": "docs/ops/handoff/autopilot-cycle-report.md",
+      "definition_of_done": [
+        "Checklist is sufficient for handoff without additional verbal context.",
+        "Required env flags and release checks are explicitly listed.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/tmp/autopilot-cycle-report.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S16",
+      "title": "Gap analysis: our site vs leaders",
+      "sectionNumber": 16,
+      "priority": 0,
+      "status": "open",
+      "deps": [],
+      "artifact_path": "",
+      "definition_of_done": [
+        "Gap list is prioritized (`P0/P1/P2`) and mapped to concrete engineering tracks.",
+        "Strengths and weaknesses are both represented with direct product implications.",
+        "Artifact path is explicitly defined and points to a real file or folder.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S17",
+      "title": "Revised execution plan (adds mini-player track to existing roadmap)",
+      "sectionNumber": 17,
+      "priority": 0,
+      "status": "in_progress",
+      "deps": [
+        1
+      ],
+      "artifact_path": "tests/e2e/miniplayer-regressions.spec.ts",
+      "definition_of_done": [
+        "Each sprint in this section has explicit scope and exit criteria.",
+        "Status update block identifies completed vs remaining items.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/tests/e2e/miniplayer-regressions.spec.ts.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S25",
+      "title": "Unified phased plan (Articles)",
+      "sectionNumber": 25,
+      "priority": 0,
+      "status": "open",
+      "deps": [],
+      "artifact_path": "docs/research/devtools/2026-02-22-vk-articles-parity/",
+      "definition_of_done": [
+        "All phases include bounded scope and acceptance definition.",
+        "Phase sequence preserves migration-first then platform-authoritative progression.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/devtools/2026-02-22-vk-articles-parity/.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S32",
+      "title": "P0 implementation progress (new, 2026-02-22)",
+      "sectionNumber": 32,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        3
+      ],
+      "artifact_path": "app/lib/miniPlayerStateStore.ts",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/app/lib/miniPlayerStateStore.ts.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S33",
+      "title": "Concept update after devtools streams fill (new, 2026-02-22)",
+      "sectionNumber": 33,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        3
+      ],
+      "artifact_path": "docs/research/devtools/INDEX.md",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/devtools/INDEX.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S35",
+      "title": "Hydration correctness gate for route player (new, 2026-02-22)",
+      "sectionNumber": 35,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        3
+      ],
+      "artifact_path": "app/components/SoundRoutePlayer.tsx",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/app/components/SoundRoutePlayer.tsx.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S36",
+      "title": "Impact assessment of external architecture study (new, 2026-02-22)",
+      "sectionNumber": 36,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        1,
+        2,
+        3,
+        5,
+        22,
+        30,
+        36
+      ],
+      "artifact_path": "app/components/MultiTrackPlayer.tsx",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/app/components/MultiTrackPlayer.tsx.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S37",
+      "title": "Competitive research synthesis (video/music/articles) (new, 2026-02-22)",
+      "sectionNumber": 37,
+      "priority": 0,
+      "status": "open",
+      "deps": [
+        3
+      ],
+      "artifact_path": "docs/research/competitive/2026-02-22-competitive-research-video-music-articles.md",
+      "definition_of_done": [
+        "Synthesis output is captured in a single artifact and linked from this section.",
+        "Priority translation (`P0/P1/P2`) is explicit and aligned with roadmap policy.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/competitive/2026-02-22-competitive-research-video-music-articles.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S55",
+      "title": "Brief modernization: collaboration-first + archive-grade + notation + social matching (new, 2026-02-22)",
+      "sectionNumber": 55,
+      "priority": 0,
+      "status": "open",
+      "deps": [
+        1,
+        4
+      ],
+      "artifact_path": "",
+      "definition_of_done": [
+        "Modernization scope, assumptions, priorities, and mandatory tracks are explicitly listed.",
+        "Acceptance gates and KPI extension are aligned with collaboration-first model.",
+        "Artifact path is explicitly defined and points to a real file or folder.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S61",
+      "title": "Events/Ticketing modernization model (calendar -> event -> checkout -> ticket) (new, 2026-02-22)",
+      "sectionNumber": 61,
+      "priority": 0,
+      "status": "open",
+      "deps": [
+        3
+      ],
+      "artifact_path": "app/events/page.tsx",
+      "definition_of_done": [
+        "Modernization model includes baseline, target flow, domain extension, and phased execution.",
+        "Acceptance gates and KPI layer are explicitly defined.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/app/events/page.tsx.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S63",
+      "title": "P0 closure update: recording-v2 fallback + reliability green gate (new, 2026-02-22)",
+      "sectionNumber": 63,
+      "priority": 0,
+      "status": "closed",
+      "deps": [],
+      "artifact_path": "tests/e2e/recording-v2-reliability.spec.ts",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/tests/e2e/recording-v2-reliability.spec.ts.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S64",
+      "title": "Control snapshot after P0 closure (new, 2026-02-22)",
+      "sectionNumber": 64,
+      "priority": 0,
+      "status": "closed",
+      "deps": [],
+      "artifact_path": "tests/e2e/recording-v2-reliability.spec.ts",
+      "definition_of_done": [
+        "Artifact exists and is readable at tests/e2e/recording-v2-reliability.spec.ts.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S75",
+      "title": "P0.5 quality-gate hardening: lint closure for VK devtools and admin warnings (new, 2026-02-23)",
+      "sectionNumber": 75,
+      "priority": 0,
+      "status": "closed",
+      "deps": [],
+      "artifact_path": "tests/e2e/vk-devtools-artifacts.spec.ts",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/tests/e2e/vk-devtools-artifacts.spec.ts.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S87",
+      "title": "Parallel docs lane packet #2/10 (events stream execution crystallization) (new, 2026-02-23)",
+      "sectionNumber": 87,
+      "priority": 0,
+      "status": "closed",
+      "deps": [],
+      "artifact_path": "docs/events-ticketing-execution-pack-2026-02-23.md",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/events-ticketing-execution-pack-2026-02-23.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S89",
+      "title": "Parallel docs lane packet #4/10 (governance closure sequencing) (new, 2026-02-23)",
+      "sectionNumber": 89,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        1
+      ],
+      "artifact_path": "docs/governance-gap-audit-2026-02-23.md",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/governance-gap-audit-2026-02-23.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S97",
+      "title": "Parallel docs lane packet #2/10 (wave-2: events checkout contract hardening set) (new, 2026-02-23)",
+      "sectionNumber": 97,
+      "priority": 0,
+      "status": "closed",
+      "deps": [],
+      "artifact_path": "",
+      "definition_of_done": [
+        "Artifact path is explicitly defined and points to a real file or folder.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S306",
+      "title": "P2 photo archive foundation: costume catalog + map-linked context + rights/provenance (new, 2026-02-24)",
+      "sectionNumber": 306,
+      "priority": 0,
+      "status": "open",
+      "deps": [],
+      "artifact_path": "app/api/archive/fixity/verify/route.ts",
+      "definition_of_done": [
+        "`PHOTO-ARCHIVE-01..08` are represented as executable backlog packets with owners and validation commands.",
+        "Photo archive foundation is integrated without reopening current P0 recorder closure.",
+        "`PHOTO-ARCHIVE-01` started in code:",
+        "additive Prisma models and enums added for `PhotoAsset/PhotoContext/PhotoRights/PhotoAttribution/PhotoAuthorityLink`,",
+        "uncertainty and geo precision enums added (`PhotoAttributionConfidence`, `PhotoGeoPrecision`),"
+      ]
+    },
+    {
+      "id": "S308",
+      "title": "Photo archive phased implementation order (approved sequence, 2026-02-24)",
+      "sectionNumber": 308,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        1,
+        2,
+        3
+      ],
+      "artifact_path": "",
+      "definition_of_done": [
+        "Artifact path is explicitly defined and points to a real file or folder.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S309",
+      "title": "Unified wave map across all core streams (audio archive + platform-wide) (new, 2026-02-24)",
+      "sectionNumber": 309,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        1,
+        2
+      ],
+      "artifact_path": "docs/research/RESEARCH_CORPUS_INDEX_2026-02-24.md",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/RESEARCH_CORPUS_INDEX_2026-02-24.md.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S310",
+      "title": "Personal messaging, project groups, and feed surfaces (new, 2026-02-24)",
+      "sectionNumber": 310,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        1
+      ],
+      "artifact_path": "",
+      "definition_of_done": [
+        "Artifact path is explicitly defined and points to a real file or folder.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    },
+    {
+      "id": "S311",
+      "title": "BandLab-like web studio implementation program (new, 2026-02-25)",
+      "sectionNumber": 311,
+      "priority": 0,
+      "status": "closed",
+      "deps": [
+        2
+      ],
+      "artifact_path": "app/components/MultiTrackPlayer.tsx",
+      "definition_of_done": [
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/app/components/MultiTrackPlayer.tsx.",
+        "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
+        "Section status and evidence are synchronized with current window/micro-packet."
+      ]
+    }
+  ],
+  "updatedAt": "2026-02-27T12:05:39.961Z"
+}

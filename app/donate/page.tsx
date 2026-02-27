@@ -1,42 +1,76 @@
+import DonateCheckoutPanel from "../components/DonateCheckoutPanel";
 import PageHero from "../components/PageHero";
+import { I18N_MESSAGES, type I18nKey } from "../lib/i18n/messages";
+import { readRequestLocale } from "../lib/i18n/server";
 
-const methods = [
-  {
-    id: "card",
-    logo: "VISA / Mastercard",
-    title: "Перевод на банковскую карту",
-  },
-  {
-    id: "mir",
-    logo: "МИР",
-    title: "Платежная система МИР",
-  },
-  {
-    id: "paysend",
-    logo: "PAYSEND",
-    title: "Перевод через Paysend",
-  },
-];
+type PageProps = {
+  searchParams: Promise<{ status?: string; amountMinor?: string; interval?: string; mock?: string }>;
+};
 
-export default function DonatePage() {
+function normalizeStatus(raw: string | undefined): "success" | "failed" | null {
+  if (raw === "success") return "success";
+  if (raw === "failed") return "failed";
+  return null;
+}
+
+function normalizeAmountMinor(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return null;
+  const normalized = Math.trunc(numeric);
+  return normalized > 0 ? normalized : null;
+}
+
+function normalizeInterval(raw: string | undefined): "once" | "monthly" | null {
+  if (raw === "once" || raw === "monthly") return raw;
+  return null;
+}
+
+export default async function DonatePage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const locale = await readRequestLocale();
+  const t = (key: I18nKey) => I18N_MESSAGES[locale][key];
+  const status = normalizeStatus(params.status);
+  const amountMinor = normalizeAmountMinor(params.amountMinor);
+  const interval = normalizeInterval(params.interval);
+  const mock = params.mock === "1";
+  const preferMock = !(process.env.RR_DONATE_CHECKOUT_URL || "").trim();
+  const checkoutMode = preferMock ? "mock" : "external";
+  const methods = [
+    {
+      id: "card",
+      logo: "VISA / Mastercard",
+      title: t("donate.method.card"),
+    },
+    {
+      id: "mir",
+      logo: "MIR",
+      title: t("donate.method.mir"),
+    },
+    {
+      id: "paysend",
+      logo: "PAYSEND",
+      title: t("donate.method.paysend"),
+    },
+  ];
+
   return (
-    <main className="rr-main">
-      <PageHero title="Поддержи проект" />
+    <main className="rr-main" data-testid="donate-page">
+      <PageHero title={t("donate.pageTitle")} />
 
       <section className="rr-container mt-12 text-center">
         <div className="mx-auto max-w-5xl space-y-6">
           <p className="rr-card-text text-lg md:text-xl">
-            Этот проект призван помочь людям в поиске «себя», «своего родного» — «самоидентичности».
+            {t("donate.intro1")}
           </p>
           <p className="rr-card-text text-lg md:text-xl">
-            Дать простой, доступный инструмент для изучения богатейшей культуры нашего народа.
+            {t("donate.intro2")}
           </p>
           <p className="rr-card-text text-lg md:text-xl">
-            Автор проекта регулярно обновляет и совершенствует форматы и качество записи.
+            {t("donate.intro3")}
           </p>
           <p className="rr-card-text text-lg md:text-xl">
-            Ваша финансовая поддержка позволит нам больше времени уделять созданию новых материалов и образовательных
-            курсов.
+            {t("donate.intro4")}
           </p>
         </div>
 
@@ -58,6 +92,16 @@ export default function DonatePage() {
             </article>
           ))}
         </div>
+
+        <DonateCheckoutPanel
+          locale={locale}
+          status={status}
+          amountMinor={amountMinor}
+          interval={interval}
+          mock={mock}
+          preferMock={preferMock}
+          checkoutMode={checkoutMode}
+        />
       </section>
     </main>
   );

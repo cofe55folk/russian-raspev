@@ -1,8 +1,8 @@
 "use client";
 
-import MultiTrackPlayer from "../../components/MultiTrackPlayer";
 import PageHero from "../../components/PageHero";
 import SongTabs from "../../components/SongTabs";
+import SoundCardPlayerSlot from "../../components/SoundCardPlayerSlot";
 
 const selezenContent = {
   text: [
@@ -51,10 +51,7 @@ const selezenContent = {
     "На головку, 2 р.",
     "На головку их складают, 2 р.",
   ],
-  notes: [
-    "Нотная расшифровка для «Селезень сиз-косастый» готовится к публикации.",
-    "Здесь будет предпросмотр нот и ссылка на PDF.",
-  ],
+  notes: [],
   about: [
     "«Селезень сиз-косастый» — с. Крутиха, Кыштовский район, Новосибирская область. Жанр: хороводная.",
     "Караоке-блок ниже синхронизирован с мультитрек-плеером и работает при переключении дорожек 01/02/03.",
@@ -117,9 +114,7 @@ export default function SelezenPage() {
       />
 
       <section className="rr-container">
-        <MultiTrackPlayer
-          teleprompterSourceUrl="/audio/selezen/selezen-01-lyrics.anchor-preview.json"
-        />
+        <SoundCardPlayerSlot slug="selezen" />
       </section>
 
       <SongTabs content={selezenContent} showPlayer={false} textColumns={selezenTextColumns} />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useI18n } from "./i18n/I18nProvider";
 
 type LyricLine = {
   time: number;
@@ -28,6 +29,7 @@ export default function KaraokeLyrics({
   lyricsSourceUrl = "/audio/selezen/selezen-01-lyrics.json",
   expandedText,
 }: KaraokeLyricsProps) {
+  const { t } = useI18n();
   const activeLineRef = useRef<HTMLButtonElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const prevActiveIndexRef = useRef(-1);
@@ -123,11 +125,11 @@ export default function KaraokeLyrics({
   return (
     <section className="rr-container mt-8 rounded-sm bg-white p-6 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="rr-section-title">Текст по таймкодам (караоке)</h3>
-        <div className="text-sm text-zinc-500">{formatTime(currentTime)} (синхронно с плеером)</div>
+        <h3 className="rr-section-title">{t("karaoke.title")}</h3>
+        <div className="text-sm text-zinc-500">{formatTime(currentTime)} ({t("karaoke.timeSync")})</div>
       </div>
 
-      {!ready && <div className="rr-card-text">Загрузка таймкодов…</div>}
+      {!ready && <div className="rr-card-text">{t("karaoke.loading")}</div>}
 
       {ready && (
         <div

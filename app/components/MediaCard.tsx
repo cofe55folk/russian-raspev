@@ -15,7 +15,6 @@ export default function MediaCard({ title, description }: MediaCardProps) {
           ▶
         </button>
       </div>
-      <div className="text-xs text-zinc-500">❤ 234 • 👁 34</div>
       <h3 className="text-xl font-semibold text-zinc-800">{title}</h3>
       <p className="text-sm leading-6 text-zinc-600">{description}</p>
     </article>
