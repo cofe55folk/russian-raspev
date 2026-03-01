@@ -90,7 +90,10 @@
     "recovery:research:fast:service:restart": "node scripts/research-fast-service.mjs restart"
   },
   "dependencies": {
+    "@prisma/client": "^7.4.2",
+    "leaflet": "^1.9.4",
     "next": "16.1.6",
+    "prisma": "^7.4.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "soundtouchjs": "^0.3.0"
@@ -98,9 +101,11 @@
   "devDependencies": {
     "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.21",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
