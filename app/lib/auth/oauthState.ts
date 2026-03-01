@@ -21,9 +21,10 @@ function fromBase64Url(input: string): Buffer {
 function getOAuthStateSecret(): string {
   const fromEnv = process.env.RR_AUTH_OAUTH_STATE_SECRET?.trim();
   if (fromEnv) return fromEnv;
-  const fallback = process.env.RR_MEDIA_TOKEN_SECRET?.trim();
-  if (fallback) return fallback;
-  return "dev-oauth-state-secret-change-me";
+  if (process.env.NODE_ENV !== "production") {
+    return "dev-oauth-state-secret-change-me";
+  }
+  throw new Error("RR_AUTH_OAUTH_STATE_SECRET is required in production");
 }
 
 function signPayload(rawPayload: string): string {

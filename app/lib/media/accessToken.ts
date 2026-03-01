@@ -16,7 +16,12 @@ function base64UrlDecode(input: string): string {
 }
 
 function getSigningSecret(): string {
-  return process.env.RR_MEDIA_TOKEN_SECRET || process.env.NEXTAUTH_SECRET || "rr-dev-media-secret";
+  const fromEnv = process.env.RR_MEDIA_TOKEN_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  if (process.env.NODE_ENV !== "production") {
+    return "rr-dev-media-secret";
+  }
+  throw new Error("RR_MEDIA_TOKEN_SECRET is required in production");
 }
 
 function signRaw(payloadEncoded: string, secret: string): string {

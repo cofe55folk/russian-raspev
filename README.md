@@ -52,6 +52,13 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 Current safe default for local work: both backends in `file` mode.
 
+## Production Secrets
+
+Required production env vars:
+
+- `RR_AUTH_OAUTH_STATE_SECRET`
+- `RR_MEDIA_TOKEN_SECRET`
+
 ## Prisma Commands
 
 ```bash
