@@ -1,0 +1,769 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountRole {
+  user
+  creator
+  moderator
+  admin
+}
+
+enum ProfileVisibility {
+  private
+  unlisted
+  public
+}
+
+enum UserRingStyle {
+  none
+  sky
+  emerald
+  gold
+}
+
+enum ContentVisibility {
+  private
+  unlisted
+  public
+}
+
+enum ContentStatus {
+  draft
+  scheduled
+  published
+  archived
+}
+
+enum CatalogProductType {
+  course
+  marathon
+  addon
+  bundle
+  subscription
+}
+
+enum CatalogProductStatus {
+  draft
+  active
+  archived
+}
+
+enum StemAccessTier {
+  free
+  premium
+}
+
+enum MediaKind {
+  audio
+  video
+  image
+  document
+  waveform
+  other
+}
+
+enum MediaAccess {
+  private
+  unlisted
+  public
+}
+
+enum MediaState {
+  uploaded
+  processing
+  ready
+  failed
+}
+
+enum MediaJobType {
+  validate
+  transcode_audio
+  transcode_video
+  waveform
+  loudness
+  preview
+  transcribe
+}
+
+enum MediaJobStatus {
+  queued
+  running
+  succeeded
+  failed
+  canceled
+}
+
+enum ModerationStatus {
+  pending
+  approved
+  rejected
+  hidden
+}
+
+enum ModerationTargetType {
+  profile
+  creator_track
+  media_asset
+  community_comment
+  user
+}
+
+enum ModerationActionType {
+  report
+  approve
+  reject
+  hide
+  unhide
+  ban
+  unban
+  warn
+}
+
+enum CommunityContentType {
+  article
+  video
+  sound
+  education
+  material
+  creator_track
+}
+
+enum CommentStatus {
+  visible
+  hidden
+}
+
+enum CuratorThreadStatus {
+  open
+  closed
+  archived
+}
+
+enum CuratorThreadTargetType {
+  course_lesson
+  material
+  creator_track
+  generic
+}
+
+enum UgcDraftKind {
+  profile
+  creator_track
+  curator_message
+}
+
+enum SearchSourceType {
+  profile
+  creator_track
+  catalog_product
+  sound
+  video
+  article
+  education
+  material
+  media_asset
+}
+
+enum PhotoAssetState {
+  uploaded
+  processing
+  ready
+  failed
+}
+
+enum PhotoGeoPrecision {
+  point
+  approx
+  region
+}
+
+enum PhotoAttributionConfidence {
+  hypothesis
+  source_based
+  expert_confirmed
+}
+
+enum PhotoRightsStatus {
+  unknown
+  in_copyright
+  public_domain
+  open_license
+  restricted
+  disputed
+}
+
+enum PhotoRightsVerificationState {
+  unverified
+  source_based
+  expert_verified
+  disputed
+}
+
+enum PhotoShootingType {
+  field_historical
+  museum_object
+  reconstruction
+  festival
+  theatre
+  unknown
+}
+
+model AuthUser {
+  id           String            @id @default(uuid())
+  email        String            @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  sessions     AuthSession[]
+  entitlements AuthEntitlement[]
+  orders       AuthOrder[]
+  roles                    AuthUserRole[]
+  profile                  UserProfile?
+  creatorTracks            CreatorTrack[]         @relation("CreatorTracksOwner")
+  mediaAssets              CreatorMediaAsset[]    @relation("CreatorAssetsOwner")
+  mediaJobsStarted         CreatorMediaJob[]      @relation("CreatorMediaJobStartedBy")
+  productGrants            CatalogProductGrant[]
+  legalAcceptances         UserLegalAcceptance[]
+  moderationEventsAuthored ModerationEvent[]      @relation("ModerationActor")
+  moderationEventsTarget   ModerationEvent[]      @relation("ModerationTargetUser")
+  communityComments        CommunityComment[]
+  communityLikes           CommunityContentLike[]
+  communityBookmarks       CommunityBookmark[]
+  communityRestriction     CommunityUserRestriction?
+  curatorThreadsAsStudent  CuratorThread[]        @relation("CuratorThreadStudent")
+  curatorThreadsAsCurator  CuratorThread[]        @relation("CuratorThreadCurator")
+  curatorMessages          CuratorThreadMessage[] @relation("CuratorMessageSender")
+  ugcDrafts                UgcDraft[]
+}
+
+model AuthSession {
+  id        String   @id @default(uuid())
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  lastSeenAt DateTime @default(now())
+  user      AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuthEntitlement {
+  id        String    @id @default(uuid())
+  userId    String
+  code      String
+  source    String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+  user      AuthUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, code])
+  @@index([userId])
+}
+
+model AuthOrder {
+  id         String   @id @default(uuid())
+  userId     String
+  provider   String
+  providerRef String
+  status     String
+  amountMinor Int?
+  currency   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider, providerRef])
+  @@index([userId])
+}
+
+model AuthUserRole {
+  userId    String
+  role      AccountRole
+  createdAt DateTime @default(now())
+  user      AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+  @@index([role])
+}
+
+model UserProfile {
+  id            String            @id @default(uuid())
+  userId        String            @unique
+  displayName   String?
+  publicName    String?
+  handle        String?           @unique
+  bio           String?
+  avatarUrl     String?
+  avatarAssetId String?
+  ringStyle     UserRingStyle     @default(none)
+  visibility    ProfileVisibility @default(private)
+  links         Json?
+  schemaVersion Int               @default(1)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  user          AuthUser          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  avatarAsset   CreatorMediaAsset? @relation(fields: [avatarAssetId], references: [id], onDelete: SetNull)
+  profileLinks  UserProfileLink[]
+  moderationEvents ModerationEvent[]
+
+  @@index([visibility, updatedAt])
+}
+
+model UserProfileLink {
+  id        String   @id @default(uuid())
+  profileId String
+  label     String
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  profile   UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, sortOrder])
+}
+
+model CatalogProduct {
+  id                   String               @id @default(uuid())
+  code                 String               @unique
+  slug                 String               @unique
+  entitlementCode      String               @unique
+  title                String
+  subtitle             String?
+  description          String?
+  titleTranslations    Json?
+  descriptionTranslations Json?
+  type                 CatalogProductType   @default(course)
+  status               CatalogProductStatus @default(draft)
+  visibility           ContentVisibility    @default(public)
+  schemaVersion        Int                  @default(1)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  items                CatalogProductItem[]
+  grants               CatalogProductGrant[]
+  tracks               CreatorTrack[]
+  stems                CreatorTrackStem[]
+  curatorThreads       CuratorThread[]
+
+  @@index([status, visibility])
+}
+
+model CatalogProductItem {
+  id         String               @id @default(uuid())
+  productId  String
+  contentType CommunityContentType
+  contentId  String
+  titleOverride String?
+  sortOrder  Int                  @default(0)
+  isPreview  Boolean              @default(false)
+  createdAt  DateTime             @default(now())
+  product    CatalogProduct       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, contentType, contentId])
+  @@index([productId, sortOrder])
+}
+
+model CatalogProductGrant {
+  id          String        @id @default(uuid())
+  productId   String
+  userId      String
+  source      String
+  providerRef String?
+  startedAt   DateTime      @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  product     CatalogProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user        AuthUser      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId, expiresAt])
+  @@index([userId, expiresAt])
+}
+
+model CreatorTrack {
+  id                     String            @id @default(uuid())
+  ownerId                String
+  productId              String?
+  slug                   String
+  title                  String
+  subtitle               String?
+  titleTranslations      Json?
+  description            String?
+  descriptionTranslations Json?
+  language               String?
+  visibility             ContentVisibility @default(private)
+  status                 ContentStatus     @default(draft)
+  entitlementCode        String?
+  schemaVersion          Int               @default(1)
+  publishedAt            DateTime?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  owner                  AuthUser          @relation("CreatorTracksOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  product                CatalogProduct?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  stems                  CreatorTrackStem[]
+  moderationEvents       ModerationEvent[]
+  searchDocuments        SearchDocument[]  @relation("SearchSourceTrack")
+
+  @@unique([ownerId, slug])
+  @@index([visibility, status, publishedAt])
+  @@index([productId])
+}
+
+model CreatorTrackStem {
+  id               String         @id @default(uuid())
+  trackId          String
+  productId        String?
+  assetId          String
+  previewAssetId   String?
+  sortOrder        Int            @default(0)
+  label            String
+  durationSec      Int?
+  volumeDb         Float?
+  isMutedByDefault Boolean        @default(false)
+  accessTier       StemAccessTier @default(free)
+  entitlementCode  String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  track            CreatorTrack   @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  product          CatalogProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  asset            CreatorMediaAsset @relation("StemAsset", fields: [assetId], references: [id], onDelete: Restrict)
+  previewAsset     CreatorMediaAsset? @relation("StemPreviewAsset", fields: [previewAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([trackId, sortOrder])
+  @@index([productId])
+}
+
+model CreatorMediaAsset {
+  id                  String             @id @default(uuid())
+  ownerId             String
+  objectKey           String             @unique
+  storageBucket       String?
+  kind                MediaKind
+  access              MediaAccess        @default(private)
+  mimeType            String
+  byteSize            Int
+  durationSec         Int?
+  checksumSha256      String?
+  waveformJson        Json?
+  state               MediaState         @default(uploaded)
+  errorCode           String?
+  errorMessage        String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  owner               AuthUser           @relation("CreatorAssetsOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  stemAssets          CreatorTrackStem[] @relation("StemAsset")
+  stemPreviewAssets   CreatorTrackStem[] @relation("StemPreviewAsset")
+  jobs                CreatorMediaJob[]
+  profileAvatarFor    UserProfile[]
+  searchDocuments     SearchDocument[]   @relation("SearchSourceAsset")
+  curatorMessageAudio CuratorThreadMessage[] @relation("CuratorMessageAudio")
+  curatorMessageAttachment CuratorThreadMessage[] @relation("CuratorMessageAttachment")
+
+  @@index([ownerId, createdAt])
+  @@index([state, kind])
+}
+
+model CreatorMediaJob {
+  id              String         @id @default(uuid())
+  assetId         String
+  type            MediaJobType
+  status          MediaJobStatus @default(queued)
+  attempt         Int            @default(0)
+  priority        Int            @default(100)
+  runAfter        DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  errorText       String?
+  payload         Json?
+  startedByUserId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  asset           CreatorMediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  startedByUser   AuthUser?      @relation("CreatorMediaJobStartedBy", fields: [startedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, runAfter, priority])
+  @@index([assetId, type])
+}
+
+model ModerationEvent {
+  id              String              @id @default(uuid())
+  targetType      ModerationTargetType
+  targetId        String
+  action          ModerationActionType
+  status          ModerationStatus    @default(pending)
+  reason          String?
+  note            String?
+  payload         Json?
+  actorUserId     String?
+  targetUserId    String?
+  targetProfileId String?
+  targetTrackId   String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  actorUser       AuthUser?           @relation("ModerationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  targetUser      AuthUser?           @relation("ModerationTargetUser", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetProfile   UserProfile?        @relation(fields: [targetProfileId], references: [id], onDelete: SetNull)
+  targetTrack     CreatorTrack?       @relation(fields: [targetTrackId], references: [id], onDelete: SetNull)
+
+  @@index([targetType, targetId, createdAt])
+  @@index([status, createdAt])
+}
+
+model CommunityComment {
+  id         String              @id @default(uuid())
+  contentType CommunityContentType
+  contentId  String
+  parentId   String?
+  userId     String
+  userName   String
+  userEmail  String?
+  body       String
+  status     CommentStatus       @default(visible)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  user       AuthUser            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent     CommunityComment?   @relation("CommunityCommentReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies    CommunityComment[]  @relation("CommunityCommentReplies")
+
+  @@index([contentType, contentId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model CommunityContentLike {
+  id         String              @id @default(uuid())
+  userId     String
+  contentType CommunityContentType
+  contentId  String
+  createdAt  DateTime            @default(now())
+  user       AuthUser            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentType, contentId])
+  @@index([contentType, contentId])
+}
+
+model CommunityBookmark {
+  id         String              @id @default(uuid())
+  userId     String
+  contentType CommunityContentType
+  contentId  String
+  title      String?
+  href       String?
+  createdAt  DateTime            @default(now())
+  user       AuthUser            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentType, contentId])
+  @@index([contentType, contentId])
+}
+
+model CommunityUserRestriction {
+  userId             String   @id
+  canComment         Boolean  @default(true)
+  linksAllowed       Boolean  @default(false)
+  commentCooldownSec Int      @default(15)
+  bannedUntil        DateTime?
+  source             String
+  updatedAt          DateTime @updatedAt
+  user               AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CuratorThread {
+  id            String                 @id @default(uuid())
+  targetType    CuratorThreadTargetType
+  targetId      String
+  productId     String?
+  studentUserId String
+  curatorUserId String?
+  status        CuratorThreadStatus    @default(open)
+  subject       String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  lastMessageAt DateTime?
+  product       CatalogProduct?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  student       AuthUser               @relation("CuratorThreadStudent", fields: [studentUserId], references: [id], onDelete: Cascade)
+  curator       AuthUser?              @relation("CuratorThreadCurator", fields: [curatorUserId], references: [id], onDelete: SetNull)
+  messages      CuratorThreadMessage[]
+
+  @@index([targetType, targetId])
+  @@index([studentUserId, updatedAt])
+  @@index([curatorUserId, updatedAt])
+}
+
+model CuratorThreadMessage {
+  id                String            @id @default(uuid())
+  threadId          String
+  senderUserId      String
+  body              String?
+  audioAssetId      String?
+  attachmentAssetId String?
+  createdAt         DateTime          @default(now())
+  thread            CuratorThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  sender            AuthUser          @relation("CuratorMessageSender", fields: [senderUserId], references: [id], onDelete: Cascade)
+  audioAsset        CreatorMediaAsset? @relation("CuratorMessageAudio", fields: [audioAssetId], references: [id], onDelete: SetNull)
+  attachmentAsset   CreatorMediaAsset? @relation("CuratorMessageAttachment", fields: [attachmentAssetId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+}
+
+model SearchDocument {
+  id              String           @id @default(uuid())
+  sourceType      SearchSourceType
+  sourceId        String
+  locale          String
+  title           String
+  excerpt         String?
+  bodyText        String?
+  tags            String[]
+  visibility      ContentVisibility @default(public)
+  entitlementCode String?
+  isPublished     Boolean          @default(false)
+  publishedAt     DateTime?
+  schemaVersion   Int              @default(1)
+  trackSourceId   String?
+  assetSourceId   String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  trackSource     CreatorTrack?    @relation("SearchSourceTrack", fields: [trackSourceId], references: [id], onDelete: SetNull)
+  assetSource     CreatorMediaAsset? @relation("SearchSourceAsset", fields: [assetSourceId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceType, sourceId, locale])
+  @@index([visibility, isPublished, publishedAt])
+  @@index([entitlementCode])
+}
+
+model PhotoAsset {
+  id                String        @id @default(uuid())
+  ownerId           String
+  objectKey         String        @unique
+  sourceFileName    String?
+  mimeType          String
+  byteSize          Int
+  width             Int?
+  height            Int?
+  checksumSha256    String?
+  state             PhotoAssetState @default(uploaded)
+  visibility        ContentVisibility @default(private)
+  publishStatus     ContentStatus @default(draft)
+  publishedAt       DateTime?
+  archivedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  context           PhotoContext?
+  rights            PhotoRights?
+  attributions      PhotoAttribution[]
+  authorityLinks    PhotoAuthorityLink[]
+
+  @@index([ownerId, createdAt])
+  @@index([state, visibility, publishStatus, publishedAt])
+}
+
+model PhotoContext {
+  id                  String              @id @default(uuid())
+  assetId             String              @unique
+  title               String
+  description         String?
+  shootingType        PhotoShootingType   @default(unknown)
+  depictedPlaceLabel  String
+  depictedGeoJson     Json?
+  depictedGeoPrecision PhotoGeoPrecision  @default(region)
+  photoDateFrom       DateTime?
+  photoDateTo         DateTime?
+  costumeDateFrom     DateTime?
+  costumeDateTo       DateTime?
+  attributionBasis    String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  asset               PhotoAsset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([shootingType, depictedGeoPrecision])
+  @@index([photoDateFrom, photoDateTo])
+  @@index([costumeDateFrom, costumeDateTo])
+}
+
+model PhotoRights {
+  id                String                       @id @default(uuid())
+  assetId           String                       @unique
+  rightsStatus      PhotoRightsStatus            @default(unknown)
+  holderName        String?
+  holderContact     String?
+  rightsStatement   String?
+  licenseCode       String?
+  sourceEvidence    String?
+  verificationState PhotoRightsVerificationState @default(unverified)
+  isDisputed        Boolean                      @default(false)
+  disputeNote       String?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  asset             PhotoAsset                   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([rightsStatus, verificationState, isDisputed])
+}
+
+model PhotoAttribution {
+  id              String                     @id @default(uuid())
+  assetId         String
+  fieldName       String?
+  value           String
+  confidence      PhotoAttributionConfidence @default(hypothesis)
+  sourceType      String?
+  sourceReference String?
+  evidenceNote    String?
+  createdByUserId String?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  asset           PhotoAsset                 @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, confidence, createdAt])
+}
+
+model PhotoAuthorityLink {
+  id             String                     @id @default(uuid())
+  assetId        String
+  authorityType  String
+  authorityId    String
+  authorityLabel String?
+  confidence     PhotoAttributionConfidence @default(source_based)
+  isPrimary      Boolean                    @default(false)
+  sourceReference String?
+  createdAt      DateTime                   @default(now())
+  asset          PhotoAsset                 @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, authorityType, authorityId])
+  @@index([authorityType, authorityId])
+  @@index([assetId, isPrimary])
+}
+
+model UgcDraft {
+  id            String       @id @default(uuid())
+  userId        String
+  kind          UgcDraftKind
+  entityId      String?
+  locale        String?
+  schemaVersion Int          @default(1)
+  payload       Json
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  user          AuthUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, updatedAt])
+}
+
+model UserLegalAcceptance {
+  id              String   @id @default(uuid())
+  userId          String
+  documentCode    String
+  documentVersion String
+  acceptedAt      DateTime @default(now())
+  ipHash          String?
+  userAgentHash   String?
+  createdAt       DateTime @default(now())
+  user            AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, documentCode, documentVersion])
+  @@index([documentCode, documentVersion])
+}
