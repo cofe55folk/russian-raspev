@@ -11,9 +11,9 @@
       "title": "Agreed implementation priorities",
       "sectionNumber": 4,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [],
-      "artifact_path": "",
+      "artifact_path": "docs/research/p0-open-sections/s4-section-close.md",
       "definition_of_done": [
         "Priority order is consistent with `Execution control layer` and reflected in active PR queue.",
         "Any new task that conflicts with this order is explicitly marked as lower-priority or deferred with owner/ETA.",
@@ -43,7 +43,7 @@
       "title": "Prisma parity: exact priority guidance",
       "sectionNumber": 7,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [],
       "artifact_path": "app/lib/ugc/tracks-store.ts",
       "definition_of_done": [
@@ -79,9 +79,9 @@
       "title": "Gap analysis: our site vs leaders",
       "sectionNumber": 16,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [],
-      "artifact_path": "",
+      "artifact_path": "docs/research/p0-open-sections/s16-section-close.md",
       "definition_of_done": [
         "Gap list is prioritized (`P0/P1/P2`) and mapped to concrete engineering tracks.",
         "Strengths and weaknesses are both represented with direct product implications.",
@@ -95,7 +95,7 @@
       "title": "Revised execution plan (adds mini-player track to existing roadmap)",
       "sectionNumber": 17,
       "priority": 0,
-      "status": "in_progress",
+      "status": "closed",
       "deps": [
         1
       ],
@@ -106,23 +106,25 @@
         "Artifact exists and is readable at /Users/evgenij/russian-raspev/tests/e2e/miniplayer-regressions.spec.ts.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
         "Section status and evidence are synchronized with current window/micro-packet."
-      ]
+      ],
+      "closedAt": "2026-02-28T18:24:20.471Z"
     },
     {
       "id": "S25",
       "title": "Unified phased plan (Articles)",
       "sectionNumber": 25,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [],
-      "artifact_path": "docs/research/devtools/2026-02-22-vk-articles-parity/",
+      "artifact_path": "docs/research/devtools/2026-02-22-vk-articles-parity/README.md",
       "definition_of_done": [
         "All phases include bounded scope and acceptance definition.",
         "Phase sequence preserves migration-first then platform-authoritative progression.",
         "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/devtools/2026-02-22-vk-articles-parity/.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
         "Section status and evidence are synchronized with current window/micro-packet."
-      ]
+      ],
+      "closedAt": "2026-02-28T18:17:34.599Z"
     },
     {
       "id": "S32",
@@ -199,7 +201,7 @@
       "title": "Competitive research synthesis (video/music/articles) (new, 2026-02-22)",
       "sectionNumber": 37,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [
         3
       ],
@@ -217,12 +219,12 @@
       "title": "Brief modernization: collaboration-first + archive-grade + notation + social matching (new, 2026-02-22)",
       "sectionNumber": 55,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [
         1,
         4
       ],
-      "artifact_path": "",
+      "artifact_path": "docs/research/p0-open-sections/s55-section-close.md",
       "definition_of_done": [
         "Modernization scope, assumptions, priorities, and mandatory tracks are explicitly listed.",
         "Acceptance gates and KPI extension are aligned with collaboration-first model.",
@@ -236,7 +238,7 @@
       "title": "Events/Ticketing modernization model (calendar -> event -> checkout -> ticket) (new, 2026-02-22)",
       "sectionNumber": 61,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [
         3
       ],
@@ -328,7 +330,7 @@
       "priority": 0,
       "status": "closed",
       "deps": [],
-      "artifact_path": "",
+      "artifact_path": "docs/events-api-contract-pack-2026-02-23.md",
       "definition_of_done": [
         "Artifact path is explicitly defined and points to a real file or folder.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
@@ -340,7 +342,7 @@
       "title": "P2 photo archive foundation: costume catalog + map-linked context + rights/provenance (new, 2026-02-24)",
       "sectionNumber": 306,
       "priority": 0,
-      "status": "open",
+      "status": "closed",
       "deps": [],
       "artifact_path": "app/api/archive/fixity/verify/route.ts",
       "definition_of_done": [
@@ -362,7 +364,7 @@
         2,
         3
       ],
-      "artifact_path": "",
+      "artifact_path": "docs/product/photo-archive-kickoff-pack-2026-02-24.md",
       "definition_of_done": [
         "Artifact path is explicitly defined and points to a real file or folder.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
@@ -395,7 +397,7 @@
       "deps": [
         1
       ],
-      "artifact_path": "",
+      "artifact_path": "docs/architecture-decisions/COMMUNITY_SOCIAL_SCHEMA_DRAFT_2026-02-24.md",
       "definition_of_done": [
         "Artifact path is explicitly defined and points to a real file or folder.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
@@ -419,5 +421,5 @@
       ]
     }
   ],
-  "updatedAt": "2026-02-27T12:05:39.961Z"
+  "updatedAt": "2026-02-28T18:43:33.555Z"
 }
