@@ -1,5 +1,6 @@
 import { prisma } from "../db/prisma";
-import { Prisma, ProfileVisibility as PrismaProfileVisibility, UserRingStyle as PrismaUserRingStyle } from "@prisma/client";
+import { ProfileVisibility as PrismaProfileVisibility, UserRingStyle as PrismaUserRingStyle } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import type { CommunityUserProfile, ProfileVisibility, UserRingStyle } from "./profiles-store";
 import { ProfileHandleTakenError } from "./profiles-store";
 
@@ -51,6 +52,12 @@ function normalizeUrl(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function isPrismaKnownRequestError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: unknown; code?: unknown };
+  return candidate.name === "PrismaClientKnownRequestError" && typeof candidate.code === "string";
 }
 
 function toProfile(input: {
@@ -191,7 +198,7 @@ export async function upsertCommunityUserProfile(params: {
     });
     return toProfile(saved);
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    if (isPrismaKnownRequestError(error) && error.code === "P2002") {
       throw new ProfileHandleTakenError();
     }
     throw error;
