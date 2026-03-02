@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-02-25T20:30:14.821Z",
+  "generatedAt": "2026-03-02T22:18:17.875Z",
   "sourceBriefPath": "/Users/evgenij/russian-raspev/WORK_BRIEF.md",
   "policy": {
     "boardIsRuntimeSource": true,
@@ -65,11 +65,11 @@
         2,
         4
       ],
-      "artifact_path": "docs/ops/handoff/autopilot-cycle-report.md",
+      "artifact_path": "docs/ops/s11-handoff-checklist-runbook-2026-02-25.md",
       "definition_of_done": [
         "Checklist is sufficient for handoff without additional verbal context.",
         "Required env flags and release checks are explicitly listed.",
-        "Artifact exists and is readable at /Users/evgenij/russian-raspev/tmp/autopilot-cycle-report.md.",
+        "Artifact exists and is readable at docs/ops/s11-handoff-checklist-runbook-2026-02-25.md.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
         "Section status and evidence are synchronized with current window/micro-packet."
       ]
@@ -99,15 +99,14 @@
       "deps": [
         1
       ],
-      "artifact_path": "tests/e2e/miniplayer-regressions.spec.ts",
+      "artifact_path": "app/sound/page.tsx",
       "definition_of_done": [
         "Each sprint in this section has explicit scope and exit criteria.",
         "Status update block identifies completed vs remaining items.",
-        "Artifact exists and is readable at /Users/evgenij/russian-raspev/tests/e2e/miniplayer-regressions.spec.ts.",
+        "Artifact exists and is readable at app/sound/page.tsx.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
         "Section status and evidence are synchronized with current window/micro-packet."
-      ],
-      "closedAt": "2026-02-28T18:24:20.471Z"
+      ]
     },
     {
       "id": "S25",
@@ -116,15 +115,14 @@
       "priority": 0,
       "status": "closed",
       "deps": [],
-      "artifact_path": "docs/research/devtools/2026-02-22-vk-articles-parity/README.md",
+      "artifact_path": "docs/research/devtools/2026-02-22-vk-articles-parity/",
       "definition_of_done": [
         "All phases include bounded scope and acceptance definition.",
         "Phase sequence preserves migration-first then platform-authoritative progression.",
         "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/devtools/2026-02-22-vk-articles-parity/.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
         "Section status and evidence are synchronized with current window/micro-packet."
-      ],
-      "closedAt": "2026-02-28T18:17:34.599Z"
+      ]
     },
     {
       "id": "S32",
@@ -411,15 +409,15 @@
       "priority": 0,
       "status": "closed",
       "deps": [
+        1,
         2
       ],
-      "artifact_path": "app/components/MultiTrackPlayer.tsx",
+      "artifact_path": "docs/research/devtools/2026-03-03-player-comparison/player-comparison-bandlab-soundcloud-vk-2026-03-03.md",
       "definition_of_done": [
-        "Artifact exists and is readable at /Users/evgenij/russian-raspev/app/components/MultiTrackPlayer.tsx.",
+        "Artifact exists and is readable at /Users/evgenij/russian-raspev/docs/research/devtools/2026-03-03-player-comparison/player-comparison-bandlab-soundcloud-vk-2026-03-03.md.",
         "Acceptance criteria are reflected in the artifact with explicit pass/fail evidence.",
         "Section status and evidence are synchronized with current window/micro-packet."
       ]
     }
-  ],
-  "updatedAt": "2026-02-28T18:43:33.555Z"
+  ]
 }
