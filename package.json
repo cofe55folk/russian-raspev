@@ -88,6 +88,7 @@
     "recovery:research:fast:service:stop": "node scripts/research-fast-service.mjs stop",
     "recovery:research:fast:service:status": "node scripts/research-fast-service.mjs status",
     "recovery:research:fast:service:restart": "node scripts/research-fast-service.mjs restart",
+    "devtools:bandlab:autopilot": "node scripts/devtools-bandlab-studio-autopilot.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {
