@@ -61,6 +61,49 @@ function buildP0MetricsFromBoard(board) {
   return out;
 }
 
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function buildNext3FromBoard(board) {
+  if (!board || !Array.isArray(board.p0)) return null;
+  return board.p0
+    .filter((section) => normalizeStatus(section?.status) !== "closed")
+    .sort((a, b) => {
+      const byPriority = toNumber(a?.priority, 99) - toNumber(b?.priority, 99);
+      if (byPriority !== 0) return byPriority;
+      return toNumber(a?.sectionNumber, 99999) - toNumber(b?.sectionNumber, 99999);
+    })
+    .slice(0, 3)
+    .map((section) => ({
+      sectionNumber: toNumber(section?.sectionNumber, 0),
+      priority: toNumber(section?.priority, 0),
+      status: normalizeStatus(section?.status),
+      title: String(section?.title || section?.id || "Untitled section"),
+    }));
+}
+
+function filterBriefNextAgainstBoard(nextTasks, board) {
+  if (!Array.isArray(nextTasks)) return [];
+  if (!board || !Array.isArray(board.p0)) return nextTasks;
+
+  const closedP0Sections = new Set(
+    board.p0
+      .filter((section) => normalizeStatus(section?.status) === "closed")
+      .map((section) => toNumber(section?.sectionNumber, NaN))
+      .filter((sectionNumber) => Number.isFinite(sectionNumber))
+  );
+
+  return nextTasks.filter((task) => {
+    const priority = toNumber(task?.priority, 0);
+    if (priority !== 0) return true;
+    const sectionNumber = toNumber(task?.sectionNumber, NaN);
+    if (!Number.isFinite(sectionNumber)) return true;
+    return !closedP0Sections.has(sectionNumber);
+  });
+}
+
 function toMarkdown(report) {
   const lines = [];
   lines.push("# P0P1 Monitor");
@@ -162,7 +205,10 @@ async function main() {
   const health = await safeReadJson(HEALTH_JSON);
   const briefNext = await safeReadJson(BRIEF_NEXT_JSON);
   const triad = health?.triad || {};
-  const next3 = Array.isArray(briefNext?.nextTasks) ? briefNext.nextTasks : [];
+  const briefNextTasks = Array.isArray(briefNext?.nextTasks) ? briefNext.nextTasks : [];
+  const boardNext3 = buildNext3FromBoard(p0Board);
+  const next3Source = boardNext3 ? "p0-board" : "brief-next";
+  const next3 = boardNext3 ?? filterBriefNextAgainstBoard(briefNextTasks, p0Board).slice(0, 3);
 
   const findings = [];
   if (metrics.p0.blocked > 0) findings.push({ severity: "high", message: `P0 blocked items: ${metrics.p0.blocked}` });
@@ -198,6 +244,7 @@ async function main() {
     metricSources: {
       p0: boardP0Metrics ? P0_BOARD_PATH : BRIEF_PATH,
       p1: BRIEF_PATH,
+      next3: next3Source,
     },
     actions: [
       { rank: 1, message: "Fix blocked P0 items before opening new P3 branches." },
