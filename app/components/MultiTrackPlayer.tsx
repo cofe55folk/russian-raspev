@@ -5,6 +5,7 @@ import Link from "next/link"
 import { createSoundTouchEngine, type SoundTouchEngine } from "./audio/soundtouchEngine"
 import { clearGlobalAudio, requestGlobalAudio, type GlobalAudioController } from "../lib/globalAudioManager"
 import { emitMiniPlayerTelemetry } from "../lib/analytics/emitMiniPlayerTelemetry"
+import { audioDebug, createAudioDebugSessionId } from "../lib/debug/audioDebug"
 import { I18N_MESSAGES, type I18nKey } from "../lib/i18n/messages"
 import { createRecordingV2OpfsWriter, type RecordingV2OpfsWriter } from "../lib/ugc/recording-v2-opfs-client"
 import { drainRecordingV2UploadQueue, enqueueRecordingV2Upload, uploadRecordingV2TakeFromOpfs } from "../lib/ugc/recording-v2-upload-client"
@@ -969,6 +970,8 @@ export default function MultiTrackPlayer({
   const ctxRef = useRef<AudioContext | null>(null)
   const globalControllerRef = useRef<GlobalAudioController | null>(null)
   const globalControllerIdRef = useRef(`rr-multitrack:${Math.random().toString(36).slice(2)}`)
+  const audioEngineIdRef = useRef<string>("")
+  const loopStateLogRef = useRef<boolean | null>(null)
   const enginesRef = useRef<(SoundTouchEngine | null)[]>(trackList.map(() => null))
 
   // gate (anti-cascade + clean start/stop)
@@ -2407,6 +2410,13 @@ export default function MultiTrackPlayer({
       if (!ctx || ctx.state === "closed") {
         ctx = new AudioContext()
         ctxRef.current = ctx
+        const engineId = createAudioDebugSessionId("engine")
+        audioEngineIdRef.current = engineId
+        audioDebug("engine:create", {
+          engineId,
+          trackScopeId,
+          trackCount: trackList.length,
+        })
       }
 
       // master graph (create once per context)
@@ -2442,6 +2452,13 @@ export default function MultiTrackPlayer({
       const fallbackDurationSec = 600
       const decodeTrackBuffer = async (trackIndex: number): Promise<{ buffer: AudioBuffer; byteLength: number }> => {
         const track = trackList[trackIndex]
+        const loadStartedAt = performance.now()
+        audioDebug("track:load:start", {
+          engineId: audioEngineIdRef.current || "unknown",
+          trackIndex,
+          trackId: track.name,
+          url: track.src,
+        })
         for (let attempt = 1; attempt <= TRACK_DECODE_MAX_ATTEMPTS; attempt++) {
           const controller = new AbortController()
           fetchControllers.push(controller)
@@ -2449,8 +2466,18 @@ export default function MultiTrackPlayer({
             const res = await fetch(track.src, { signal: controller.signal })
             if (!res.ok) throw new Error(`Fetch failed: ${track.src} (${res.status})`)
             const arr = await res.arrayBuffer()
+            const buffer = await ctx.decodeAudioData(arr)
+            audioDebug("track:load:ready", {
+              engineId: audioEngineIdRef.current || "unknown",
+              trackIndex,
+              trackId: track.name,
+              url: track.src,
+              durationMs: Math.round(performance.now() - loadStartedAt),
+              decodedDurationSec: Number(buffer.duration.toFixed(3)),
+              byteLength: arr.byteLength,
+            })
             return {
-              buffer: await ctx.decodeAudioData(arr),
+              buffer,
               byteLength: arr.byteLength,
             }
           } catch (err) {
@@ -2459,6 +2486,15 @@ export default function MultiTrackPlayer({
             if (attempt >= TRACK_DECODE_MAX_ATTEMPTS) {
               const reason = err instanceof Error ? err.message : "unknown decode error"
               decodeWarnings.push(`${track.name}: ${reason}`)
+              audioDebug("track:load:error", {
+                engineId: audioEngineIdRef.current || "unknown",
+                trackIndex,
+                trackId: track.name,
+                url: track.src,
+                durationMs: Math.round(performance.now() - loadStartedAt),
+                attempts: attempt,
+                reason,
+              })
             }
           }
         }
@@ -2579,9 +2615,14 @@ export default function MultiTrackPlayer({
       void closeRecordingV2OpfsWriter()
       const ctx = ctxRef.current
       if (ctx && ctx.state !== "closed") {
+        audioDebug("engine:dispose", {
+          engineId: audioEngineIdRef.current || "unknown",
+          reason: "component_unmount",
+        })
         void ctx.close()
       }
       ctxRef.current = null
+      audioEngineIdRef.current = ""
       masterInRef.current = null
       masterGainRef.current = null
       wetGainRef.current = null
@@ -2700,6 +2741,18 @@ export default function MultiTrackPlayer({
     }
   }, [recordReferenceIndex, referenceLockEnabled, selectedSoloTrackIndex])
 
+  useEffect(() => {
+    if (loopStateLogRef.current == null) {
+      loopStateLogRef.current = loopOn
+      return
+    }
+    if (loopStateLogRef.current === loopOn) return
+    loopStateLogRef.current = loopOn
+    audioDebug(loopOn ? "repeat:on" : "repeat:off", {
+      engineId: audioEngineIdRef.current || "unknown",
+    })
+  }, [loopOn])
+
   /** =========================
    *  ENGINE CONTROL
    *  ========================= */
@@ -2724,6 +2777,11 @@ export default function MultiTrackPlayer({
 
     // End of track.
     if (duration > 0 && pos >= duration - 0.01) {
+      audioDebug("ended", {
+        engineId: audioEngineIdRef.current || "unknown",
+        durationSec: Number(duration.toFixed(3)),
+        repeat: loopOn,
+      })
       // During active recording, hard-stop recording exactly at main-track boundary.
       if (recording) {
         stopGuestRecording()
@@ -3025,6 +3083,12 @@ export default function MultiTrackPlayer({
    *  ========================= */
   const play = async () => {
     const ctx = ctxRef.current
+    audioDebug("play:requested", {
+      engineId: audioEngineIdRef.current || "unknown",
+      ready: readyRef.current,
+      hasContext: !!ctx,
+      positionSec: Number(positionSecRef.current.toFixed(3)),
+    })
     if (!ctx || !readyRef.current) {
       pendingPlayRef.current = true
       setMainPlayPending(true)
@@ -3065,6 +3129,11 @@ export default function MultiTrackPlayer({
 
     startEngines()
     setMainPlayingState(true)
+    audioDebug("play:started", {
+      engineId: audioEngineIdRef.current || "unknown",
+      positionSec: Number(positionSecRef.current.toFixed(3)),
+      durationSec: Number(duration.toFixed(3)),
+    })
 
     if (hasLinkedGuest && guestAudio) {
       void (async () => {
@@ -3264,6 +3333,10 @@ export default function MultiTrackPlayer({
   }, [guestRecordStorageKey, guestTakesStorageKey, loadGuestRecordingByKey, selectedSoloTrackIndex])
 
   const pause = () => {
+    audioDebug("pause", {
+      engineId: audioEngineIdRef.current || "unknown",
+      positionSec: Number(positionSecRef.current.toFixed(3)),
+    })
     stopPendingTransport()
     setMainPlayPending(false)
     pendingPlayRef.current = false
@@ -3288,7 +3361,14 @@ export default function MultiTrackPlayer({
   }
 
   const seekTo = (sec: number) => {
+    const prevPos = positionSecRef.current
     const pos = clamp(sec, 0, duration || sec)
+    audioDebug("seek", {
+      engineId: audioEngineIdRef.current || "unknown",
+      fromSec: Number(prevPos.toFixed(3)),
+      toSec: Number(pos.toFixed(3)),
+      playing: isPlayingRef.current,
+    })
     positionSecRef.current = pos
     setCurrentTime(pos)
 
