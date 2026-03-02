@@ -96,3 +96,14 @@ When operating:
 4. Never modify files outside the scope of the task.
 
 If unsure - stop and request clarification.
+
+---
+
+## Local Audio Diagnostics
+
+- Browser toggle:
+  `localStorage.setItem("rr_audio_debug","1"); location.reload()`
+- Or env toggle for local runs:
+  `NEXT_PUBLIC_AUDIO_DEBUG=1`
+- Disable browser toggle:
+  `localStorage.removeItem("rr_audio_debug"); location.reload()`

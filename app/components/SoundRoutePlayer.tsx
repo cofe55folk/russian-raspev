@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { usePathname } from "next/navigation"
 import MultiTrackPlayer, { type TrackDef } from "./MultiTrackPlayer"
 import { getGlobalAudioController, requestGlobalAudio, subscribeGlobalAudio, type GlobalAudioController } from "../lib/globalAudioManager"
+import { audioDebug, createAudioDebugSessionId } from "../lib/debug/audioDebug"
 import { extractLocaleFromPathname, getAuthHref, getSoundTrackHref, stripLocalePrefixFromPathname } from "../lib/i18n/routing"
 import { getSoundDisplayArchiveInfo, getSoundDisplayTitle, SOUND_PLAYABLE_ITEMS, getPlayableIndexBySlug, toTrackDefs } from "../lib/soundCatalog"
 import { SOUND_ROUTE_PLAY_EVENT, type SoundRoutePlayEventDetail } from "../lib/soundRoutePlayerBus"
@@ -54,6 +55,8 @@ export default function SoundRoutePlayer() {
   const readyTrackScopeRef = useRef<string | null>(null)
   const activeIndexRef = useRef(initialIndex)
   const initializedRef = useRef(false)
+  const ownerSessionIdRef = useRef(createAudioDebugSessionId("owner"))
+  const prevPathnameRef = useRef(pathname)
   const activeSlug = SOUND_PLAYABLE_ITEMS[activeIndex]?.slug ?? ""
   const activeTitle = SOUND_PLAYABLE_ITEMS[activeIndex]
     ? getSoundDisplayTitle(SOUND_PLAYABLE_ITEMS[activeIndex], localeFromPath)
@@ -143,6 +146,17 @@ export default function SoundRoutePlayer() {
   const scheduleSongByIndex = useCallback((idx: number, autoplay: boolean) => {
     window.setTimeout(() => setSongByIndex(idx, autoplay), 0)
   }, [setSongByIndex])
+
+  useEffect(() => {
+    const prevPath = prevPathnameRef.current
+    if (prevPath === pathname) return
+    audioDebug("nav:route-change", {
+      ownerId: ownerSessionIdRef.current,
+      from: prevPath,
+      to: pathname,
+    })
+    prevPathnameRef.current = pathname
+  }, [pathname])
 
   const onBackendControllerReady = useCallback((controller: GlobalAudioController | null) => {
     backendControllerRef.current = controller
