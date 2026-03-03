@@ -369,6 +369,21 @@ function buildTrackScopeId(trackList: TrackDef[]): string {
   return normalized.slice(0, 180) || "default"
 }
 
+function isAudioDebugEnabled(): boolean {
+  if (process.env.NEXT_PUBLIC_AUDIO_DEBUG === "1") return true
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem("rr_audio_debug") === "1"
+  } catch {
+    return false
+  }
+}
+
+function logAudioDebug(event: string, payload: Record<string, unknown>) {
+  if (!isAudioDebugEnabled()) return
+  console.info(`[AUDIO_DEBUG] ${new Date().toISOString()} ${event}`, payload)
+}
+
 function toLatencyMs(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null
   return Math.max(0, Math.round(value * 1000))
@@ -991,6 +1006,8 @@ export default function MultiTrackPlayer({
   const isPlayingRef = useRef(false)
   const positionSecRef = useRef(0)
   const pendingPlayRef = useRef(false)
+  const pendingStartPositionRef = useRef<number | null>(null)
+  const activeTrackScopeRef = useRef(trackScopeId)
   const readyRef = useRef(false)
   const navResumePositionRef = useRef<number | null>(null)
   const navResumePlayRef = useRef(false)
@@ -2605,12 +2622,17 @@ export default function MultiTrackPlayer({
 
   useEffect(() => {
     // New track set must start from a clean transport state.
+    const previousScope = activeTrackScopeRef.current
+    if (previousScope === trackScopeId) return
+    activeTrackScopeRef.current = trackScopeId
     readyRef.current = false
     if (pendingRafRef.current != null) {
       cancelAnimationFrame(pendingRafRef.current)
       pendingRafRef.current = null
     }
     pendingLastFrameMsRef.current = 0
+    pendingPlayRef.current = false
+    pendingStartPositionRef.current = 0
     setMainPlayPending(false)
     setMainPlayingState(false)
     if (rafRef.current) {
@@ -2621,6 +2643,11 @@ export default function MultiTrackPlayer({
     disposeTrackAudioGraph()
     positionSecRef.current = 0
     setCurrentTime(0)
+    logAudioDebug("switch:reset_position", {
+      from: previousScope,
+      to: trackScopeId,
+      positionSec: 0,
+    })
 
     peaksRef.current = trackList.map(() => null)
     waveCanvasesRef.current = trackList.map(() => null)
@@ -3032,6 +3059,9 @@ export default function MultiTrackPlayer({
     const ctx = ctxRef.current
     if (!ctx || !readyRef.current) {
       pendingPlayRef.current = true
+      if (pendingStartPositionRef.current == null) {
+        pendingStartPositionRef.current = positionSecRef.current
+      }
       setMainPlayPending(true)
       startPendingTransport()
       return
@@ -3039,6 +3069,8 @@ export default function MultiTrackPlayer({
     stopPendingTransport()
     setMainPlayPending(false)
     pendingPlayRef.current = false
+    const pendingPos = pendingStartPositionRef.current
+    pendingStartPositionRef.current = null
     if (registerGlobalAudio && globalControllerRef.current) requestGlobalAudio(globalControllerRef.current)
     await ctx.resume()
     if (guestSoloMode) setGuestSoloMode(false)
@@ -3049,8 +3081,9 @@ export default function MultiTrackPlayer({
     rampGainTo(dryGainRef.current, 1 - reverbAmount, 0.03)
 
     // If we are at track end, restart from the beginning.
-    const atEnd = duration > 0 && positionSecRef.current >= duration - 0.02
-    const pos = atEnd ? 0 : clamp(positionSecRef.current, 0, duration || positionSecRef.current)
+    const startPos = pendingPos != null ? pendingPos : positionSecRef.current
+    const atEnd = duration > 0 && startPos >= duration - 0.02
+    const pos = atEnd ? 0 : clamp(startPos, 0, duration || startPos)
 
     positionSecRef.current = pos
     setCurrentTime(pos)
@@ -3102,6 +3135,7 @@ export default function MultiTrackPlayer({
   const forceStopMainTransport = () => {
     stopPendingTransport()
     setMainPlayPending(false)
+    pendingStartPositionRef.current = null
     setMainPlayingState(false)
     stopEnginesHard()
     // Hard-duck master bus to instantly cut reverb tail on stop/switch.
@@ -3272,6 +3306,7 @@ export default function MultiTrackPlayer({
     stopPendingTransport()
     setMainPlayPending(false)
     pendingPlayRef.current = false
+    pendingStartPositionRef.current = null
     clearGuestCalibrateTimer()
     clearGuestStartGuardTimer()
     forceStopMainTransport()
@@ -3295,6 +3330,9 @@ export default function MultiTrackPlayer({
   const seekTo = (sec: number) => {
     const pos = clamp(sec, 0, duration || sec)
     positionSecRef.current = pos
+    if (pendingPlayRef.current || mainPlayPending) {
+      pendingStartPositionRef.current = pos
+    }
     setCurrentTime(pos)
 
     const wasPlaying = isPlayingRef.current
