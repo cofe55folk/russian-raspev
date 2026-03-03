@@ -1009,6 +1009,10 @@ export default function MultiTrackPlayer({
   const pendingPlayRef = useRef(false)
   const pendingStartPositionRef = useRef<number | null>(null)
   const pendingStartAtRef = useRef<number | null>(null)
+  const trackScopeGenRef = useRef(0)
+  const activeTrackScopeRef = useRef(trackScopeId)
+  const playSessionIdRef = useRef(0)
+  const activePlaySessionIdRef = useRef<number | null>(null)
   const readyRef = useRef(false)
   const navResumePositionRef = useRef<number | null>(null)
   const navResumePlayRef = useRef(false)
@@ -2421,6 +2425,16 @@ export default function MultiTrackPlayer({
   useEffect(() => {
     let cancelled = false
     const fetchControllers: AbortController[] = []
+    const initGen = trackScopeGenRef.current
+
+    const isStale = () => cancelled || initGen !== trackScopeGenRef.current
+    const markStale = (phase: string) => {
+      logAudioDebug("stale:ignored", {
+        gen: initGen,
+        activeGen: trackScopeGenRef.current,
+        phase,
+      })
+    }
 
     const init = async () => {
       readyRef.current = false
@@ -2464,16 +2478,45 @@ export default function MultiTrackPlayer({
       const decodeWarnings: string[] = []
       const fallbackDurationSec = 600
       const decodeTrackBuffer = async (trackIndex: number): Promise<{ buffer: AudioBuffer; byteLength: number }> => {
+        if (isStale()) {
+          markStale(`decode:${trackIndex}:before_fetch`)
+          return {
+            buffer: createSilentBuffer(ctx, fallbackDurationSec),
+            byteLength: 0,
+          }
+        }
         const track = trackList[trackIndex]
         for (let attempt = 1; attempt <= TRACK_DECODE_MAX_ATTEMPTS; attempt++) {
+          if (isStale()) {
+            markStale(`decode:${trackIndex}:attempt_${attempt}:stale`)
+            return {
+              buffer: createSilentBuffer(ctx, fallbackDurationSec),
+              byteLength: 0,
+            }
+          }
           const controller = new AbortController()
           fetchControllers.push(controller)
           try {
             const res = await fetch(track.src, { signal: controller.signal })
             if (!res.ok) throw new Error(`Fetch failed: ${track.src} (${res.status})`)
             const arr = await res.arrayBuffer()
+            if (isStale()) {
+              markStale(`decode:${trackIndex}:after_fetch`)
+              return {
+                buffer: createSilentBuffer(ctx, fallbackDurationSec),
+                byteLength: 0,
+              }
+            }
+            const decoded = await ctx.decodeAudioData(arr)
+            if (isStale()) {
+              markStale(`decode:${trackIndex}:after_decode`)
+              return {
+                buffer: createSilentBuffer(ctx, fallbackDurationSec),
+                byteLength: 0,
+              }
+            }
             return {
-              buffer: await ctx.decodeAudioData(arr),
+              buffer: decoded,
               byteLength: arr.byteLength,
             }
           } catch (err) {
@@ -2497,8 +2540,12 @@ export default function MultiTrackPlayer({
         const restIndexes = trackList.map((_, index) => index).filter((index) => index !== 0)
         buffers = new Array(trackList.length)
         const firstDecoded = await decodeTrackBuffer(0)
+        if (isStale()) {
+          markStale("decode:first:apply")
+          return
+        }
         buffers[0] = firstDecoded.buffer
-        if (!cancelled) {
+        if (!isStale()) {
           setDuration(firstDecoded.buffer.duration || 0)
         }
         const shouldDecodeSequentially =
@@ -2506,10 +2553,18 @@ export default function MultiTrackPlayer({
         if (shouldDecodeSequentially) {
           for (const trackIndex of restIndexes) {
             const decoded = await decodeTrackBuffer(trackIndex)
+            if (isStale()) {
+              markStale(`decode:${trackIndex}:apply`)
+              return
+            }
             buffers[trackIndex] = decoded.buffer
           }
         } else {
           const decodedRest = await Promise.all(restIndexes.map((trackIndex) => decodeTrackBuffer(trackIndex)))
+          if (isStale()) {
+            markStale("decode:parallel:apply")
+            return
+          }
           decodedRest.forEach((decoded, idx) => {
             buffers[restIndexes[idx]] = decoded.buffer
           })
@@ -2520,7 +2575,10 @@ export default function MultiTrackPlayer({
         console.warn("Audio decode fallback activated:", decodeWarnings.join(" | "))
       }
 
-      if (cancelled) return
+      if (isStale()) {
+        markStale("init:before_apply")
+        return
+      }
       setDuration(buffers[0]?.duration ?? 0)
 
       // engines + per-track chain
@@ -2557,7 +2615,10 @@ export default function MultiTrackPlayer({
 
       // peaks
       requestAnimationFrame(() => {
-        if (cancelled) return
+        if (isStale()) {
+          markStale("peaks")
+          return
+        }
         const peaksArr: (WavePeaks | null)[] = []
         for (let i = 0; i < buffers.length; i++) {
           const canvas = waveCanvasesRef.current[i]
@@ -2621,21 +2682,53 @@ export default function MultiTrackPlayer({
     })
   }, [])
 
+  const stopPlayback = useCallback(
+    (reason: string) => {
+      if (pendingRafRef.current != null) {
+        cancelAnimationFrame(pendingRafRef.current)
+        pendingRafRef.current = null
+      }
+      pendingLastFrameMsRef.current = 0
+      pendingPlayRef.current = false
+      pendingStartAtRef.current = null
+      pendingStartPositionRef.current = null
+      setMainPlayPending(false)
+      const activeSources = enginesRef.current.filter((eng) => !!eng).length
+      logAudioDebug("play:session:stop", {
+        sessionId: activePlaySessionIdRef.current,
+        reason,
+        activeSources,
+      })
+      activePlaySessionIdRef.current = null
+      setMainPlayingState(false)
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+      stopEnginesHard()
+    },
+    [setMainPlayingState, stopEnginesHard]
+  )
+
   useEffect(() => {
     // New track set must start from a clean transport state.
+    const previousScope = activeTrackScopeRef.current
+    if (previousScope === trackScopeId) return
+    const nextGen = trackScopeGenRef.current + 1
+    trackScopeGenRef.current = nextGen
+    activeTrackScopeRef.current = trackScopeId
+    logAudioDebug("switch:trackScope", {
+      from: previousScope,
+      to: trackScopeId,
+      gen: nextGen,
+    })
     readyRef.current = false
+    stopPlayback("switch_trackscope")
     if (pendingRafRef.current != null) {
       cancelAnimationFrame(pendingRafRef.current)
       pendingRafRef.current = null
     }
     pendingLastFrameMsRef.current = 0
-    setMainPlayPending(false)
-    setMainPlayingState(false)
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
-    }
-    stopEnginesHard()
     disposeTrackAudioGraph()
     positionSecRef.current = 0
     setCurrentTime(0)
@@ -2662,8 +2755,7 @@ export default function MultiTrackPlayer({
     cancelTempoPitchSmoothing,
     disposeTrackAudioGraph,
     initialTrackVolumes,
-    setMainPlayingState,
-    stopEnginesHard,
+    stopPlayback,
     trackList,
     trackScopeId,
   ])
@@ -3037,9 +3129,7 @@ export default function MultiTrackPlayer({
     const ctx = ctxRef.current
     if (!ctx || !readyRef.current) {
       pendingPlayRef.current = true
-      if (pendingStartPositionRef.current == null) {
-        pendingStartPositionRef.current = positionSecRef.current
-      }
+      pendingStartPositionRef.current = positionSecRef.current
       if (ctx && pendingStartAtRef.current == null) {
         pendingStartAtRef.current = ctx.currentTime + PLAY_START_EPSILON_SEC
       }
@@ -3050,13 +3140,28 @@ export default function MultiTrackPlayer({
       }
       return
     }
-    stopPendingTransport()
-    setMainPlayPending(false)
-    pendingPlayRef.current = false
+    const sessionId = playSessionIdRef.current + 1
+    playSessionIdRef.current = sessionId
+    const sessionGen = trackScopeGenRef.current
+    stopPlayback("new_play_session")
+    activePlaySessionIdRef.current = sessionId
+    logAudioDebug("play:session:start", {
+      sessionId,
+      gen: sessionGen,
+    })
     const pendingPos = pendingStartPositionRef.current
     pendingStartPositionRef.current = null
     if (registerGlobalAudio && globalControllerRef.current) requestGlobalAudio(globalControllerRef.current)
     await ctx.resume()
+    if (sessionId !== activePlaySessionIdRef.current || sessionGen !== trackScopeGenRef.current) {
+      logAudioDebug("stale:ignored", {
+        gen: sessionGen,
+        activeGen: trackScopeGenRef.current,
+        sessionId,
+        phase: "play:after_resume",
+      })
+      return
+    }
     if (guestSoloMode) setGuestSoloMode(false)
     const masterTarget = guestSoloMode ? 0 : masterVol
     // Restore main bus levels before start after an explicit hard stop.
@@ -3083,6 +3188,15 @@ export default function MultiTrackPlayer({
       }
       await seekGuestAudioForStart(pos)
       guardGuestStart()
+      if (sessionId !== activePlaySessionIdRef.current || sessionGen !== trackScopeGenRef.current) {
+        logAudioDebug("stale:ignored", {
+          gen: sessionGen,
+          activeGen: trackScopeGenRef.current,
+          sessionId,
+          phase: "play:after_guest_prepare",
+        })
+        return
+      }
     }
 
     const ctxNow = ctx.currentTime
@@ -3108,6 +3222,15 @@ export default function MultiTrackPlayer({
     const delayMs = Math.max(0, (scheduledAt - ctx.currentTime) * 1000)
     if (delayMs > 0) {
       await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
+    }
+    if (sessionId !== activePlaySessionIdRef.current || sessionGen !== trackScopeGenRef.current) {
+      logAudioDebug("stale:ignored", {
+        gen: sessionGen,
+        activeGen: trackScopeGenRef.current,
+        sessionId,
+        phase: "play:before_start",
+      })
+      return
     }
 
     startEngines()
@@ -3142,16 +3265,9 @@ export default function MultiTrackPlayer({
   }
 
   const forceStopMainTransport = () => {
-    stopPendingTransport()
-    setMainPlayPending(false)
-    pendingStartAtRef.current = null
-    pendingStartPositionRef.current = null
-    setMainPlayingState(false)
-    stopEnginesHard()
-    // Hard-duck master bus to instantly cut reverb tail on stop/switch.
+    stopPlayback("force_stop")
+    // Hard-duck master bus to instantly cut reverb tail on stop.
     rampGainTo(masterGainRef.current, 0, 0.012)
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-    rafRef.current = null
   }
 
   const pauseGuestSolo = () => {
@@ -3313,14 +3429,10 @@ export default function MultiTrackPlayer({
   }, [guestRecordStorageKey, guestTakesStorageKey, loadGuestRecordingByKey, selectedSoloTrackIndex])
 
   const pause = () => {
-    stopPendingTransport()
-    setMainPlayPending(false)
-    pendingPlayRef.current = false
-    pendingStartAtRef.current = null
-    pendingStartPositionRef.current = null
+    stopPlayback("pause")
     clearGuestCalibrateTimer()
     clearGuestStartGuardTimer()
-    forceStopMainTransport()
+    rampGainTo(masterGainRef.current, 0, 0.012)
 
     const guestAudio = guestAudioRef.current
     if (guestAudio && !guestAudio.paused) {
