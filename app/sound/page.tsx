@@ -92,7 +92,11 @@ export default function SoundPage() {
   }
 
   return (
-    <main className="rr-main">
+    <main
+      className="rr-main"
+      data-testid="miniplayer"
+      data-playing={isPreviewPlaying ? "true" : "false"}
+    >
       <PageHero title={t("nav.sound")} />
 
       <section className="rr-container mt-10 grid gap-8 lg:grid-cols-[270px_1fr]">
