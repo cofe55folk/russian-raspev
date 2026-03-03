@@ -44,6 +44,7 @@ export default function SoundRoutePlayer() {
     SOUND_PLAYABLE_ITEMS[initialIndex]?.teleprompterSourceUrl ?? undefined
   )
   const [loopOn, setLoopOn] = useState(false)
+  const loopOnRef = useRef(loopOn)
   const [trackAccessMeta, setTrackAccessMeta] = useState<{ free: number; premium: number; unlocked: boolean } | null>(null)
 
   const backendControllerRef = useRef<GlobalAudioController | null>(null)
@@ -146,6 +147,11 @@ export default function SoundRoutePlayer() {
 
   const onBackendControllerReady = useCallback((controller: GlobalAudioController | null) => {
     backendControllerRef.current = controller
+    if (controller?.getLoop) {
+      const backendLoopOn = !!controller.getLoop()
+      loopOnRef.current = backendLoopOn
+      setLoopOn(backendLoopOn)
+    }
     const pendingScope = pendingTrackScopeRef.current
     if (!controller || !pendingScope) return
     if (pendingScope !== readyTrackScopeRef.current) return
@@ -158,6 +164,10 @@ export default function SoundRoutePlayer() {
     controller.play()
     touchMiniPlayerState()
   }, [])
+
+  useEffect(() => {
+    loopOnRef.current = loopOn
+  }, [loopOn])
 
   const onTrackSetReady = useCallback((trackScopeId: string) => {
     readyTrackScopeRef.current = trackScopeId
@@ -254,14 +264,18 @@ export default function SoundRoutePlayer() {
         if (backendControllerRef.current) return backendControllerRef.current.getProgress()
         return { current: 0, duration: 0, playing: false }
       },
-      getLoop: () => loopOn,
+      getLoop: () => {
+        if (backendControllerRef.current?.getLoop) return !!backendControllerRef.current.getLoop()
+        return loopOnRef.current
+      },
       setLoop: (loop: boolean) => {
+        loopOnRef.current = loop
         setLoopOn(loop)
         backendControllerRef.current?.setLoop?.(loop)
         touchMiniPlayerState()
       },
     }
-  }, [activeIndex, localeFromPath, loopOn, setSongByIndex])
+  }, [activeIndex, localeFromPath, setSongByIndex])
 
   useEffect(() => {
     const handler = (ev: Event) => {
