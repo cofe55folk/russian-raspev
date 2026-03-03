@@ -3006,24 +3006,11 @@ export default function MultiTrackPlayer({
         stopPendingTransport()
         return
       }
-      if (guestTransportLinkedRef.current) {
-        pendingLastFrameMsRef.current = frameMs
-        pendingRafRef.current = requestAnimationFrame(step)
-        return
-      }
-      const prev = pendingLastFrameMsRef.current || frameMs
-      const dtSec = Math.max(0, Math.min(0.2, (frameMs - prev) / 1000))
       pendingLastFrameMsRef.current = frameMs
-      if (dtSec > 0) {
-        const nextPos = positionSecRef.current + dtSec * Math.max(0.6, tempoRef.current)
-        const bounded = duration > 0 ? Math.min(nextPos, duration) : nextPos
-        positionSecRef.current = bounded
-        setCurrentTime(bounded)
-      }
       pendingRafRef.current = requestAnimationFrame(step)
     }
     pendingRafRef.current = requestAnimationFrame(step)
-  }, [duration, stopPendingTransport])
+  }, [stopPendingTransport])
 
   /** =========================
    *  TRANSPORT
@@ -3034,6 +3021,9 @@ export default function MultiTrackPlayer({
       pendingPlayRef.current = true
       setMainPlayPending(true)
       startPendingTransport()
+      if (ctx && ctx.state !== "running") {
+        await ctx.resume().catch(() => {})
+      }
       return
     }
     stopPendingTransport()
@@ -3320,7 +3310,6 @@ export default function MultiTrackPlayer({
 
   useEffect(() => {
     if (!isReady || !pendingPlayRef.current) return
-    pendingPlayRef.current = false
     void play()
     // play intentionally excluded to avoid unstable callback re-triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
