@@ -88,6 +88,10 @@
     "recovery:research:fast:service:stop": "node scripts/research-fast-service.mjs stop",
     "recovery:research:fast:service:status": "node scripts/research-fast-service.mjs status",
     "recovery:research:fast:service:restart": "node scripts/research-fast-service.mjs restart",
+    "diag:audio": "node scripts/audio-debug-playwright.mjs --mode=check",
+    "diag:audio:scan": "node scripts/audio-debug-playwright.mjs --mode=scan",
+    "diag:audio:net": "node scripts/audio-debug-playwright.mjs --mode=netcheck",
+    "diag:audio:loading": "node scripts/audio-debug-playwright.mjs --mode=loading",
     "postinstall": "prisma generate"
   },
   "dependencies": {
