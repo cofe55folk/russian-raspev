@@ -100,6 +100,11 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
             ? t("miniplayer.stateRecovered")
             : ""
 
+  const isForegroundPlaybackContext = () => {
+    if (typeof document === "undefined") return true
+    return document.visibilityState === "visible" && document.hasFocus()
+  }
+
   const commitSeek = (nextValue: number) => {
     if (!Number.isFinite(nextValue)) return
     if (!activeController) return
@@ -142,6 +147,7 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
     const now = performance.now()
     const progressState = lastProgressRef.current
     const current = progress.current
+    const canRunTransportRecovery = isForegroundPlaybackContext()
     const advanced = progress.playing && Math.abs(current - progressState.current) > 0.08
     const hasPlaybackIntent = now <= playbackIntentUntilMsRef.current
     const emitTransportStalled = () => {
@@ -162,6 +168,15 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
       window.setTimeout(() => {
         setTransportBadge(next)
       }, 0)
+    }
+
+    if (!canRunTransportRecovery) {
+      progressState.current = current
+      progressState.advancedAtMs = now
+      progressState.retryAtMs = 0
+      progressState.recoveredUntilMs = 0
+      if (transportBadge !== "idle") deferBadge("idle")
+      return
     }
 
     if (!progress.playing && !hasPlaybackIntent) {
@@ -270,6 +285,7 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
   useEffect(() => {
     if (!isActiveController || !activeController) return
     const timer = window.setInterval(() => {
+      if (!isForegroundPlaybackContext()) return
       const now = performance.now()
       const hasPlaybackIntent = now <= playbackIntentUntilMsRef.current
       if (progress.playing || hasPlaybackIntent || transportBadge !== "idle") {
