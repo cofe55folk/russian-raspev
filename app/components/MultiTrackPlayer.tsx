@@ -1007,6 +1007,7 @@ export default function MultiTrackPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   const [mainPlayPending, setMainPlayPending] = useState(false)
   const [loopOn, setLoopOn] = useState(false)
+  const loopOnRef = useRef(loopOn)
   const [progressiveLoadEnabled, setProgressiveLoadEnabled] = useState(false)
   const [recordingEngineV2Enabled, setRecordingEngineV2Enabled] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("compatibility")
@@ -1263,6 +1264,10 @@ export default function MultiTrackPlayer({
       window.sessionStorage.removeItem(NAV_HANDOFF_STORAGE_KEY)
     } catch {}
   }, [trackScopeId])
+
+  useEffect(() => {
+    loopOnRef.current = loopOn
+  }, [loopOn])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -2600,7 +2605,7 @@ export default function MultiTrackPlayer({
         const handoff: NavHandoffState = {
           trackScopeId,
           positionSec: positionSecRef.current,
-          loopOn,
+          loopOn: loopOnRef.current,
           playing: true,
           ts: Date.now(),
         }
@@ -2628,7 +2633,7 @@ export default function MultiTrackPlayer({
       wetGainRef.current = null
       dryGainRef.current = null
     }
-  }, [closeRecordingV2OpfsWriter, disposeTrackAudioGraph, loopOn, persistOnUnmount, teardownRecordingV2Tap, trackScopeId])
+  }, [closeRecordingV2OpfsWriter, disposeTrackAudioGraph, persistOnUnmount, teardownRecordingV2Tap, trackScopeId])
 
   const stopEnginesHard = useCallback(() => {
     engineGateRef.current.forEach((g) => rampGainTo(g, 0, 0.02))
@@ -3059,24 +3064,11 @@ export default function MultiTrackPlayer({
         stopPendingTransport()
         return
       }
-      if (guestTransportLinkedRef.current) {
-        pendingLastFrameMsRef.current = frameMs
-        pendingRafRef.current = requestAnimationFrame(step)
-        return
-      }
-      const prev = pendingLastFrameMsRef.current || frameMs
-      const dtSec = Math.max(0, Math.min(0.2, (frameMs - prev) / 1000))
       pendingLastFrameMsRef.current = frameMs
-      if (dtSec > 0) {
-        const nextPos = positionSecRef.current + dtSec * Math.max(0.6, tempoRef.current)
-        const bounded = duration > 0 ? Math.min(nextPos, duration) : nextPos
-        positionSecRef.current = bounded
-        setCurrentTime(bounded)
-      }
       pendingRafRef.current = requestAnimationFrame(step)
     }
     pendingRafRef.current = requestAnimationFrame(step)
-  }, [duration, stopPendingTransport])
+  }, [stopPendingTransport])
 
   /** =========================
    *  TRANSPORT
@@ -3093,6 +3085,9 @@ export default function MultiTrackPlayer({
       pendingPlayRef.current = true
       setMainPlayPending(true)
       startPendingTransport()
+      if (ctx && ctx.state !== "running") {
+        await ctx.resume().catch(() => {})
+      }
       return
     }
     stopPendingTransport()
@@ -3395,7 +3390,6 @@ export default function MultiTrackPlayer({
 
   useEffect(() => {
     if (!isReady || !pendingPlayRef.current) return
-    pendingPlayRef.current = false
     void play()
     // play intentionally excluded to avoid unstable callback re-triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3446,7 +3440,7 @@ export default function MultiTrackPlayer({
         duration,
         playing: isPlayingRef.current,
       }),
-      getLoop: () => loopOn,
+      getLoop: () => loopOnRef.current,
       setLoop: (loop: boolean) => setLoopOn(loop),
     }
     onControllerReady?.(globalControllerRef.current)
@@ -3456,7 +3450,7 @@ export default function MultiTrackPlayer({
     }
     // play/pause are intentionally omitted to keep controller wiring stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [duration, loopOn, onControllerReady, persistOnUnmount, seekTo, t.songFallbackSubtitle, t.songFallbackTitle, trackList])
+  }, [duration, onControllerReady, persistOnUnmount, seekTo, t.songFallbackSubtitle, t.songFallbackTitle, trackList])
 
   useEffect(() => {
     if (seekToSeconds == null) return
