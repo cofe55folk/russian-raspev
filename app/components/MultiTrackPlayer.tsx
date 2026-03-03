@@ -1004,6 +1004,7 @@ export default function MultiTrackPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   const [mainPlayPending, setMainPlayPending] = useState(false)
   const [loopOn, setLoopOn] = useState(false)
+  const loopOnRef = useRef(loopOn)
   const [progressiveLoadEnabled, setProgressiveLoadEnabled] = useState(false)
   const [recordingEngineV2Enabled, setRecordingEngineV2Enabled] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("compatibility")
@@ -1260,6 +1261,10 @@ export default function MultiTrackPlayer({
       window.sessionStorage.removeItem(NAV_HANDOFF_STORAGE_KEY)
     } catch {}
   }, [trackScopeId])
+
+  useEffect(() => {
+    loopOnRef.current = loopOn
+  }, [loopOn])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -2564,7 +2569,7 @@ export default function MultiTrackPlayer({
         const handoff: NavHandoffState = {
           trackScopeId,
           positionSec: positionSecRef.current,
-          loopOn,
+          loopOn: loopOnRef.current,
           playing: true,
           ts: Date.now(),
         }
@@ -2587,7 +2592,7 @@ export default function MultiTrackPlayer({
       wetGainRef.current = null
       dryGainRef.current = null
     }
-  }, [closeRecordingV2OpfsWriter, disposeTrackAudioGraph, loopOn, persistOnUnmount, teardownRecordingV2Tap, trackScopeId])
+  }, [closeRecordingV2OpfsWriter, disposeTrackAudioGraph, persistOnUnmount, teardownRecordingV2Tap, trackScopeId])
 
   const stopEnginesHard = useCallback(() => {
     engineGateRef.current.forEach((g) => rampGainTo(g, 0, 0.02))
@@ -3366,7 +3371,7 @@ export default function MultiTrackPlayer({
         duration,
         playing: isPlayingRef.current,
       }),
-      getLoop: () => loopOn,
+      getLoop: () => loopOnRef.current,
       setLoop: (loop: boolean) => setLoopOn(loop),
     }
     onControllerReady?.(globalControllerRef.current)
@@ -3376,7 +3381,7 @@ export default function MultiTrackPlayer({
     }
     // play/pause are intentionally omitted to keep controller wiring stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [duration, loopOn, onControllerReady, persistOnUnmount, seekTo, t.songFallbackSubtitle, t.songFallbackTitle, trackList])
+  }, [duration, onControllerReady, persistOnUnmount, seekTo, t.songFallbackSubtitle, t.songFallbackTitle, trackList])
 
   useEffect(() => {
     if (seekToSeconds == null) return
