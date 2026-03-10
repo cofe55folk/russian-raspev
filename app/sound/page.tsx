@@ -86,13 +86,10 @@ export default function SoundPage() {
 
   useEffect(() => {
     if (!pendingPreviewSlug) return
-    if (activeSlug === pendingPreviewSlug) {
-      setPendingPreviewSlug(null)
-      return
-    }
+    const clearDelayMs = activeSlug === pendingPreviewSlug ? 0 : 12000
     const timerId = window.setTimeout(() => {
       setPendingPreviewSlug((current) => (current === pendingPreviewSlug ? null : current))
-    }, 12000)
+    }, clearDelayMs)
     return () => {
       window.clearTimeout(timerId)
     }
