@@ -84,7 +84,7 @@
     "tests:done": "node scripts/tests-done.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:critical": "playwright test tests/e2e/donate-checkout.spec.ts tests/e2e/billing-webhook.spec.ts tests/e2e/events-page.spec.ts tests/e2e/map-filters.spec.ts tests/e2e/search-page.spec.ts --config=playwright.contracts.config.ts --project=chromium --workers=1",
+    "test:e2e:critical": "node scripts/playwright-contract-runner.mjs critical",
     "test:e2e:critical:flake": "node scripts/e2e-flake-check.mjs",
     "test:e2e:multitrack": "playwright test -c playwright.multitrack.config.ts --project=webkit",
     "test:e2e:multitrack:repeat": "playwright test -c playwright.multitrack.config.ts --project=webkit --repeat-each=10",
