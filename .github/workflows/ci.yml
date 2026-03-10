@@ -51,14 +51,6 @@ jobs:
 
   admin-analytics-contracts:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        spec:
-          - admin-analytics-api.spec.ts
-          - admin-analytics-search-quality-api.spec.ts
-          - admin-analytics-map-summary-api.spec.ts
-          - admin-analytics-guest-sync-api.spec.ts
 
     steps:
       - name: Checkout
@@ -76,14 +68,14 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Run admin analytics contract spec
-        run: npx playwright test --config=playwright.webpack.config.ts --project=chromium --workers=1 "${{ matrix.spec }}"
+      - name: Run admin analytics contract specs
+        run: npx playwright test tests/e2e/admin-analytics-api.spec.ts tests/e2e/admin-analytics-search-quality-api.spec.ts tests/e2e/admin-analytics-map-summary-api.spec.ts tests/e2e/admin-analytics-guest-sync-api.spec.ts --config=playwright.webpack.config.ts --project=chromium --workers=1
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-admin-analytics-${{ strategy.job-index }}
+          name: playwright-report-admin-analytics
           path: |
             playwright-report
             test-results
