@@ -24,22 +24,27 @@ const projects = isCI
       },
     ];
 
-export default defineConfig({
-  testDir: ".",
-  fullyParallel: true,
-  forbidOnly: isCI,
-  retries: isCI ? 2 : 0,
-  workers: isCI ? 1 : undefined,
-  reporter: "html",
-  use: {
-    baseURL: "http://localhost:3000",
-    trace: "on-first-retry",
-  },
-  webServer: {
-    command: webServerCommand,
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
-  projects,
-});
+export function createContractsConfig(testMatch: string[]) {
+  return defineConfig({
+    testDir: ".",
+    testMatch,
+    fullyParallel: true,
+    forbidOnly: isCI,
+    retries: isCI ? 2 : 0,
+    workers: isCI ? 1 : undefined,
+    reporter: "html",
+    use: {
+      baseURL: "http://localhost:3000",
+      trace: "on-first-retry",
+    },
+    webServer: {
+      command: webServerCommand,
+      url: "http://localhost:3000",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    projects,
+  });
+}
+
+export default createContractsConfig(["tests/e2e/**/*.spec.ts"]);
