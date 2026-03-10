@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:stable": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -80,6 +81,9 @@
     "tests:done": "node scripts/tests-done.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "test:e2e:multitrack": "playwright test -c playwright.multitrack.config.ts --project=webkit",
+    "test:e2e:multitrack:repeat": "playwright test -c playwright.multitrack.config.ts --project=webkit --repeat-each=10",
+    "test:e2e:multitrack:loop": "node playwright.multitrack.loop.mjs",
     "recovery:research:fast": "node scripts/research-fast-continuous.mjs --poll-sec=5 --buffer-min=6 --seed-batch=6 --duration-min=1440",
     "recovery:research:fast:once": "node scripts/research-fast-continuous.mjs --once=true --poll-sec=2 --buffer-min=6 --seed-batch=6 --duration-min=10",
     "recovery:research:fast:service:install": "node scripts/research-fast-service.mjs install",

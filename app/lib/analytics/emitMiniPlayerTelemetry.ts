@@ -22,6 +22,7 @@ type MiniPlayerTelemetryPayload = {
 
 const TELEMETRY_QUEUE_KEY = "rr_miniplayer_telemetry_queue_v1";
 const TELEMETRY_QUEUE_MAX = 80;
+const MINIPLAYER_TELEMETRY_PERSIST_IN_DEV = process.env.NEXT_PUBLIC_MINIPLAYER_TELEMETRY_PERSIST === "1";
 let flushQueueInFlight = false;
 let onlineFlushListenerBound = false;
 
@@ -118,6 +119,9 @@ async function flushQueuedTelemetry(): Promise<void> {
 }
 
 export function emitMiniPlayerTelemetry(payload: MiniPlayerTelemetryPayload): void {
+  const shouldPersist = process.env.NODE_ENV === "production" || MINIPLAYER_TELEMETRY_PERSIST_IN_DEV;
+  if (!shouldPersist) return;
+
   const controllerId = normalizeText(payload.controllerId, 120);
   const action = normalizeText(payload.action, 64);
   if (!controllerId || !action || !isMiniPlayerAction(action)) return;

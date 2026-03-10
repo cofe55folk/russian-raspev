@@ -14,10 +14,10 @@ export default function SoundCardPlayerSlot({ slug: _slug }: SoundCardPlayerSlot
     const slot = slotRef.current
     if (!slot) return
     return registerSoundPlayerSlot(slot)
-  }, [])
+  }, [_slug])
 
   return (
-    <div data-player-slug={_slug}>
+    <div key={_slug} data-player-slug={_slug}>
       <div id="rr-sound-player-slot" ref={slotRef} />
     </div>
   )

@@ -16,6 +16,87 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+If Turbopack dev mode returns `Internal Server Error` on `/sound` (CSS/PostCSS timeout panic), run stable webpack mode:
+
+```bash
+npm run dev:stable
+```
+
+## Playwright Autotest (Multitrack / Safari)
+
+Use these commands for repeated multitrack checks in WebKit (Safari engine):
+
+```bash
+# single run
+npm run test:e2e:multitrack
+
+# stress run: each test 10 times
+npm run test:e2e:multitrack:repeat
+
+# continuous loop until Ctrl+C
+npm run test:e2e:multitrack:loop
+```
+
+Optional loop tuning:
+
+```bash
+# run 20 cycles with 2-second gap
+PW_LOOP_MAX_RUNS=20 PW_LOOP_INTERVAL_SEC=2 npm run test:e2e:multitrack:loop
+```
+
+## Audio TTFP Diagnostics (Opt-In)
+
+Enable lightweight startup timing telemetry for multitrack (`click -> resume -> seek -> engine start -> gate open`):
+
+```bash
+# env-flag mode
+NEXT_PUBLIC_AUDIO_TTFP=1 npm run dev:stable
+```
+
+Or from browser console:
+
+```js
+localStorage.setItem("rr_audio_ttfp", "1")
+```
+
+Disable again:
+
+```js
+localStorage.removeItem("rr_audio_ttfp")
+```
+
+Current multitrack change ledger / handoff:
+
+- `docs/multitrack-p0-ledger-2026-03-04.md`
+
+## Local Production-Like Run (Manual Host)
+
+When local `next build` on Turbopack is unstable (for example PostCSS timeout/panic), use manual host mode:
+
+```bash
+# Disable launchd auto-host jobs (one-time; adjust labels if needed)
+launchctl bootout gui/$(id -u)/com.russianraspev.app.dev || true
+launchctl disable gui/$(id -u)/com.russianraspev.app.dev
+launchctl bootout gui/$(id -u)/com.russianraspev.night.front || true
+launchctl disable gui/$(id -u)/com.russianraspev.night.front
+
+# Build via webpack fallback
+npm run build -- --webpack
+
+# Start manually
+npm run start
+```
+
+Health check:
+
+```bash
+curl -I --max-time 10 -s http://localhost:3000 | head -n 1
+```
+
+Detailed runbook:
+
+- `docs/ops/local-manual-host-runbook.md`
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

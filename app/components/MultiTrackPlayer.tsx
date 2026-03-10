@@ -1,15 +1,48 @@
 "use client"
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import Link from "next/link"
-import { createSoundTouchEngine, type SoundTouchEngine } from "./audio/soundtouchEngine"
+import { createAppendableQueueEngine, createAudioBufferAppendableSource } from "./audio/appendableQueueEngine"
+import { createAppendableQueueMultitrackCoordinator, type AppendableQueueMultitrackCoordinator } from "./audio/appendableQueueMultitrackCoordinator"
+import { resolveAudioPilotRouting, type AudioPilotEngineMode } from "./audio/audioPilotRouting"
+import { createSoundTouchEngine, type AudioEngineCapabilities, type SoundTouchEngine } from "./audio/soundtouchEngine"
+import { createMediaStreamingEngine } from "./audio/mediaStreamingEngine"
+import { createRingBufferWorkletEngine } from "./audio/ringBufferWorkletEngine"
 import { clearGlobalAudio, requestGlobalAudio, type GlobalAudioController } from "../lib/globalAudioManager"
 import { emitMiniPlayerTelemetry } from "../lib/analytics/emitMiniPlayerTelemetry"
+import {
+  formatAudioDebugBuffer,
+  getAudioDebugBufferSnapshot,
+  isAudioDebugCaptureEnabled,
+  isAudioDebugEnabled,
+  isAudioTtfpEnabled,
+  logAudioDebug,
+  logAudioTtfp,
+  subscribeAudioDebugBuffer,
+} from "../lib/audioDebugLogStore"
+import {
+  appendAudioDebugCaptureSamples,
+  getAudioDebugCaptureArtifactSnapshot,
+  initAudioDebugCaptureStore,
+  recordAudioDebugCaptureClick,
+  resetAudioDebugCaptureStore,
+} from "../lib/audioDebugCaptureStore"
 import { I18N_MESSAGES, type I18nKey } from "../lib/i18n/messages"
 import { createRecordingV2OpfsWriter, type RecordingV2OpfsWriter } from "../lib/ugc/recording-v2-opfs-client"
 import { drainRecordingV2UploadQueue, enqueueRecordingV2Upload, uploadRecordingV2TakeFromOpfs } from "../lib/ugc/recording-v2-upload-client"
 
-export type TrackDef = { name: string; src: string; defaultVolume?: number }
+export type StartupChunkTrackDef = {
+  pilotKey?: string
+  strategy?: "handoff" | "splice"
+  startupSrc: string
+  tailSrc?: string
+  startupDurationSec?: number
+  tailStartSec?: number
+  tailDurationSec?: number
+  estimatedTotalDurationSec?: number
+  crossfadeSec?: number
+}
+export type TrackDef = { name: string; src: string; defaultVolume?: number; startupChunk?: StartupChunkTrackDef }
 type WavePeaks = { min: Float32Array; max: Float32Array }
 type TeleprompterLine = { time: number; text: string }
 type TeleprompterAnchorMap = Record<number, number>
@@ -32,12 +65,97 @@ type TeleprompterBackupPayload = {
 type ExportFormat = "m4a" | "mp3" | "wav"
 type UiLang = "ru" | "en"
 type RecordingMode = "compatibility" | "local_master"
+type EngineMode = AudioPilotEngineMode
+type AppendableQueueRuntimeProbeSnapshot = {
+  active: boolean
+  sampleAtMs: number | null
+  currentSec: number | null
+  transportSec: number | null
+  stemDriftSec: number | null
+  transportDriftSec: number | null
+  minLeadSec: number | null
+  maxLeadSec: number | null
+  dropDeltaSec: number | null
+  totalUnderrunFrames: number
+  totalDiscontinuityCount: number
+}
+type AppendableRoutePilotReportStatus = "pending" | "pass" | "fail"
+type AppendableRoutePilotReportSnapshot = {
+  capturedAt: string
+  trackScopeId: string
+  audioMode: EngineMode
+  flags: {
+    appendableQueuePilotEnabled: boolean
+    appendableQueueMultistemPilotEnabled: boolean
+  }
+  probe: AppendableQueueRuntimeProbeSnapshot
+}
+type AppendableRoutePilotReport = {
+  version: 1
+  updatedAt: string | null
+  status: AppendableRoutePilotReportStatus
+  notes: string
+  snapshot: AppendableRoutePilotReportSnapshot | null
+}
+type AppendableRoutePilotDebugState = {
+  trackScopeId: string
+  playing: boolean
+  audioMode: EngineMode
+  checklist: {
+    status: "waiting_for_flags" | "play_to_activate_probe" | "ready_for_manual_pilot" | "attention_required"
+    statusLabel: string
+    steps: string[]
+  }
+  runtimeProbe: AppendableQueueRuntimeProbeSnapshot
+  report: AppendableRoutePilotReport
+}
+type AppendableRoutePilotDebugApi = {
+  play: () => Promise<void>
+  pause: () => void
+  seek: (sec: number) => number
+  captureReport: () => AppendableRoutePilotReportSnapshot
+  saveCurrentDiagnostics: () => void
+  markPass: () => void
+  markFail: () => void
+  resetReport: () => void
+  downloadReport: () => void
+  downloadPacket: () => void
+  getState: () => AppendableRoutePilotDebugState
+  runQuickPilot: (seekSec?: number | null) => Promise<AppendableRoutePilotDebugState>
+}
 type NavHandoffState = {
   trackScopeId: string
   positionSec: number
   loopOn: boolean
   playing: boolean
   ts: number
+}
+type StartupChunkRuntimeState = {
+  enabled: boolean
+  strategy: "handoff" | "splice"
+  stage: "startup" | "tail" | "full"
+  startupDurationSec: number
+  crossfadeSec: number
+  tailStartSec: number | null
+  tailDurationSec: number | null
+  estimatedTotalDurationSec: number | null
+  tailBuffers: AudioBuffer[] | null
+  tailBuffersReady: boolean
+  fullBuffers: AudioBuffer[] | null
+  fullBuffersReady: boolean
+  handoffInProgress: boolean
+  handoffComplete: boolean
+  deferredPeaksScheduled: boolean
+  tailDecodeStartedAtMs: number | null
+  tailDecodeReadyAtMs: number | null
+  fullDecodeStartedAtMs: number | null
+  fullDecodeReadyAtMs: number | null
+}
+type StartupChunkSwapPlan = {
+  swapLabel: "tail_handoff" | "full_handoff" | "handoff"
+  sourceOffsetSec: number
+  stageAfterSwap: StartupChunkRuntimeState["stage"]
+  disableRuntimeAfterSwap: boolean
 }
 type GuestTakeMeta = {
   id: string
@@ -102,12 +220,49 @@ type RecorderV2TapStats = {
   chunkReports: number
   errors: number
 }
+
+type AudioDebugMasterTapStats = {
+  framesCaptured: number
+  chunkReports: number
+  clickReports: number
+  errors: number
+}
+
+type AudioTtfpStage =
+  | "click"
+  | "play_call"
+  | "ctx_resumed"
+  | "seek_applied"
+  | "engines_start"
+  | "gate_open"
+  | "playing_state"
+
+type AudioTtfpAttempt = {
+  id: number
+  trackScopeId: string
+  trigger: string
+  startedAtMs: number
+  startedAtIso: string
+  stages: Partial<Record<AudioTtfpStage, number>>
+  finalized: boolean
+}
+
+declare global {
+  interface Window {
+    __rrAppendableRoutePilotDebug?: AppendableRoutePilotDebugApi
+  }
+}
+
 const TELEPROMPTER_LEAD_SEC = 0.18
 const COUNT_IN_BEATS = 3
 const COUNT_IN_BPM = 72
 const DEFAULT_REVERB_AMOUNT = 0.2
 const DEFAULT_SPEED = 1
 const DEFAULT_PITCH_SEMITONES = 0
+const MASTER_HEADROOM_GAIN = 0.82
+const TRACK_HEADROOM_GAIN = 0.92
+const TRACK_MAX_GAIN = 1
+const GUEST_MAX_GAIN = 1
 const DEFAULT_GUEST_SYNC_SEC = 0.22
 const GLOBAL_GUEST_SYNC_STORAGE_KEY = "rr_guest_sync_offset_sec:global_v1"
 const NAV_HANDOFF_STORAGE_KEY = "rr_multitrack_nav_handoff_v1"
@@ -115,6 +270,7 @@ const NAV_HANDOFF_TTL_MS = 20_000
 const FORCE_AUTOPLAY_STORAGE_KEY = "rr_force_autoplay_next_mount"
 const GUEST_TAKES_MAX = 12
 const GUEST_DEVICE_PROFILE_STORAGE_KEY = "rr_guest_device_latency_profile_v1"
+const APPENDABLE_ROUTE_PILOT_REPORT_STORAGE_KEY_PREFIX = "rr_appendable_route_pilot_report"
 const GUEST_STARTUP_BIAS_SEC = 0
 const GUEST_STARTUP_BIAS_DECAY_SEC = 3.5
 const GUEST_SYNC_MIN_SEC = -2.5
@@ -135,10 +291,260 @@ const GUEST_CALIBRATE_FINE_BIN_SEC = 0.01
 const GUEST_CALIBRATE_FINE_WINDOW_SEC = 0.18
 const PREVIEW_FLAGS_COOKIE = "rr_preview_flags_v1"
 const PROGRESSIVE_LOAD_PREVIEW_FLAG = "multitrack_progressive_load"
+const STARTUP_CHUNK_PREVIEW_FLAG = "multitrack_startup_chunk_pilot"
+const STARTUP_CHUNK_SPLICE_PREVIEW_FLAG = "multitrack_startup_splice_pilot"
+const STREAMING_BUFFER_PREVIEW_FLAG = "multitrack_streaming_pilot"
+const APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG = "multitrack_appendable_queue_pilot"
+const APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG = "multitrack_appendable_queue_multistem_pilot"
+const RINGBUFFER_PILOT_PREVIEW_FLAG = "multitrack_ringbuffer_pilot"
 const RECORDING_ENGINE_V2_PREVIEW_FLAG = "recording_engine_v2"
 const TRACK_DECODE_MAX_ATTEMPTS = 2
+const TRACK_DECODE_TIMEOUT_MS = 6000
+const RINGBUFFER_ENGINE_INIT_TIMEOUT_MS = 2200
+const AUDIO_CTX_RESUME_TIMEOUT_MS = 1600
+const PENDING_PLAY_READY_TIMEOUT_MS = 5200
 const LARGE_TRACK_BYTES_THRESHOLD = 16 * 1024 * 1024
 const TEMPO_PITCH_SMOOTH_MS = 140
+const AUDIO_TTFP_STORAGE_KEY = "rr_audio_ttfp"
+const AUDIO_TTFP_SAMPLE_WINDOW = 30
+const AUDIO_TTFP_API_PATH = "/api/analytics/audio-ttfp"
+const AUDIO_TTFP_PERSIST_IN_DEV = process.env.NEXT_PUBLIC_AUDIO_TTFP_PERSIST === "1"
+const DEFERRED_PEAKS_IDLE_DELAY_MS = 140
+const DEFERRED_PEAKS_WHILE_PLAYING_DELAY_MS = 2600
+const DEFERRED_PEAKS_RINGBUFFER_WHILE_PLAYING_DELAY_MS = 9000
+const DEFERRED_PEAKS_STARTUP_CHUNK_POST_HANDOFF_DELAY_MS = 5200
+const DEFERRED_PEAKS_BUCKETS = 1200
+const WAVEFORM_PREVIEW_IDLE_DELAY_MS = 80
+const WAVEFORM_PREVIEW_WHILE_PLAYING_DELAY_MS = 220
+const WAVEFORM_PREVIEW_DURATION_THRESHOLD_SEC = 90
+const WAVEFORM_PREVIEW_PROBES_PER_BUCKET = 24
+const WAVEFORM_FULL_PEAKS_PLAYING_YIELD_EVERY_BUCKETS = 4
+const WAVEFORM_FULL_PEAKS_PLAYING_MAX_SLICE_MS = 1
+const WAVEFORM_FULL_PEAKS_PLAYING_YIELD_DELAY_MS = 12
+const WAVEFORM_FULL_PEAKS_RINGBUFFER_PLAYING_YIELD_EVERY_BUCKETS = 2
+const WAVEFORM_FULL_PEAKS_RINGBUFFER_PLAYING_YIELD_DELAY_MS = 20
+const WAVEFORM_FULL_PEAKS_IDLE_CALLBACK_TIMEOUT_MS = 1600
+const WAVEFORM_FULL_PEAKS_BETWEEN_TRACKS_DELAY_MS = 16
+const WAVEFORM_FULL_PEAKS_RINGBUFFER_BETWEEN_TRACKS_DELAY_MS = 48
+const STARTUP_CHUNK_HANDOFF_OVERLAP_SEC = 0.24
+const STARTUP_CHUNK_HANDOFF_LEAD_SEC = 0.8
+const STARTUP_CHUNK_SPLICE_DEFAULT_CROSSFADE_SEC = 0.34
+const WAVEFORM_PEAKS_CACHE_LIMIT = 96
+const RINGBUFFER_RUNTIME_PROBE_INTERVAL_MS = 2000
+const RINGBUFFER_RUNTIME_PROBE_LOG_INTERVAL_MS = 8000
+const RINGBUFFER_RUNTIME_PROBE_DROP_DELTA_SEC = 0.22
+const APPENDABLE_QUEUE_RUNTIME_PROBE_INTERVAL_MS = 2000
+const APPENDABLE_QUEUE_RUNTIME_PROBE_LOG_INTERVAL_MS = 8000
+const APPENDABLE_QUEUE_RUNTIME_PROBE_DROP_DELTA_SEC = 0.22
+const SEEK_SMOOTH_DEBOUNCE_MS = 28
+const SEEK_SMOOTH_CLOSE_RAMP_SEC = 0.008
+const SEEK_SMOOTH_OPEN_RAMP_SEC = 0.03
+const SEEK_SMOOTH_RESUME_DELAY_MS = 16
+const SEEK_SMOOTH_RINGBUFFER_RESUME_DELAY_MS = 28
+const SEEK_SMOOTH_RINGBUFFER_OPEN_RAMP_SEC = 0.042
+const SEEK_SMOOTH_RINGBUFFER_BUFFERED_THRESHOLD_SEC = 0.18
+const SEEK_SMOOTH_RINGBUFFER_FAST_RESUME_DELAY_MS = 8
+const SEEK_SMOOTH_RINGBUFFER_FAST_OPEN_RAMP_SEC = 0.024
+const SEEK_SMOOTH_RINGBUFFER_CLOSE_FLOOR_GAIN = 0.18
+const SEEK_SMOOTH_RINGBUFFER_CROSSFADE_MID_GAIN = 0.58
+const SEEK_SMOOTH_RINGBUFFER_CROSSFADE_MID_RAMP_SEC = 0.012
+const SEEK_SMOOTH_RINGBUFFER_FAST_CROSSFADE_MID_RAMP_SEC = 0.008
+const SCRUB_PREVIEW_LIVE_MIN_DELTA_SEC = 0.06
+const SCRUB_PREVIEW_LIVE_MIN_INTERVAL_MS = 56
+const TELEPROMPTER_AUTOCOLLECT_ENV_ENABLED = process.env.NEXT_PUBLIC_TELEPROMPTER_AUTOCOLLECT === "1"
+
+function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProbeSnapshot {
+  return {
+    active: false,
+    sampleAtMs: null,
+    currentSec: null,
+    transportSec: null,
+    stemDriftSec: null,
+    transportDriftSec: null,
+    minLeadSec: null,
+    maxLeadSec: null,
+    dropDeltaSec: null,
+    totalUnderrunFrames: 0,
+    totalDiscontinuityCount: 0,
+  }
+}
+
+function cloneAppendableQueueRuntimeProbeSnapshot(
+  snapshot: AppendableQueueRuntimeProbeSnapshot
+): AppendableQueueRuntimeProbeSnapshot {
+  return {
+    active: snapshot.active,
+    sampleAtMs: snapshot.sampleAtMs,
+    currentSec: snapshot.currentSec,
+    transportSec: snapshot.transportSec,
+    stemDriftSec: snapshot.stemDriftSec,
+    transportDriftSec: snapshot.transportDriftSec,
+    minLeadSec: snapshot.minLeadSec,
+    maxLeadSec: snapshot.maxLeadSec,
+    dropDeltaSec: snapshot.dropDeltaSec,
+    totalUnderrunFrames: snapshot.totalUnderrunFrames,
+    totalDiscontinuityCount: snapshot.totalDiscontinuityCount,
+  }
+}
+
+function createAppendableRoutePilotReport(): AppendableRoutePilotReport {
+  return {
+    version: 1,
+    updatedAt: null,
+    status: "pending",
+    notes: "",
+    snapshot: null,
+  }
+}
+
+function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): AppendableRoutePilotReport {
+  return {
+    version: 1,
+    updatedAt: report.updatedAt,
+    status: report.status,
+    notes: report.notes,
+    snapshot: report.snapshot
+      ? {
+          capturedAt: report.snapshot.capturedAt,
+          trackScopeId: report.snapshot.trackScopeId,
+          audioMode: report.snapshot.audioMode,
+          flags: {
+            appendableQueuePilotEnabled: report.snapshot.flags.appendableQueuePilotEnabled,
+            appendableQueueMultistemPilotEnabled: report.snapshot.flags.appendableQueueMultistemPilotEnabled,
+          },
+          probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
+        }
+      : null,
+  }
+}
+
+function restoreAppendableRoutePilotReport(raw: string | null): AppendableRoutePilotReport | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<AppendableRoutePilotReport> | null
+    if (!parsed || parsed.version !== 1) return null
+    return {
+      version: 1,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : null,
+      status: parsed.status === "pass" || parsed.status === "fail" ? parsed.status : "pending",
+      notes: typeof parsed.notes === "string" ? parsed.notes : "",
+      snapshot:
+        parsed.snapshot &&
+        typeof parsed.snapshot === "object" &&
+        typeof parsed.snapshot.capturedAt === "string" &&
+        typeof parsed.snapshot.trackScopeId === "string"
+          ? {
+              capturedAt: parsed.snapshot.capturedAt,
+              trackScopeId: parsed.snapshot.trackScopeId,
+              audioMode:
+                parsed.snapshot.audioMode === "appendable_queue_worklet" ||
+                parsed.snapshot.audioMode === "ringbuffer_worklet" ||
+                parsed.snapshot.audioMode === "streaming_media"
+                  ? parsed.snapshot.audioMode
+                  : "soundtouch",
+              flags: {
+                appendableQueuePilotEnabled: !!parsed.snapshot.flags?.appendableQueuePilotEnabled,
+                appendableQueueMultistemPilotEnabled: !!parsed.snapshot.flags?.appendableQueueMultistemPilotEnabled,
+              },
+              probe: cloneAppendableQueueRuntimeProbeSnapshot({
+                ...createAppendableQueueRuntimeProbeSnapshot(),
+                ...(parsed.snapshot.probe ?? {}),
+              }),
+            }
+          : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function formatOptionalFixed(value: number | null | undefined, digits = 3) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—"
+}
+
+function getStartupChunkHandoffAtSec(runtime: StartupChunkRuntimeState): number {
+  return Math.max(
+    0,
+    runtime.startupDurationSec -
+      Math.max(runtime.crossfadeSec, STARTUP_CHUNK_HANDOFF_OVERLAP_SEC, STARTUP_CHUNK_HANDOFF_LEAD_SEC)
+  )
+}
+
+function getStartupChunkTailHandoffAtSec(runtime: StartupChunkRuntimeState): number {
+  if (runtime.tailStartSec == null || !Number.isFinite(runtime.tailStartSec)) {
+    return getStartupChunkHandoffAtSec(runtime)
+  }
+  return Math.max(runtime.tailStartSec, getStartupChunkHandoffAtSec(runtime))
+}
+
+function getStartupChunkFullHandoffAtSec(runtime: StartupChunkRuntimeState): number {
+  if (runtime.tailStartSec == null || runtime.tailDurationSec == null) {
+    return getStartupChunkHandoffAtSec(runtime)
+  }
+  return Math.max(
+    getStartupChunkTailHandoffAtSec(runtime),
+    runtime.tailStartSec + runtime.tailDurationSec - Math.max(runtime.crossfadeSec, STARTUP_CHUNK_HANDOFF_OVERLAP_SEC)
+  )
+}
+
+function getStartupChunkEffectiveDurationSec(
+  sourceWindowDurationSec: number,
+  sourceOffsetSec: number,
+  reportedDurationSec?: number
+): number | undefined {
+  if (Number.isFinite(reportedDurationSec as number) && (reportedDurationSec as number) > 0) {
+    return reportedDurationSec as number
+  }
+  if (sourceWindowDurationSec <= 0) return undefined
+  return sourceOffsetSec > 0 ? sourceOffsetSec + sourceWindowDurationSec : sourceWindowDurationSec
+}
+
+function getStartupChunkSwapPlan(
+  runtime: StartupChunkRuntimeState,
+  safePosSec: number
+): StartupChunkSwapPlan | null {
+  if (runtime.strategy === "splice") {
+    const tailHandoffAtSec = getStartupChunkTailHandoffAtSec(runtime)
+    const fullHandoffAtSec = getStartupChunkFullHandoffAtSec(runtime)
+    if (runtime.stage === "startup" && safePosSec >= fullHandoffAtSec && runtime.fullBuffersReady && runtime.fullBuffers?.length) {
+      return {
+        swapLabel: "full_handoff",
+        sourceOffsetSec: 0,
+        stageAfterSwap: "full",
+        disableRuntimeAfterSwap: true,
+      }
+    }
+    if (runtime.stage === "startup" && safePosSec >= tailHandoffAtSec && runtime.tailBuffersReady && runtime.tailBuffers?.length) {
+      return {
+        swapLabel: "tail_handoff",
+        sourceOffsetSec: runtime.tailStartSec ?? 0,
+        stageAfterSwap: "tail",
+        disableRuntimeAfterSwap: false,
+      }
+    }
+    if (runtime.fullBuffersReady && runtime.fullBuffers?.length) {
+      return {
+        swapLabel: "full_handoff",
+        sourceOffsetSec: 0,
+        stageAfterSwap: "full",
+        disableRuntimeAfterSwap: true,
+      }
+    }
+    return null
+  }
+
+  if (runtime.fullBuffersReady && runtime.fullBuffers?.length) {
+    return {
+      swapLabel: "handoff",
+      sourceOffsetSec: 0,
+      stageAfterSwap: "full",
+      disableRuntimeAfterSwap: true,
+    }
+  }
+
+  return null
+}
+
 const RECORD_STREAM_CONSTRAINTS: MediaStreamConstraints = {
   audio: {
     echoCancellation: false,
@@ -155,6 +561,66 @@ type PianoKey = {
   kbd?: string
   kbdRu?: string
   left?: number
+}
+
+type WavePeaksCacheEntry = {
+  peaks: WavePeaks
+  quality: "preview" | "full"
+  updatedAt: number
+}
+
+const waveformPeaksCache = new Map<string, WavePeaksCacheEntry>()
+
+function getWavePeaksCacheKey(src: string, buckets = DEFERRED_PEAKS_BUCKETS) {
+  return `${src}::${buckets}`
+}
+
+function readCachedWavePeaksEntry(src: string, buckets = DEFERRED_PEAKS_BUCKETS): WavePeaksCacheEntry | null {
+  const entry = waveformPeaksCache.get(getWavePeaksCacheKey(src, buckets))
+  if (!entry) return null
+  // Touch for simple LRU behavior.
+  waveformPeaksCache.delete(getWavePeaksCacheKey(src, buckets))
+  waveformPeaksCache.set(getWavePeaksCacheKey(src, buckets), { ...entry, updatedAt: Date.now() })
+  return entry
+}
+
+function readCachedWavePeaks(src: string, buckets = DEFERRED_PEAKS_BUCKETS): WavePeaks | null {
+  return readCachedWavePeaksEntry(src, buckets)?.peaks ?? null
+}
+
+function readCachedFullWavePeaks(src: string, buckets = DEFERRED_PEAKS_BUCKETS): WavePeaks | null {
+  const entry = readCachedWavePeaksEntry(src, buckets)
+  if (!entry || entry.quality !== "full") return null
+  return entry.peaks
+}
+
+function writeCachedWavePeaks(
+  src: string,
+  peaks: WavePeaks,
+  buckets = DEFERRED_PEAKS_BUCKETS,
+  quality: "preview" | "full" = "full"
+) {
+  const key = getWavePeaksCacheKey(src, buckets)
+  const existing = waveformPeaksCache.get(key)
+  if (existing?.quality === "full" && quality === "preview") {
+    waveformPeaksCache.delete(key)
+    waveformPeaksCache.set(key, {
+      ...existing,
+      updatedAt: Date.now(),
+    })
+    return
+  }
+  waveformPeaksCache.delete(key)
+  waveformPeaksCache.set(key, {
+    peaks,
+    quality,
+    updatedAt: Date.now(),
+  })
+  while (waveformPeaksCache.size > WAVEFORM_PEAKS_CACHE_LIMIT) {
+    const oldestKey = waveformPeaksCache.keys().next().value
+    if (!oldestKey) break
+    waveformPeaksCache.delete(oldestKey)
+  }
 }
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const
@@ -327,6 +793,67 @@ function hasClientPreviewFlag(flagKey: string): boolean {
     .includes(flagKey)
 }
 
+function hasClientStorageFlag(storageKey: string): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    return window.localStorage.getItem(storageKey) === "1"
+  } catch {
+    return false
+  }
+}
+
+function readClientAudioPilotFlag(envEnabled: boolean, previewFlag: string, storageKey: string): boolean {
+  return envEnabled || hasClientPreviewFlag(previewFlag) || hasClientStorageFlag(storageKey)
+}
+
+function resolveClientAudioPilotRouting(trackCount: number) {
+  return resolveAudioPilotRouting({
+    trackCount,
+    streamingBufferPilotEnabled: readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_STREAMING_PILOT === "1",
+      STREAMING_BUFFER_PREVIEW_FLAG,
+      "rr_audio_streaming_pilot"
+    ),
+    appendableQueuePilotEnabled: readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_PILOT === "1",
+      APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG,
+      "rr_audio_appendable_queue_pilot"
+    ),
+    appendableQueueMultistemPilotEnabled: readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_MULTISTEM_PILOT === "1",
+      APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG,
+      "rr_audio_appendable_queue_multistem_pilot"
+    ),
+    ringBufferPilotEnabled: readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_RINGBUFFER_PILOT === "1",
+      RINGBUFFER_PILOT_PREVIEW_FLAG,
+      "rr_audio_ringbuffer_pilot"
+    ),
+  })
+}
+
+function getEngineModeCapabilities(mode: EngineMode): AudioEngineCapabilities {
+  switch (mode) {
+    case "streaming_media":
+      return {
+        supportsTempo: true,
+        supportsIndependentPitch: false,
+      }
+    case "appendable_queue_worklet":
+    case "ringbuffer_worklet":
+      return {
+        supportsTempo: false,
+        supportsIndependentPitch: false,
+      }
+    case "soundtouch":
+    default:
+      return {
+        supportsTempo: true,
+        supportsIndependentPitch: true,
+      }
+  }
+}
+
 function shouldPreferProgressiveLoad(trackList: TrackDef[]): boolean {
   if (typeof navigator === "undefined") return false
   const deviceMemory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory)
@@ -367,6 +894,22 @@ function buildTrackScopeId(trackList: TrackDef[]): string {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
   return normalized.slice(0, 180) || "default"
+}
+
+function readAudioPerfNowMs(): number {
+  if (typeof performance !== "undefined" && Number.isFinite(performance.now())) {
+    return performance.now()
+  }
+  return Date.now()
+}
+
+function calcPercentileMs(values: number[], percentile: number): number {
+  if (!values.length) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const clamped = Math.max(0, Math.min(100, percentile))
+  const rank = Math.ceil((clamped / 100) * sorted.length)
+  const idx = Math.max(0, Math.min(sorted.length - 1, rank - 1))
+  return Number(sorted[idx].toFixed(1))
 }
 
 function toLatencyMs(value: unknown): number | null {
@@ -682,6 +1225,119 @@ function computePeaks(buffer: AudioBuffer, buckets: number): WavePeaks {
   return { min, max }
 }
 
+async function computePeaksProgressive(
+  buffer: AudioBuffer,
+  buckets: number,
+  opts?: { yieldEveryBuckets?: number; maxSliceMs?: number; yieldDelayMs?: number }
+): Promise<WavePeaks> {
+  const channels = buffer.numberOfChannels
+  const length = buffer.length
+  const safeBuckets = Math.max(1, Math.min(buckets, length))
+  const min = new Float32Array(safeBuckets)
+  const max = new Float32Array(safeBuckets)
+  for (let i = 0; i < safeBuckets; i++) {
+    min[i] = 1
+    max[i] = -1
+  }
+
+  const channelData = new Array<Float32Array>(channels)
+  for (let c = 0; c < channels; c++) channelData[c] = buffer.getChannelData(c)
+
+  const samplesPerBucket = Math.max(1, Math.floor(length / safeBuckets))
+  const yieldEveryBuckets = Math.max(4, opts?.yieldEveryBuckets ?? 18)
+  const maxSliceMs = Math.max(1, opts?.maxSliceMs ?? 6)
+  const yieldDelayMs = Math.max(0, opts?.yieldDelayMs ?? 0)
+  const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now())
+  let sliceStartedAt = nowMs()
+
+  for (let b = 0; b < safeBuckets; b++) {
+    const start = b * samplesPerBucket
+    const end = Math.min(length, start + samplesPerBucket)
+
+    let localMin = 1
+    let localMax = -1
+
+    for (let c = 0; c < channels; c++) {
+      const data = channelData[c]
+      for (let i = start; i < end; i++) {
+        const v = data[i]
+        if (v < localMin) localMin = v
+        if (v > localMax) localMax = v
+      }
+    }
+
+    min[b] = localMin
+    max[b] = localMax
+
+    if ((b + 1) % yieldEveryBuckets === 0 && nowMs() - sliceStartedAt >= maxSliceMs) {
+      await new Promise<void>((resolve) => setTimeout(resolve, yieldDelayMs))
+      sliceStartedAt = nowMs()
+    }
+  }
+
+  return { min, max }
+}
+
+function computePreviewPeaks(
+  buffer: AudioBuffer,
+  buckets: number,
+  opts?: { probesPerBucket?: number }
+): WavePeaks {
+  const channels = buffer.numberOfChannels
+  const length = buffer.length
+  const safeBuckets = Math.max(1, Math.min(buckets, length))
+  const min = new Float32Array(safeBuckets)
+  const max = new Float32Array(safeBuckets)
+  for (let i = 0; i < safeBuckets; i++) {
+    min[i] = 1
+    max[i] = -1
+  }
+
+  const probesPerBucket = Math.max(8, opts?.probesPerBucket ?? WAVEFORM_PREVIEW_PROBES_PER_BUCKET)
+  const channelData = new Array<Float32Array>(channels)
+  for (let c = 0; c < channels; c++) channelData[c] = buffer.getChannelData(c)
+
+  const samplesPerBucket = Math.max(1, Math.floor(length / safeBuckets))
+  for (let b = 0; b < safeBuckets; b++) {
+    const start = b * samplesPerBucket
+    const end = Math.min(length, start + samplesPerBucket)
+    const span = Math.max(1, end - start)
+    const step = Math.max(1, Math.floor(span / probesPerBucket))
+
+    let localMin = 1
+    let localMax = -1
+
+    for (let c = 0; c < channels; c++) {
+      const data = channelData[c]
+      const inspect = (sampleIndex: number) => {
+        const clamped = Math.max(start, Math.min(end - 1, sampleIndex))
+        const value = data[clamped]
+        if (value < localMin) localMin = value
+        if (value > localMax) localMax = value
+      }
+
+      inspect(start)
+      inspect(start + Math.floor(span / 2))
+      inspect(end - 1)
+
+      for (let i = start; i < end; i += step) {
+        const value = data[i]
+        if (value < localMin) localMin = value
+        if (value > localMax) localMax = value
+      }
+    }
+
+    if (localMin > localMax) {
+      localMin = -0.02
+      localMax = 0.02
+    }
+    min[b] = localMin
+    max[b] = localMax
+  }
+
+  return { min, max }
+}
+
 function makeFlatPeaks(buckets = 1200): WavePeaks {
   const min = new Float32Array(buckets)
   const max = new Float32Array(buckets)
@@ -850,6 +1506,22 @@ function classifyGuestSyncQuality(score: number): GuestSyncQuality {
   return "low"
 }
 
+async function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`${label} timeout after ${timeoutMs}ms`))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeoutId != null) clearTimeout(timeoutId)
+  }
+}
+
 function createSilentBuffer(ctx: AudioContext, durationSec: number, sampleRate = 44_100) {
   const safeDuration = clamp(durationSec, 1, 60 * 20)
   const frameCount = Math.max(1, Math.floor(sampleRate * safeDuration))
@@ -957,7 +1629,7 @@ export default function MultiTrackPlayer({
   const trackList = inputTracks?.length ? inputTracks : tracks
   const trackScopeId = useMemo(() => buildTrackScopeId(trackList), [trackList])
   const initialTrackVolumes = useMemo(
-    () => trackList.map((track) => clamp(track.defaultVolume ?? 1, 0, 1.5)),
+    () => trackList.map((track) => clamp(track.defaultVolume ?? 1, 0, TRACK_MAX_GAIN)),
     [trackList]
   )
   const guestSyncStorageKey = useMemo(() => `rr_guest_sync_offset_sec:${trackScopeId}`, [trackScopeId])
@@ -965,11 +1637,22 @@ export default function MultiTrackPlayer({
   const guestTakesStorageKey = useMemo(() => `rr_guest_takes:${trackScopeId}:v1`, [trackScopeId])
   const guestSyncMetricsStorageKey = useMemo(() => `rr_guest_sync_metrics:${trackScopeId}:v1`, [trackScopeId])
   const guestDriftMetricsStorageKey = useMemo(() => `rr_guest_drift_metrics:${trackScopeId}:v1`, [trackScopeId])
+  const appendableRoutePilotReportStorageKey = useMemo(
+    () => `${APPENDABLE_ROUTE_PILOT_REPORT_STORAGE_KEY_PREFIX}:${trackScopeId}:v1`,
+    [trackScopeId]
+  )
 
   const ctxRef = useRef<AudioContext | null>(null)
   const globalControllerRef = useRef<GlobalAudioController | null>(null)
+  const onTrackSetReadyRef = useRef(onTrackSetReady)
   const globalControllerIdRef = useRef(`rr-multitrack:${Math.random().toString(36).slice(2)}`)
   const enginesRef = useRef<(SoundTouchEngine | null)[]>(trackList.map(() => null))
+  const appendableQueueCoordinatorRef = useRef<AppendableQueueMultitrackCoordinator | null>(null)
+  const appendableQueueSharedTickTimerRef = useRef<number | null>(null)
+  const appendableQueueSharedTickWorkerRef = useRef<Worker | null>(null)
+  const appendableQueueRuntimeProbeTimerRef = useRef<number | null>(null)
+  const appendableQueueRuntimeProbeLastLogAtMsRef = useRef(0)
+  const appendableQueueRuntimeProbeLastMinLeadSecRef = useRef<number | null>(null)
 
   // gate (anti-cascade + clean start/stop)
   const engineGateRef = useRef<GainNode[]>([])
@@ -981,16 +1664,79 @@ export default function MultiTrackPlayer({
   // master
   const masterInRef = useRef<GainNode | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
+  const masterLimiterRef = useRef<DynamicsCompressorNode | null>(null)
   const wetGainRef = useRef<GainNode | null>(null)
   const dryGainRef = useRef<GainNode | null>(null)
+  const audioDebugMasterTapNodeRef = useRef<AudioWorkletNode | null>(null)
+  const audioDebugMasterTapCtxRef = useRef<AudioContext | null>(null)
+  const audioDebugMasterTapModuleLoadedCtxRef = useRef<AudioContext | null>(null)
+  const audioDebugMasterTapChunkLoggedRef = useRef(false)
+  const audioDebugMasterTapStatsRef = useRef<AudioDebugMasterTapStats>({
+    framesCaptured: 0,
+    chunkReports: 0,
+    clickReports: 0,
+    errors: 0,
+  })
+  const flushAudioDebugMasterTap = useCallback((token: string | null = null) => {
+    const node = audioDebugMasterTapNodeRef.current
+    if (!node) {
+      if (typeof window !== "undefined" && token) {
+        window.dispatchEvent(
+          new CustomEvent("rr-audio-debug-flush-complete", {
+            detail: { token, ok: false, reason: "missing_node" },
+          })
+        )
+      }
+      return false
+    }
+    try {
+      node.port.postMessage({ type: "flush", token })
+      logAudioDebug("audio:master_tap_flush", token ? { token } : {})
+      return true
+    } catch {
+      logAudioDebug("audio:master_tap_flush_error", token ? { token } : {})
+      if (typeof window !== "undefined" && token) {
+        window.dispatchEvent(
+          new CustomEvent("rr-audio-debug-flush-complete", {
+            detail: { token, ok: false, reason: "post_failed" },
+          })
+        )
+      }
+      return false
+    }
+  }, [])
 
   // transport
   const rafRef = useRef<number | null>(null)
   const pendingRafRef = useRef<number | null>(null)
   const pendingLastFrameMsRef = useRef(0)
+  const ringbufferSharedTickTimerRef = useRef<number | null>(null)
+  const ringbufferSharedTickWorkerRef = useRef<Worker | null>(null)
   const isPlayingRef = useRef(false)
   const positionSecRef = useRef(0)
+  const soundtouchBufferSizeRef = useRef(2048)
+  const startupChunkRuntimeRef = useRef<StartupChunkRuntimeState | null>(null)
+  const startupChunkFinalizeTimerRef = useRef<number | null>(null)
   const pendingPlayRef = useRef(false)
+  const pendingStartPositionRef = useRef<number | null>(null)
+  const forceZeroStartRef = useRef(false)
+  const playInFlightRef = useRef(false)
+  const gateWarmupTimersRef = useRef<number[]>([])
+  const smoothSeekTimerRef = useRef<number | null>(null)
+  const smoothSeekResumeGateTimerRef = useRef<number | null>(null)
+  const pendingPlayWatchdogTimerRef = useRef<number | null>(null)
+  const pendingSmoothSeekSecRef = useRef<number | null>(null)
+  const ringbufferRuntimeProbeTimerRef = useRef<number | null>(null)
+  const ringbufferRuntimeProbeLastLogAtMsRef = useRef(0)
+  const ringbufferRuntimeProbeLastMinBufferedSecRef = useRef<number | null>(null)
+  const deferredPeaksIdleCallbackRef = useRef<number | null>(null)
+  const deferredPeaksSchedulerRef = useRef<(delayMs: number) => void>(() => {})
+  const playStartGuardRef = useRef<{ requestedSec: number; startedAtMs: number; corrected: boolean } | null>(null)
+  const firstFrameProbeArmedRef = useRef(false)
+  const audioTtfpAttemptRef = useRef<AudioTtfpAttempt | null>(null)
+  const audioTtfpSequenceRef = useRef(0)
+  const audioTtfpSamplesRef = useRef<number[]>([])
+  const activeTrackScopeRef = useRef(trackScopeId)
   const readyRef = useRef(false)
   const navResumePositionRef = useRef<number | null>(null)
   const navResumePlayRef = useRef(false)
@@ -1005,7 +1751,68 @@ export default function MultiTrackPlayer({
   const [mainPlayPending, setMainPlayPending] = useState(false)
   const [loopOn, setLoopOn] = useState(false)
   const loopOnRef = useRef(loopOn)
-  const [progressiveLoadEnabled, setProgressiveLoadEnabled] = useState(false)
+  const initialAudioPilotRouting = resolveClientAudioPilotRouting(trackList.length)
+  const [progressiveLoadEnabled, setProgressiveLoadEnabled] = useState(
+    () => hasClientPreviewFlag(PROGRESSIVE_LOAD_PREVIEW_FLAG) || shouldPreferProgressiveLoad(trackList)
+  )
+  const [startupChunkPilotEnabled] = useState(
+    () =>
+      process.env.NEXT_PUBLIC_AUDIO_STARTUP_CHUNK_PILOT === "1" ||
+      hasClientPreviewFlag(STARTUP_CHUNK_PREVIEW_FLAG) ||
+      hasClientStorageFlag("rr_audio_startup_chunk_pilot")
+  )
+  const [startupChunkSplicePilotEnabled] = useState(
+    () =>
+      process.env.NEXT_PUBLIC_AUDIO_STARTUP_SPLICE_PILOT === "1" ||
+      hasClientPreviewFlag(STARTUP_CHUNK_SPLICE_PREVIEW_FLAG) ||
+      hasClientStorageFlag("rr_audio_startup_splice_pilot")
+  )
+  const [startupChunkSplicePilotKey] = useState(
+    () =>
+      process.env.NEXT_PUBLIC_AUDIO_STARTUP_SPLICE_PILOT_KEY?.trim().toLowerCase() ||
+      (typeof window !== "undefined"
+        ? window.localStorage.getItem("rr_audio_startup_splice_pilot_key")?.trim().toLowerCase() || ""
+        : "")
+  )
+  const [streamingBufferPilotEnabled, setStreamingBufferPilotEnabled] = useState(
+    () => initialAudioPilotRouting.useStreamingPilot
+  )
+  const [appendableQueuePilotEnabled, setAppendableQueuePilotEnabled] = useState(
+    () =>
+      readClientAudioPilotFlag(
+        process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_PILOT === "1",
+        APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG,
+        "rr_audio_appendable_queue_pilot"
+      )
+  )
+  const [appendableQueueMultistemPilotEnabled, setAppendableQueueMultistemPilotEnabled] = useState(
+    () =>
+      readClientAudioPilotFlag(
+        process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_MULTISTEM_PILOT === "1",
+        APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG,
+        "rr_audio_appendable_queue_multistem_pilot"
+      )
+  )
+  const [appendableQueueRuntimeProbeSnapshot, setAppendableQueueRuntimeProbeSnapshot] = useState<AppendableQueueRuntimeProbeSnapshot>(
+    () => createAppendableQueueRuntimeProbeSnapshot()
+  )
+  const [appendableRoutePilotReport, setAppendableRoutePilotReport] = useState<AppendableRoutePilotReport>(() =>
+    createAppendableRoutePilotReport()
+  )
+  const [appendableRouteQuickPilotRunning, setAppendableRouteQuickPilotRunning] = useState(false)
+  const [appendableRouteQuickPilotMessage, setAppendableRouteQuickPilotMessage] = useState<string | null>(null)
+  const [ringBufferPilotEnabled, setRingBufferPilotEnabled] = useState(
+    () =>
+      readClientAudioPilotFlag(
+        process.env.NEXT_PUBLIC_AUDIO_RINGBUFFER_PILOT === "1",
+        RINGBUFFER_PILOT_PREVIEW_FLAG,
+        "rr_audio_ringbuffer_pilot"
+      )
+  )
+  const [activeEngineMode, setActiveEngineMode] = useState<EngineMode>(() => initialAudioPilotRouting.engineMode)
+  const [activeEngineCapabilities, setActiveEngineCapabilities] = useState<AudioEngineCapabilities>(() =>
+    getEngineModeCapabilities(initialAudioPilotRouting.engineMode)
+  )
   const [recordingEngineV2Enabled, setRecordingEngineV2Enabled] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("compatibility")
 
@@ -1026,6 +1833,7 @@ export default function MultiTrackPlayer({
   // waveform
   const waveCanvasesRef = useRef<(HTMLCanvasElement | null)[]>([])
   const peaksRef = useRef<(WavePeaks | null)[]>(trackList.map(() => null))
+  const waveformSourceBuffersRef = useRef<AudioBuffer[]>([])
   const [waveReady, setWaveReady] = useState(false)
   const lastExternalSeekRef = useRef<number | null>(null)
   const [teleprompterLines, setTeleprompterLines] = useState<TeleprompterLine[]>([])
@@ -1042,6 +1850,13 @@ export default function MultiTrackPlayer({
   const [teleprompterPreviewSaveInfo, setTeleprompterPreviewSaveInfo] = useState("")
   const [teleprompterPreviewAutoSave, setTeleprompterPreviewAutoSave] = useState(true)
   const [teleprompterBulkTextEditOpen, setTeleprompterBulkTextEditOpen] = useState(false)
+  const [audioDebugCopyState, setAudioDebugCopyState] = useState<"idle" | "copied" | "error">("idle")
+  const audioDebugEntries = useSyncExternalStore(
+    subscribeAudioDebugBuffer,
+    getAudioDebugBufferSnapshot,
+    getAudioDebugBufferSnapshot
+  )
+  const recentAudioDebugEntries = useMemo(() => audioDebugEntries.slice(-12).reverse(), [audioDebugEntries])
   const [teleprompterBulkTextValue, setTeleprompterBulkTextValue] = useState("")
   const [teleprompterBulkTextInfo, setTeleprompterBulkTextInfo] = useState("")
   const [teleprompterBackupInfo, setTeleprompterBackupInfo] = useState("")
@@ -1206,6 +2021,7 @@ export default function MultiTrackPlayer({
     () => (effectiveTeleprompterSourceUrl ? `rr_teleprompter_auto_collect:${trackScopeId}:${effectiveTeleprompterSourceUrl}` : null),
     [effectiveTeleprompterSourceUrl, trackScopeId]
   )
+  const teleprompterAutoCollectAllowed = TELEPROMPTER_AUTOCOLLECT_ENV_ENABLED
   const teleprompterPreviewAutoSaveStorageKey = useMemo(
     () => (effectiveTeleprompterSourceUrl ? `rr_teleprompter_preview_auto_save:${trackScopeId}:${effectiveTeleprompterSourceUrl}` : null),
     [effectiveTeleprompterSourceUrl, trackScopeId]
@@ -1238,6 +2054,136 @@ export default function MultiTrackPlayer({
     },
     [onPlaybackStateChange]
   )
+
+  const beginAudioTtfpAttempt = useCallback((trigger: string) => {
+    if (!isAudioTtfpEnabled()) return
+    const nextId = audioTtfpSequenceRef.current + 1
+    audioTtfpSequenceRef.current = nextId
+    const attempt: AudioTtfpAttempt = {
+      id: nextId,
+      trackScopeId,
+      trigger,
+      startedAtMs: readAudioPerfNowMs(),
+      startedAtIso: new Date().toISOString(),
+      stages: {},
+      finalized: false,
+    }
+    audioTtfpAttemptRef.current = attempt
+  }, [trackScopeId])
+
+  const markAudioTtfpStage = useCallback((stage: AudioTtfpStage, extra?: Record<string, unknown>) => {
+    if (!isAudioTtfpEnabled()) return
+    const attempt = audioTtfpAttemptRef.current
+    if (!attempt || attempt.finalized) return
+    if (attempt.trackScopeId !== trackScopeId) return
+    if (typeof attempt.stages[stage] === "number") return
+    const ts = readAudioPerfNowMs()
+    attempt.stages[stage] = ts
+    logAudioDebug("ttfp:stage", {
+      id: attempt.id,
+      trigger: attempt.trigger,
+      stage,
+      elapsedMs: Number((ts - attempt.startedAtMs).toFixed(1)),
+      ...extra,
+    })
+  }, [trackScopeId])
+
+  const abortAudioTtfpAttempt = useCallback((reason: string) => {
+    const attempt = audioTtfpAttemptRef.current
+    if (!attempt || attempt.finalized) return
+    attempt.finalized = true
+    audioTtfpAttemptRef.current = null
+    logAudioDebug("ttfp:abort", {
+      id: attempt.id,
+      trigger: attempt.trigger,
+      reason,
+      elapsedMs: Number((readAudioPerfNowMs() - attempt.startedAtMs).toFixed(1)),
+    })
+  }, [])
+
+  const flushAudioTtfpAttempt = useCallback((finalStage: AudioTtfpStage) => {
+    if (!isAudioTtfpEnabled()) return
+    const attempt = audioTtfpAttemptRef.current
+    if (!attempt || attempt.finalized) return
+    if (attempt.trackScopeId !== trackScopeId) return
+    const finalTs = attempt.stages[finalStage] ?? readAudioPerfNowMs()
+    const ttfpMs = Math.max(0, Number((finalTs - attempt.startedAtMs).toFixed(1)))
+    if (ttfpMs <= 0) {
+      attempt.finalized = true
+      audioTtfpAttemptRef.current = null
+      return
+    }
+
+    const stageDelta = (from: AudioTtfpStage, to: AudioTtfpStage): number | undefined => {
+      const fromTs = attempt.stages[from]
+      const toTs = attempt.stages[to]
+      if (typeof fromTs !== "number" || typeof toTs !== "number") return undefined
+      return Math.max(0, Number((toTs - fromTs).toFixed(1)))
+    }
+
+    const samples = audioTtfpSamplesRef.current
+    samples.push(ttfpMs)
+    if (samples.length > AUDIO_TTFP_SAMPLE_WINDOW) samples.splice(0, samples.length - AUDIO_TTFP_SAMPLE_WINDOW)
+    const p50Ms = calcPercentileMs(samples, 50)
+    const p95Ms = calcPercentileMs(samples, 95)
+
+    const payload = {
+      trackScopeId: attempt.trackScopeId,
+      trigger: attempt.trigger,
+      finalStage,
+      ttfpMs,
+      sampleCount: samples.length,
+      p50Ms,
+      p95Ms,
+      clickToPlayMs: stageDelta("click", "play_call"),
+      playToCtxResumeMs: stageDelta("play_call", "ctx_resumed"),
+      ctxResumeToSeekMs: stageDelta("ctx_resumed", "seek_applied"),
+      seekToEngineStartMs: stageDelta("seek_applied", "engines_start"),
+      engineStartToGateOpenMs: stageDelta("engines_start", "gate_open"),
+      gateOpenToPlayingMs: stageDelta("gate_open", "playing_state"),
+      route: typeof window !== "undefined" ? window.location.pathname : undefined,
+      locale: typeof document !== "undefined" ? document.documentElement.lang?.slice(0, 2) : undefined,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+      startedAt: attempt.startedAtIso,
+    }
+
+    logAudioTtfp(payload)
+
+    // In dev diagnostics mode keep metrics in console only by default:
+    // file-backed analytics writes can trigger Fast Refresh and distort audio behavior.
+    const shouldPersist =
+      process.env.NODE_ENV === "production" || AUDIO_TTFP_PERSIST_IN_DEV
+    if (!shouldPersist) {
+      attempt.finalized = true
+      audioTtfpAttemptRef.current = null
+      return
+    }
+
+    const json = JSON.stringify(payload)
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      try {
+        const blob = new Blob([json], { type: "application/json" })
+        navigator.sendBeacon(AUDIO_TTFP_API_PATH, blob)
+      } catch {
+        void fetch(AUDIO_TTFP_API_PATH, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: json,
+          keepalive: true,
+        })
+      }
+    } else {
+      void fetch(AUDIO_TTFP_API_PATH, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: json,
+        keepalive: true,
+      })
+    }
+
+    attempt.finalized = true
+    audioTtfpAttemptRef.current = null
+  }, [trackScopeId])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -1326,6 +2272,11 @@ export default function MultiTrackPlayer({
       longTaskCount: "long_task_count",
       longTaskMax: "max_long_task_ms",
       progressiveLoadFlag: "multitrack_progressive_load",
+      startupChunkFlag: "multitrack_startup_chunk_pilot",
+      startupChunkSpliceFlag: "multitrack_startup_splice_pilot",
+      streamingBufferFlag: "multitrack_streaming_pilot",
+      appendableQueueFlag: "multitrack_appendable_queue_pilot",
+      ringBufferFlag: "multitrack_ringbuffer_pilot",
       recordingV2Flag: "recording_engine_v2",
       recordingEngine: "recording_engine",
       recorderDropouts: "input_dropouts",
@@ -1492,6 +2443,240 @@ export default function MultiTrackPlayer({
     }
   }, [uiLang])
 
+  const appendablePilotChecklistState = useMemo(() => {
+    const routing = resolveAudioPilotRouting({
+      trackCount: trackList.length,
+      streamingBufferPilotEnabled,
+      appendableQueuePilotEnabled,
+      appendableQueueMultistemPilotEnabled,
+      ringBufferPilotEnabled,
+    })
+    const flagsReady = appendableQueuePilotEnabled && appendableQueueMultistemPilotEnabled
+    const modeReady = activeEngineMode === "appendable_queue_worklet"
+    const probeActive = appendableQueueRuntimeProbeSnapshot.active
+    const cleanRuntime =
+      appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames === 0 &&
+      appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount === 0
+
+    let status: "waiting_for_flags" | "play_to_activate_probe" | "ready_for_manual_pilot" | "attention_required" =
+      "waiting_for_flags"
+    if (flagsReady && modeReady && probeActive && cleanRuntime) {
+      status = "ready_for_manual_pilot"
+    } else if (routing.appendableBlockedByStreaming) {
+      status = "attention_required"
+    } else if (flagsReady && modeReady && probeActive && !cleanRuntime) {
+      status = "attention_required"
+    } else if (flagsReady && modeReady) {
+      status = "play_to_activate_probe"
+    }
+
+    const statusLabel =
+      uiLang === "ru"
+        ? status === "ready_for_manual_pilot"
+          ? "готов к ручному pilot"
+          : routing.appendableBlockedByStreaming
+            ? "appendable pilot перекрыт streaming mode"
+          : status === "play_to_activate_probe"
+            ? "запусти playback для runtime probe"
+            : status === "attention_required"
+              ? "нужна проверка runtime"
+              : "включи оба appendable флага"
+        : status === "ready_for_manual_pilot"
+          ? "ready for manual pilot"
+          : routing.appendableBlockedByStreaming
+            ? "appendable pilot is blocked by streaming mode"
+          : status === "play_to_activate_probe"
+            ? "start playback to activate runtime probe"
+            : status === "attention_required"
+              ? "runtime attention required"
+              : "enable both appendable flags"
+
+    const steps =
+      routing.appendableBlockedByStreaming
+        ? uiLang === "ru"
+          ? [
+              "1. Отключи `streaming` flag для route-level appendable pilot.",
+              "2. Оставь включенными `appendable queue` и `appendable multistem`.",
+              "3. Перезагрузи `/sound/...` route и проверь, что `audio mode = appendable_queue_worklet`.",
+            ]
+          : [
+              "1. Disable the `streaming` flag for the route-level appendable pilot.",
+              "2. Keep `appendable queue` and `appendable multistem` enabled.",
+              "3. Reload the `/sound/...` route and confirm `audio mode = appendable_queue_worklet`.",
+            ]
+        : uiLang === "ru"
+        ? [
+            "1. Включи `appendable queue` и `appendable multistem` flags.",
+            "2. Нажми `Воспроизвести` на обычном `/sound/...` route.",
+            "3. Проверь, что `appendable queue probe = active` и underrun/discontinuity = 0.",
+            "4. Сделай seek через основной слайдер и убедись, что probe остается active.",
+          ]
+        : [
+            "1. Enable both `appendable queue` and `appendable multistem` flags.",
+            "2. Press `Play` on the normal `/sound/...` route.",
+            "3. Confirm `appendable queue probe = active` and underrun/discontinuity = 0.",
+            "4. Perform one seek on the main slider and confirm the probe stays active.",
+          ]
+
+    return {
+      status,
+      statusLabel,
+      steps,
+    }
+  }, [
+    activeEngineMode,
+    appendableQueueMultistemPilotEnabled,
+    appendableQueuePilotEnabled,
+    ringBufferPilotEnabled,
+    appendableQueueRuntimeProbeSnapshot.active,
+    appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount,
+    appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames,
+    streamingBufferPilotEnabled,
+    trackList.length,
+    uiLang,
+  ])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    setAppendableRoutePilotReport(
+      restoreAppendableRoutePilotReport(window.localStorage.getItem(appendableRoutePilotReportStorageKey)) ??
+        createAppendableRoutePilotReport()
+    )
+  }, [appendableRoutePilotReportStorageKey])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      window.localStorage.setItem(appendableRoutePilotReportStorageKey, JSON.stringify(appendableRoutePilotReport))
+    } catch {}
+  }, [appendableRoutePilotReport, appendableRoutePilotReportStorageKey])
+
+  const buildAppendableRoutePilotSnapshot = useCallback((): AppendableRoutePilotReportSnapshot => {
+    const capturedAt = new Date().toISOString()
+    return {
+      capturedAt,
+      trackScopeId,
+      audioMode: activeEngineMode,
+      flags: {
+        appendableQueuePilotEnabled,
+        appendableQueueMultistemPilotEnabled,
+      },
+      probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
+    }
+  }, [
+    activeEngineMode,
+    appendableQueueMultistemPilotEnabled,
+    appendableQueuePilotEnabled,
+    appendableQueueRuntimeProbeSnapshot,
+    trackScopeId,
+  ])
+
+  const buildAppendableRoutePilotReportWithSnapshot = useCallback(
+    (
+      snapshot: AppendableRoutePilotReportSnapshot,
+      options?: { status?: AppendableRoutePilotReportStatus }
+    ): AppendableRoutePilotReport => {
+      return {
+        ...appendableRoutePilotReport,
+        updatedAt: snapshot.capturedAt,
+        status: options?.status ?? appendableRoutePilotReport.status,
+        snapshot,
+      }
+    },
+    [appendableRoutePilotReport]
+  )
+
+  const captureAppendableRoutePilotSnapshot = useCallback(() => {
+    const snapshot = buildAppendableRoutePilotSnapshot()
+    setAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot))
+    return snapshot
+  }, [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot])
+
+  const setAppendableRoutePilotNotes = useCallback((notes: string) => {
+    setAppendableRoutePilotReport((current) => ({
+      ...current,
+      notes,
+      updatedAt: new Date().toISOString(),
+    }))
+  }, [])
+
+  const markAppendableRoutePilotReport = useCallback(
+    (status: AppendableRoutePilotReportStatus) => {
+      const snapshot = buildAppendableRoutePilotSnapshot()
+      setAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot, { status }))
+    },
+    [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot]
+  )
+
+  const resetAppendableRoutePilotReport = useCallback(() => {
+    setAppendableRoutePilotReport(createAppendableRoutePilotReport())
+  }, [])
+
+  const downloadAppendableRoutePilotReport = useCallback((reportOverride?: AppendableRoutePilotReport) => {
+    const now = new Date()
+    const pad2 = (n: number) => String(n).padStart(2, "0")
+    const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`
+    const payload = {
+      ...(reportOverride ?? appendableRoutePilotReport),
+      exportedAt: now.toISOString(),
+      trackScopeId,
+      tracks: trackList.map((track) => ({ name: track.name, src: track.src })),
+      checklistStatus: appendablePilotChecklistState.status,
+      checklistStatusLabel: appendablePilotChecklistState.statusLabel,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `appendable-route-pilot-${trackScopeId.slice(0, 56)}-${stamp}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [appendablePilotChecklistState.status, appendablePilotChecklistState.statusLabel, appendableRoutePilotReport, trackList, trackScopeId])
+
+  const downloadAppendableRoutePilotPacket = useCallback((reportOverride?: AppendableRoutePilotReport) => {
+    const now = new Date()
+    const pad2 = (n: number) => String(n).padStart(2, "0")
+    const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`
+    const audioDebugEntriesSnapshot = getAudioDebugBufferSnapshot()
+    const payload = {
+      exportedAt: now.toISOString(),
+      trackScopeId,
+      tracks: trackList.map((track) => ({ name: track.name, src: track.src })),
+      checklist: {
+        status: appendablePilotChecklistState.status,
+        statusLabel: appendablePilotChecklistState.statusLabel,
+        steps: appendablePilotChecklistState.steps,
+      },
+      report: reportOverride ?? appendableRoutePilotReport,
+      runtimeProbe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
+      audioDebug: {
+        entries: audioDebugEntriesSnapshot,
+        formatted: formatAudioDebugBuffer(audioDebugEntriesSnapshot),
+        captureArtifact: getAudioDebugCaptureArtifactSnapshot(),
+      },
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `appendable-route-pilot-packet-${trackScopeId.slice(0, 56)}-${stamp}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [
+    appendablePilotChecklistState.status,
+    appendablePilotChecklistState.statusLabel,
+    appendablePilotChecklistState.steps,
+    appendableQueueRuntimeProbeSnapshot,
+    appendableRoutePilotReport,
+    trackList,
+    trackScopeId,
+  ])
+
+
   const localMasterCapable = recordingEngineV2Enabled && isOpfsAvailable() && typeof AudioWorkletNode !== "undefined"
 
   const pianoKeys = useMemo<PianoKey[]>(() => {
@@ -1536,6 +2721,10 @@ export default function MultiTrackPlayer({
   useEffect(() => {
     setIsHydrated(true)
   }, [])
+
+  useEffect(() => {
+    onTrackSetReadyRef.current = onTrackSetReady
+  }, [onTrackSetReady])
 
   const beginGuestProgrammaticAction = () => {
     guestSyncGuardRef.current = true
@@ -1870,15 +3059,20 @@ export default function MultiTrackPlayer({
     const ctx = node.context
     const now = ctx.currentTime
     const g = node.gain
-    const from = g.value
-    if (Math.abs(from - target) < 0.0005) return
+    const safeTarget = Number.isFinite(target) ? target : 0
+    const rawFrom = g.value
+    const from = Number.isFinite(rawFrom) ? rawFrom : safeTarget
 
     try {
       g.cancelScheduledValues(now)
+      if (Math.abs(from - safeTarget) < 0.0005) {
+        g.setValueAtTime(safeTarget, now)
+        return
+      }
       g.setValueAtTime(from, now)
-      g.linearRampToValueAtTime(target, now + rampSec)
+      g.linearRampToValueAtTime(safeTarget, now + rampSec)
     } catch {
-      g.value = target
+      g.value = safeTarget
     }
   }
 
@@ -1979,6 +3173,15 @@ export default function MultiTrackPlayer({
     guestTrackUrlRef.current = guestTrackUrl
   }, [guestTrackUrl])
 
+  const scheduleBlobUrlRevoke = useCallback((url: string | null | undefined, delayMs = 1500) => {
+    if (!url || typeof window === "undefined") return
+    window.setTimeout(() => {
+      try {
+        URL.revokeObjectURL(url)
+      } catch {}
+    }, delayMs)
+  }, [])
+
   useEffect(() => {
     guestCalibratingRef.current = guestCalibrating
   }, [guestCalibrating])
@@ -2010,7 +3213,7 @@ export default function MultiTrackPlayer({
 
   useEffect(() => {
     setGuestTrackUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
+      scheduleBlobUrlRevoke(prev, 2000)
       return null
     })
     setGuestTakes([])
@@ -2101,7 +3304,7 @@ export default function MultiTrackPlayer({
     loadGuestRecording().catch(() => {})
     // loadGuestRecording depends only on guestRecordStorageKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guestDriftMetricsStorageKey, guestSyncStorageKey, guestRecordStorageKey, guestSyncMetricsStorageKey])
+  }, [guestDriftMetricsStorageKey, guestRecordStorageKey, guestSyncMetricsStorageKey, guestSyncStorageKey, scheduleBlobUrlRevoke])
 
   useEffect(() => {
     if (!guestSyncLoadedRef.current) return
@@ -2225,6 +3428,62 @@ export default function MultiTrackPlayer({
   }, [trackList])
 
   useEffect(() => {
+    const enabled = readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_STREAMING_PILOT === "1",
+      STREAMING_BUFFER_PREVIEW_FLAG,
+      "rr_audio_streaming_pilot"
+    )
+    setStreamingBufferPilotEnabled(enabled)
+  }, [])
+
+  useEffect(() => {
+    const enabled = readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_PILOT === "1",
+      APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG,
+      "rr_audio_appendable_queue_pilot"
+    )
+    setAppendableQueuePilotEnabled(enabled)
+  }, [])
+
+  useEffect(() => {
+    const enabled = readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_MULTISTEM_PILOT === "1",
+      APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG,
+      "rr_audio_appendable_queue_multistem_pilot"
+    )
+    setAppendableQueueMultistemPilotEnabled(enabled)
+  }, [])
+
+  useEffect(() => {
+    const enabled = readClientAudioPilotFlag(
+      process.env.NEXT_PUBLIC_AUDIO_RINGBUFFER_PILOT === "1",
+      RINGBUFFER_PILOT_PREVIEW_FLAG,
+      "rr_audio_ringbuffer_pilot"
+    )
+    setRingBufferPilotEnabled(enabled)
+  }, [])
+
+  useEffect(() => {
+    if (isReady) return
+    const nextRouting = resolveAudioPilotRouting({
+      trackCount: trackList.length,
+      streamingBufferPilotEnabled,
+      appendableQueuePilotEnabled,
+      appendableQueueMultistemPilotEnabled,
+      ringBufferPilotEnabled,
+    })
+    setActiveEngineMode(nextRouting.engineMode)
+    setActiveEngineCapabilities(getEngineModeCapabilities(nextRouting.engineMode))
+  }, [
+    appendableQueueMultistemPilotEnabled,
+    appendableQueuePilotEnabled,
+    isReady,
+    ringBufferPilotEnabled,
+    streamingBufferPilotEnabled,
+    trackList.length,
+  ])
+
+  useEffect(() => {
     setRecordingEngineV2Enabled(hasClientPreviewFlag(RECORDING_ENGINE_V2_PREVIEW_FLAG))
   }, [])
 
@@ -2280,6 +3539,155 @@ export default function MultiTrackPlayer({
       audio.volume = guestMuted ? 0 : Math.min(1, guestVolume)
     }
   }, [guestMuted, guestVolume])
+
+  const teardownAudioDebugMasterTap = useCallback(() => {
+    const node = audioDebugMasterTapNodeRef.current
+    const ctx = audioDebugMasterTapCtxRef.current
+    const limiter = masterLimiterRef.current
+    try {
+      if (node) {
+        node.port.onmessage = null
+        node.disconnect()
+      }
+    } catch {}
+    try {
+      limiter?.disconnect()
+    } catch {}
+    try {
+      if (ctx && limiter) {
+        limiter.connect(ctx.destination)
+      }
+    } catch {}
+    audioDebugMasterTapNodeRef.current = null
+    audioDebugMasterTapCtxRef.current = null
+  }, [])
+
+  const setupAudioDebugMasterTap = useCallback(async (): Promise<boolean> => {
+    const ctx = ctxRef.current
+    const limiter = masterLimiterRef.current
+    if (!ctx || !limiter || !isAudioDebugEnabled()) return false
+    if (typeof AudioWorkletNode === "undefined" || !ctx.audioWorklet) return false
+
+    if (audioDebugMasterTapNodeRef.current && audioDebugMasterTapCtxRef.current === ctx) {
+      resetAudioDebugCaptureStore()
+      initAudioDebugCaptureStore(ctx.sampleRate)
+      return true
+    }
+
+    try {
+      logAudioDebug("audio:master_tap_begin", {
+        sampleRate: ctx.sampleRate,
+        destinationChannels: Math.max(1, Number(ctx.destination.channelCount) || 2),
+      })
+      if (audioDebugMasterTapModuleLoadedCtxRef.current !== ctx) {
+        await ctx.audioWorklet.addModule("/worklets/audio-debug-master-tap.js")
+        audioDebugMasterTapModuleLoadedCtxRef.current = ctx
+      }
+      teardownAudioDebugMasterTap()
+      initAudioDebugCaptureStore(ctx.sampleRate)
+      audioDebugMasterTapStatsRef.current = {
+        framesCaptured: 0,
+        chunkReports: 0,
+        clickReports: 0,
+        errors: 0,
+      }
+      audioDebugMasterTapChunkLoggedRef.current = false
+      const node = new AudioWorkletNode(ctx, "audio-debug-master-tap", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [Math.max(1, Number(ctx.destination.channelCount) || 2)],
+        processorOptions: {
+          channelCount: Math.max(1, Number(ctx.destination.channelCount) || 2),
+          chunkFrames: 4096,
+          clickThreshold: 0.07,
+          clickCooldownFrames: Math.max(1024, Math.floor(ctx.sampleRate * 0.08)),
+        },
+      })
+      node.port.onmessage = (event: MessageEvent<unknown>) => {
+        const data = event.data as
+          | {
+              type?: string
+              frames?: number
+              samples?: ArrayBuffer
+              deltaAbs?: number
+              frameCursorFrames?: number
+              outputSec?: number
+              droppedMessages?: number
+            }
+          | undefined
+        if (!data || typeof data !== "object") return
+        if (data.type === "chunk" && data.samples instanceof ArrayBuffer) {
+          appendAudioDebugCaptureSamples(new Int16Array(data.samples))
+          audioDebugMasterTapStatsRef.current.framesCaptured += Math.max(0, Math.floor(data.frames ?? 0))
+          audioDebugMasterTapStatsRef.current.chunkReports += 1
+          if (!audioDebugMasterTapChunkLoggedRef.current) {
+            audioDebugMasterTapChunkLoggedRef.current = true
+            logAudioDebug("audio:master_tap_chunk", {
+              frames: Math.max(0, Math.floor(data.frames ?? 0)),
+              sampleRate: ctx.sampleRate,
+            })
+          }
+          return
+        }
+        if (data.type === "click") {
+          const deltaAbs = typeof data.deltaAbs === "number" ? Math.max(0, data.deltaAbs) : 0
+          const frameCursorFrames =
+            typeof data.frameCursorFrames === "number" ? Math.max(0, Math.floor(data.frameCursorFrames)) : 0
+          const outputSec = typeof data.outputSec === "number" ? Math.max(0, data.outputSec) : 0
+          const droppedMessages =
+            typeof data.droppedMessages === "number" ? Math.max(0, Math.floor(data.droppedMessages)) : 0
+          audioDebugMasterTapStatsRef.current.clickReports += 1
+          audioDebugMasterTapStatsRef.current.errors += droppedMessages
+          const clickPayload = {
+            ts: new Date().toISOString(),
+            deltaAbs: Number(deltaAbs.toFixed(6)),
+            frameCursorFrames,
+            outputSec: Number(outputSec.toFixed(3)),
+            trackCurrentSec: Number(positionSecRef.current.toFixed(3)),
+          }
+          recordAudioDebugCaptureClick(clickPayload)
+          logAudioDebug("audio:output_click", clickPayload)
+          return
+        }
+        if (data.type === "flush_ack") {
+          const token = typeof (data as { token?: unknown }).token === "string" ? (data as { token: string }).token : null
+          const framesFlushed =
+            typeof (data as { framesFlushed?: unknown }).framesFlushed === "number"
+              ? Math.max(0, Math.floor((data as { framesFlushed: number }).framesFlushed))
+              : 0
+          logAudioDebug("audio:master_tap_flush_ack", {
+            token,
+            framesFlushed,
+          })
+          if (typeof window !== "undefined" && token) {
+            window.dispatchEvent(
+              new CustomEvent("rr-audio-debug-flush-complete", {
+                detail: { token, ok: true, framesFlushed },
+              })
+            )
+          }
+        }
+      }
+      try {
+        limiter.disconnect()
+      } catch {}
+      limiter.connect(node)
+      node.connect(ctx.destination)
+      audioDebugMasterTapNodeRef.current = node
+      audioDebugMasterTapCtxRef.current = ctx
+      logAudioDebug("audio:master_tap_ready", {
+        sampleRate: ctx.sampleRate,
+      })
+      return true
+    } catch {
+      audioDebugMasterTapStatsRef.current.errors += 1
+      logAudioDebug("audio:master_tap_error", {
+        errors: audioDebugMasterTapStatsRef.current.errors,
+      })
+      teardownAudioDebugMasterTap()
+      return false
+    }
+  }, [teardownAudioDebugMasterTap])
 
   const teardownRecordingV2Tap = useCallback(() => {
     const node = recordingV2TapNodeRef.current
@@ -2395,14 +3803,31 @@ export default function MultiTrackPlayer({
     engineGateRef.current = []
     trackGainRef.current = []
     panRef.current = []
+    appendableQueueCoordinatorRef.current = null
   }, [])
 
   /** =========================
    *  INIT (once)
    *  ========================= */
   useEffect(() => {
+    if (typeof window === "undefined") return
+    const handleFlush = (event: Event) => {
+      const token =
+        event instanceof CustomEvent && event.detail && typeof event.detail.token === "string" ? event.detail.token : null
+      flushAudioDebugMasterTap(token)
+    }
+    window.addEventListener("rr-audio-debug-flush-capture", handleFlush)
+    return () => {
+      window.removeEventListener("rr-audio-debug-flush-capture", handleFlush)
+    }
+  }, [flushAudioDebugMasterTap])
+
+  useEffect(() => {
     let cancelled = false
     const fetchControllers: AbortController[] = []
+    let deferredPeaksTimer: number | null = null
+    let previewPeaksTimer: number | null = null
+    let durationProbeTimer: number | null = null
 
     const init = async () => {
       readyRef.current = false
@@ -2416,17 +3841,24 @@ export default function MultiTrackPlayer({
 
       // master graph (create once per context)
       let masterIn = masterInRef.current
-      if (!masterIn || !dryGainRef.current || !wetGainRef.current || !masterGainRef.current) {
+      if (!masterIn || !dryGainRef.current || !wetGainRef.current || !masterGainRef.current || !masterLimiterRef.current) {
         masterIn = ctx.createGain()
         const dryGain = ctx.createGain()
         const wetGain = ctx.createGain()
         const convolver = ctx.createConvolver()
         const masterGain = ctx.createGain()
+        const limiter = ctx.createDynamicsCompressor()
+        limiter.threshold.value = -8
+        limiter.knee.value = 10
+        limiter.ratio.value = 12
+        limiter.attack.value = 0.003
+        limiter.release.value = 0.12
 
         masterInRef.current = masterIn
         dryGainRef.current = dryGain
         wetGainRef.current = wetGain
         masterGainRef.current = masterGain
+        masterLimiterRef.current = limiter
 
         masterIn.connect(dryGain)
         masterIn.connect(convolver)
@@ -2434,67 +3866,350 @@ export default function MultiTrackPlayer({
 
         dryGain.connect(masterGain)
         wetGain.connect(masterGain)
-        masterGain.connect(ctx.destination)
+        masterGain.connect(limiter)
         convolver.buffer = makeImpulseResponse(ctx)
       }
 
-      if (masterGainRef.current) masterGainRef.current.gain.value = masterVol
+      if (isAudioDebugCaptureEnabled()) {
+        await setupAudioDebugMasterTap()
+      } else {
+        teardownAudioDebugMasterTap()
+        try {
+          masterLimiterRef.current?.disconnect()
+        } catch {}
+        try {
+          masterLimiterRef.current?.connect(ctx.destination)
+        } catch {}
+      }
+
+      if (masterGainRef.current) {
+        masterGainRef.current.gain.value = (guestSoloMode ? 0 : clamp(masterVol, 0, 1)) * MASTER_HEADROOM_GAIN
+      }
       if (wetGainRef.current) wetGainRef.current.gain.value = reverbAmount
       if (dryGainRef.current) dryGainRef.current.gain.value = 1 - reverbAmount
+
+      const audioPilotRouting = resolveAudioPilotRouting({
+        trackCount: trackList.length,
+        streamingBufferPilotEnabled,
+        appendableQueuePilotEnabled,
+        appendableQueueMultistemPilotEnabled,
+        ringBufferPilotEnabled,
+      })
+      const useStreamingPilot = audioPilotRouting.useStreamingPilot
+      const useAppendableQueueMultistemPilot = audioPilotRouting.useAppendableQueueMultistemPilot
+      const useAppendableQueuePilot = audioPilotRouting.useAppendableQueuePilot
+      const useRingBufferPilot = audioPilotRouting.useRingBufferPilot
+      const useStartupChunkPilot =
+        startupChunkPilotEnabled &&
+        !useAppendableQueuePilot &&
+        !useStreamingPilot &&
+        !useRingBufferPilot &&
+        trackList.length > 0 &&
+        trackList.every((track) => !!track.startupChunk?.startupSrc && (track.startupChunk?.strategy ?? "handoff") === "handoff")
+      const useStartupChunkSplicePilot =
+        startupChunkSplicePilotEnabled &&
+        !useStartupChunkPilot &&
+        !useAppendableQueuePilot &&
+        !useStreamingPilot &&
+        !useRingBufferPilot &&
+        trackList.length > 0 &&
+        startupChunkSplicePilotKey.length > 0 &&
+        trackList.every(
+          (track) =>
+            !!track.startupChunk?.startupSrc &&
+            !!track.startupChunk?.tailSrc &&
+            (track.startupChunk?.pilotKey ?? "") === startupChunkSplicePilotKey &&
+            (track.startupChunk?.strategy ?? "handoff") === "splice"
+        )
+      const useProgressiveLoad =
+        hasClientPreviewFlag(PROGRESSIVE_LOAD_PREVIEW_FLAG) || shouldPreferProgressiveLoad(trackList)
+      let schedulePreviewPeaks: (delayMs: number) => void = () => {}
+      let scheduleDeferredPeaks: (delayMs: number) => void = () => {}
+      let startBackgroundStartupChunkDecode: (() => void) | null = null
 
       // Load per-track and tolerate decode failures to avoid blocking the entire player.
       const decodeWarnings: string[] = []
       const fallbackDurationSec = 600
-      const decodeTrackBuffer = async (trackIndex: number): Promise<{ buffer: AudioBuffer; byteLength: number }> => {
+      const decodeTrackBufferFromSrc = async (
+        trackIndex: number,
+        src: string,
+        sourceRole: "startup" | "tail" | "full"
+      ): Promise<{ buffer: AudioBuffer; byteLength: number }> => {
         const track = trackList[trackIndex]
         for (let attempt = 1; attempt <= TRACK_DECODE_MAX_ATTEMPTS; attempt++) {
           const controller = new AbortController()
           fetchControllers.push(controller)
+          const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+          logAudioDebug("audio:decode_track_begin", {
+            trackIndex,
+            trackName: track.name,
+            attempt,
+            src,
+            sourceRole,
+          })
           try {
-            const res = await fetch(track.src, { signal: controller.signal })
-            if (!res.ok) throw new Error(`Fetch failed: ${track.src} (${res.status})`)
-            const arr = await res.arrayBuffer()
+            const res = await promiseWithTimeout(
+              fetch(src, { signal: controller.signal }),
+              TRACK_DECODE_TIMEOUT_MS,
+              `fetch ${src}`
+            )
+            if (!res.ok) throw new Error(`Fetch failed: ${src} (${res.status})`)
+            const arr = await promiseWithTimeout(
+              res.arrayBuffer(),
+              TRACK_DECODE_TIMEOUT_MS,
+              `arrayBuffer ${src}`
+            )
+            const decoded = await promiseWithTimeout(
+              ctx.decodeAudioData(arr.slice(0)),
+              TRACK_DECODE_TIMEOUT_MS,
+              `decode ${src}`
+            )
+            const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+            logAudioDebug("audio:decode_track_ready", {
+              trackIndex,
+              trackName: track.name,
+              attempt,
+              sourceRole,
+              elapsedMs: Number(elapsedMs.toFixed(1)),
+              bytes: arr.byteLength,
+              durationSec: Number((decoded.duration || 0).toFixed(3)),
+            })
             return {
-              buffer: await ctx.decodeAudioData(arr),
+              buffer: decoded,
               byteLength: arr.byteLength,
             }
           } catch (err) {
             const isAbort = err instanceof DOMException && err.name === "AbortError"
-            if (isAbort) break
-            if (attempt >= TRACK_DECODE_MAX_ATTEMPTS) {
+            const isTimeout = err instanceof Error && /timeout after/i.test(err.message)
+            const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+            logAudioDebug("audio:decode_track_retry", {
+              trackIndex,
+              trackName: track.name,
+              attempt,
+              sourceRole,
+              elapsedMs: Number(elapsedMs.toFixed(1)),
+              reason: err instanceof Error ? err.message : "unknown decode error",
+            })
+            try {
+              controller.abort()
+            } catch {}
+            if (isAbort || isTimeout || attempt >= TRACK_DECODE_MAX_ATTEMPTS) {
               const reason = err instanceof Error ? err.message : "unknown decode error"
               decodeWarnings.push(`${track.name}: ${reason}`)
+              break
             }
           }
         }
         // Keep transport behavior predictable when one of stems cannot be decoded.
+        logAudioDebug("audio:decode_track_fallback", {
+          trackIndex,
+          trackName: track.name,
+          sourceRole,
+          durationSec: fallbackDurationSec,
+        })
         return {
           buffer: createSilentBuffer(ctx, fallbackDurationSec),
           byteLength: 0,
         }
       }
+      const decodeTrackBuffer = async (trackIndex: number) =>
+        decodeTrackBufferFromSrc(trackIndex, trackList[trackIndex].src, "full")
 
       let buffers: AudioBuffer[] = []
-      if (trackList.length > 0) {
-        const restIndexes = trackList.map((_, index) => index).filter((index) => index !== 0)
-        buffers = new Array(trackList.length)
-        const firstDecoded = await decodeTrackBuffer(0)
-        buffers[0] = firstDecoded.buffer
-        if (!cancelled) {
-          setDuration(firstDecoded.buffer.duration || 0)
-        }
-        const shouldDecodeSequentially =
-          progressiveLoadEnabled || firstDecoded.byteLength >= LARGE_TRACK_BYTES_THRESHOLD
-        if (shouldDecodeSequentially) {
-          for (const trackIndex of restIndexes) {
-            const decoded = await decodeTrackBuffer(trackIndex)
-            buffers[trackIndex] = decoded.buffer
+      waveformSourceBuffersRef.current = []
+      if (!useStreamingPilot && trackList.length > 0) {
+        if (useStartupChunkPilot || useStartupChunkSplicePilot) {
+          const startupDecoded = await Promise.all(
+            trackList.map((track, trackIndex) =>
+              decodeTrackBufferFromSrc(trackIndex, track.startupChunk?.startupSrc ?? track.src, "startup")
+            )
+          )
+          buffers = startupDecoded.map((decoded) => decoded.buffer)
+          const startupDurationCandidates = trackList
+            .map((track, trackIndex) => track.startupChunk?.startupDurationSec ?? buffers[trackIndex]?.duration ?? 0)
+            .filter((value): value is number => Number.isFinite(value) && value > 0)
+          const estimatedDurationCandidates = trackList
+            .map((track) => track.startupChunk?.estimatedTotalDurationSec ?? 0)
+            .filter((value): value is number => Number.isFinite(value) && value > 0)
+          const crossfadeCandidates = trackList
+            .map((track) =>
+              track.startupChunk?.crossfadeSec ??
+              (useStartupChunkSplicePilot ? STARTUP_CHUNK_SPLICE_DEFAULT_CROSSFADE_SEC : 0.12)
+            )
+            .filter((value): value is number => Number.isFinite(value) && value > 0)
+          const startupDurationSec = startupDurationCandidates.length
+            ? Math.min(...startupDurationCandidates)
+            : buffers[0]?.duration ?? 0
+          const estimatedTotalDurationSec = estimatedDurationCandidates.length
+            ? Math.max(...estimatedDurationCandidates)
+            : buffers[0]?.duration ?? 0
+          const crossfadeSec = clamp(crossfadeCandidates.length ? Math.max(...crossfadeCandidates) : 0.12, 0.05, 0.4)
+          const tailStartCandidates = trackList
+            .map((track) => track.startupChunk?.tailStartSec ?? 0)
+            .filter((value): value is number => Number.isFinite(value) && value >= 0)
+          const tailDurationCandidates = trackList
+            .map((track) => track.startupChunk?.tailDurationSec ?? 0)
+            .filter((value): value is number => Number.isFinite(value) && value > 0)
+          const tailStartSec = useStartupChunkSplicePilot && tailStartCandidates.length ? Math.min(...tailStartCandidates) : null
+          const tailDurationSec =
+            useStartupChunkSplicePilot && tailDurationCandidates.length ? Math.min(...tailDurationCandidates) : null
+          startupChunkRuntimeRef.current = {
+            enabled: true,
+            strategy: useStartupChunkSplicePilot ? "splice" : "handoff",
+            stage: "startup",
+            startupDurationSec,
+            crossfadeSec,
+            tailStartSec,
+            tailDurationSec,
+            estimatedTotalDurationSec,
+            tailBuffers: null,
+            tailBuffersReady: false,
+            fullBuffers: null,
+            fullBuffersReady: false,
+            handoffInProgress: false,
+            handoffComplete: false,
+            deferredPeaksScheduled: false,
+            tailDecodeStartedAtMs: null,
+            tailDecodeReadyAtMs: null,
+            fullDecodeStartedAtMs: null,
+            fullDecodeReadyAtMs: null,
+          }
+          if (useStartupChunkSplicePilot) {
+            const runtime = startupChunkRuntimeRef.current
+            if (runtime) {
+              runtime.tailDecodeStartedAtMs = readAudioPerfNowMs()
+              logAudioDebug("startup_chunk:eager_tail_decode_begin", {
+                tracks: trackList.length,
+              })
+              const decodedTail = await Promise.all(
+                trackList.map((track, trackIndex) =>
+                  decodeTrackBufferFromSrc(trackIndex, track.startupChunk?.tailSrc ?? track.src, "tail")
+                )
+              )
+              if (cancelled) return
+              runtime.tailBuffers = decodedTail.map((item) => item.buffer)
+              runtime.tailBuffersReady = true
+              runtime.tailDecodeReadyAtMs = readAudioPerfNowMs()
+              const tailDecodeStartedAtMs = runtime.tailDecodeStartedAtMs ?? runtime.tailDecodeReadyAtMs
+              logAudioDebug("startup_chunk:eager_tail_decode_ready", {
+                tracks: runtime.tailBuffers.length,
+                elapsedMs: Number((runtime.tailDecodeReadyAtMs - tailDecodeStartedAtMs).toFixed(1)),
+                tailStartSec: runtime.tailStartSec != null ? Number(runtime.tailStartSec.toFixed(3)) : null,
+                tailDurationSec: runtime.tailDurationSec != null ? Number(runtime.tailDurationSec.toFixed(3)) : null,
+              })
+            }
+          }
+          if (!cancelled) {
+            setDuration(estimatedTotalDurationSec || buffers[0]?.duration || 0)
+          }
+          logAudioDebug(useStartupChunkSplicePilot ? "startup_chunk:splice_pilot_enabled" : "startup_chunk:pilot_enabled", {
+            tracks: trackList.length,
+            startupDurationSec: Number(startupDurationSec.toFixed(3)),
+            estimatedTotalDurationSec: Number(estimatedTotalDurationSec.toFixed(3)),
+            crossfadeSec: Number(crossfadeSec.toFixed(3)),
+            tailStartSec: tailStartSec != null ? Number(tailStartSec.toFixed(3)) : null,
+            tailDurationSec: tailDurationSec != null ? Number(tailDurationSec.toFixed(3)) : null,
+          })
+          startBackgroundStartupChunkDecode = () => {
+            const runtime = startupChunkRuntimeRef.current
+            if (!runtime) return
+            void (async () => {
+              try {
+                if (runtime.strategy === "splice" && !runtime.tailBuffersReady && runtime.tailDecodeStartedAtMs == null) {
+                  runtime.tailDecodeStartedAtMs = readAudioPerfNowMs()
+                  logAudioDebug("startup_chunk:background_tail_decode_begin", {
+                    tracks: trackList.length,
+                  })
+                  const decodedTail = await Promise.all(
+                    trackList.map((track, trackIndex) =>
+                      decodeTrackBufferFromSrc(trackIndex, track.startupChunk?.tailSrc ?? track.src, "tail")
+                    )
+                  )
+                  if (cancelled) return
+                  runtime.tailBuffers = decodedTail.map((item) => item.buffer)
+                  runtime.tailBuffersReady = true
+                  runtime.tailDecodeReadyAtMs = readAudioPerfNowMs()
+                  const tailDecodeStartedAtMs = runtime.tailDecodeStartedAtMs ?? runtime.tailDecodeReadyAtMs
+                  logAudioDebug("startup_chunk:background_tail_decode_ready", {
+                    tracks: runtime.tailBuffers.length,
+                    elapsedMs: Number((runtime.tailDecodeReadyAtMs - tailDecodeStartedAtMs).toFixed(1)),
+                    tailStartSec: runtime.tailStartSec != null ? Number(runtime.tailStartSec.toFixed(3)) : null,
+                    tailDurationSec: runtime.tailDurationSec != null ? Number(runtime.tailDurationSec.toFixed(3)) : null,
+                  })
+                }
+                if (runtime.fullDecodeStartedAtMs != null) return
+                runtime.fullDecodeStartedAtMs = readAudioPerfNowMs()
+                logAudioDebug("startup_chunk:background_full_decode_begin", {
+                  tracks: trackList.length,
+                })
+                const decodedFull = await Promise.all(trackList.map((_, trackIndex) => decodeTrackBuffer(trackIndex)))
+                if (cancelled) return
+                const fullBuffers = decodedFull.map((item) => item.buffer)
+                runtime.fullBuffers = fullBuffers
+                runtime.fullBuffersReady = true
+                runtime.fullDecodeReadyAtMs = readAudioPerfNowMs()
+                const fullDecodeStartedAtMs = runtime.fullDecodeStartedAtMs ?? runtime.fullDecodeReadyAtMs
+                waveformSourceBuffersRef.current = fullBuffers
+                const fullDurationSec = fullBuffers[0]?.duration ?? runtime.estimatedTotalDurationSec ?? 0
+                if (fullDurationSec > 0) {
+                  setDuration(fullDurationSec)
+                }
+                logAudioDebug("startup_chunk:background_full_decode_ready", {
+                  tracks: fullBuffers.length,
+                  elapsedMs: Number((runtime.fullDecodeReadyAtMs - fullDecodeStartedAtMs).toFixed(1)),
+                  durationSec: Number(fullDurationSec.toFixed(3)),
+                })
+                schedulePreviewPeaks(isPlayingRef.current ? WAVEFORM_PREVIEW_WHILE_PLAYING_DELAY_MS : WAVEFORM_PREVIEW_IDLE_DELAY_MS)
+                if (!isPlayingRef.current) {
+                  runtime.deferredPeaksScheduled = true
+                  scheduleDeferredPeaks(DEFERRED_PEAKS_IDLE_DELAY_MS)
+                } else {
+                  logAudioDebug("startup_chunk:deferred_peaks_wait_handoff", {
+                    scope: trackScopeId,
+                    handoffAtSec: Number(
+                      (runtime.strategy === "splice"
+                        ? getStartupChunkFullHandoffAtSec(runtime)
+                        : getStartupChunkHandoffAtSec(runtime)
+                      ).toFixed(3)
+                    ),
+                  })
+                }
+                const handoffAtSec =
+                  runtime.strategy === "splice" ? getStartupChunkFullHandoffAtSec(runtime) : getStartupChunkHandoffAtSec(runtime)
+                if (isPlayingRef.current && positionSecRef.current >= handoffAtSec) {
+                  void performStartupChunkHandoff("background_full_decode_ready", positionSecRef.current)
+                }
+              } catch (error) {
+                if (cancelled) return
+                logAudioDebug("startup_chunk:background_full_decode_failed", {
+                  reason: error instanceof Error ? error.message : "unknown startup full decode error",
+                })
+              }
+            })()
           }
         } else {
-          const decodedRest = await Promise.all(restIndexes.map((trackIndex) => decodeTrackBuffer(trackIndex)))
-          decodedRest.forEach((decoded, idx) => {
-            buffers[restIndexes[idx]] = decoded.buffer
-          })
+          const restIndexes = trackList.map((_, index) => index).filter((index) => index !== 0)
+          buffers = new Array(trackList.length)
+          const firstDecoded = await decodeTrackBuffer(0)
+          buffers[0] = firstDecoded.buffer
+          if (!cancelled) {
+            setDuration(firstDecoded.buffer.duration || 0)
+          }
+          const shouldDecodeSequentially =
+            useProgressiveLoad || firstDecoded.byteLength >= LARGE_TRACK_BYTES_THRESHOLD
+          if (shouldDecodeSequentially) {
+            for (const trackIndex of restIndexes) {
+              const decoded = await decodeTrackBuffer(trackIndex)
+              buffers[trackIndex] = decoded.buffer
+            }
+          } else {
+            const decodedRest = await Promise.all(restIndexes.map((trackIndex) => decodeTrackBuffer(trackIndex)))
+            decodedRest.forEach((decoded, idx) => {
+              buffers[restIndexes[idx]] = decoded.buffer
+            })
+          }
+          waveformSourceBuffersRef.current = buffers
+          startupChunkRuntimeRef.current = null
         }
       }
 
@@ -2503,21 +4218,47 @@ export default function MultiTrackPlayer({
       }
 
       if (cancelled) return
-      setDuration(buffers[0]?.duration ?? 0)
+      setDuration(
+        useStreamingPilot
+          ? 0
+          : (useStartupChunkPilot || useStartupChunkSplicePilot)
+            ? startupChunkRuntimeRef.current?.estimatedTotalDurationSec ?? buffers[0]?.duration ?? 0
+            : (buffers[0]?.duration ?? 0)
+      )
 
       // engines + per-track chain
-      buffers.forEach((buffer, i) => {
-        const engine = createSoundTouchEngine(ctx, buffer, { bufferSize: 2048 })
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : ""
+      const isWebKit =
+        /Safari\//.test(ua) &&
+        !/Chrome\//.test(ua) &&
+        !/Chromium\//.test(ua) &&
+        !/Edg\//.test(ua)
+      const soundtouchBufferSize = isWebKit ? 4096 : 2048
+      soundtouchBufferSizeRef.current = soundtouchBufferSize
+      let aggregateCapabilities: AudioEngineCapabilities = {
+        supportsTempo: true,
+        supportsIndependentPitch: true,
+      }
+
+      const registerEngine = (engine: SoundTouchEngine, i: number) => {
         enginesRef.current[i] = engine
+        const capabilities = engine.getCapabilities()
+        aggregateCapabilities = {
+          supportsTempo: aggregateCapabilities.supportsTempo && capabilities.supportsTempo,
+          supportsIndependentPitch:
+            aggregateCapabilities.supportsIndependentPitch && capabilities.supportsIndependentPitch,
+        }
 
         // gate
         const gate = ctx.createGain()
-        gate.gain.value = 0
+        // Keep gates open by default for fresh graphs; engines are silent until start() anyway.
+        // This avoids Safari races where a 0-initialized gate may stay muted after rapid switches.
+        gate.gain.value = 1
         engineGateRef.current[i] = gate
 
         // track chain
         const g = ctx.createGain()
-        g.gain.value = initialTrackVolumes[i] ?? 1
+        g.gain.value = clamp(initialTrackVolumes[i] ?? 1, 0, TRACK_MAX_GAIN) * TRACK_HEADROOM_GAIN
         const p = ctx.createStereoPanner()
 
         gate.connect(g)
@@ -2528,39 +4269,490 @@ export default function MultiTrackPlayer({
         panRef.current[i] = p
 
         engine.connect(gate)
-
         engine.setTempo(tempoRef.current)
         engine.setPitchSemitones(pitchSemiRef.current)
-      })
+      }
+
+      let engineMode: EngineMode = "soundtouch"
+      appendableQueueCoordinatorRef.current = null
+      if (appendableQueuePilotEnabled && !useStreamingPilot && buffers.length !== 1 && !useAppendableQueueMultistemPilot) {
+        logAudioDebug("audio:appendable_queue_pilot_skipped", {
+          requested: true,
+          reason: "multistem_pilot_disabled",
+          trackCount: buffers.length,
+        })
+      }
+
+      if (useStreamingPilot) {
+        engineMode = "streaming_media"
+        trackList.forEach((track, i) => {
+          const engine = createMediaStreamingEngine(ctx, track.src, { preload: "auto" })
+          registerEngine(engine, i)
+        })
+        if (typeof window !== "undefined") {
+          const deadlineTs = Date.now() + 12_000
+          durationProbeTimer = window.setInterval(() => {
+            if (cancelled) return
+            const probeDuration = enginesRef.current[0]?.getDurationSeconds?.() ?? 0
+            if (probeDuration > 0.5) {
+              setDuration(probeDuration)
+              window.clearInterval(durationProbeTimer!)
+              durationProbeTimer = null
+              logAudioDebug("audio:streaming_duration_ready", {
+                durationSec: Number(probeDuration.toFixed(3)),
+              })
+              return
+            }
+            if (Date.now() >= deadlineTs) {
+              window.clearInterval(durationProbeTimer!)
+              durationProbeTimer = null
+            }
+          }, 220)
+        }
+      } else if (useAppendableQueuePilot) {
+        engineMode = "appendable_queue_worklet"
+        const createdAppendableEngines: SoundTouchEngine[] = []
+        try {
+          if (buffers.length === 1) {
+            const source = createAudioBufferAppendableSource(buffers[0])
+            const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+            logAudioDebug("audio:appendable_queue_engine_begin", {
+              trackIndex: 0,
+              durationSec: Number((buffers[0]?.duration ?? 0).toFixed(3)),
+            })
+            const engine = await promiseWithTimeout(
+              createAppendableQueueEngine(ctx, source),
+              RINGBUFFER_ENGINE_INIT_TIMEOUT_MS,
+              "appendable queue engine #0"
+            )
+            const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+            logAudioDebug("audio:appendable_queue_engine_ready", {
+              trackIndex: 0,
+              elapsedMs: Number(elapsedMs.toFixed(1)),
+            })
+            registerEngine(engine, 0)
+          } else {
+            const sampleRate = buffers[0]?.sampleRate ?? ctx.sampleRate
+            const durationFrames = buffers.reduce((maxFrames, buffer) => Math.max(maxFrames, buffer.length), 0)
+            for (let i = 0; i < buffers.length; i += 1) {
+              const source = createAudioBufferAppendableSource(buffers[i])
+              const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+              logAudioDebug("audio:appendable_queue_engine_begin", {
+                trackIndex: i,
+                durationSec: Number((buffers[i]?.duration ?? 0).toFixed(3)),
+                multitrack: true,
+              })
+              const engine = await promiseWithTimeout(
+                createAppendableQueueEngine(ctx, source, { externalTick: true }),
+                RINGBUFFER_ENGINE_INIT_TIMEOUT_MS,
+                `appendable queue engine #${i}`
+              )
+              createdAppendableEngines[i] = engine
+              const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+              logAudioDebug("audio:appendable_queue_engine_ready", {
+                trackIndex: i,
+                elapsedMs: Number(elapsedMs.toFixed(1)),
+                multitrack: true,
+              })
+            }
+            createdAppendableEngines.forEach((engine, index) => {
+              registerEngine(engine, index)
+            })
+            appendableQueueCoordinatorRef.current = createAppendableQueueMultitrackCoordinator({
+              ctx,
+              sampleRate,
+              durationFrames,
+              stems: createdAppendableEngines.map((engine, index) => ({
+                stemIndex: index,
+                label: trackList[index]?.name ?? `Track ${index + 1}`,
+                engine,
+                getSourceBufferedUntilSec: () => buffers[index]?.duration ?? 0,
+                getSourceQueuedSegments: () => 1,
+                isSourceEnded: () => true,
+                isStartupAppended: () => true,
+                isFullAppended: () => true,
+                isFullDecoded: () => true,
+              })),
+            })
+            logAudioDebug("audio:appendable_queue_multitrack_ready", {
+              trackCount: createdAppendableEngines.length,
+              durationSec: Number(((durationFrames || 0) / sampleRate).toFixed(3)),
+            })
+          }
+        } catch (error) {
+          createdAppendableEngines.forEach((engine) => {
+            try {
+              engine.destroy()
+            } catch {}
+          })
+          appendableQueueCoordinatorRef.current = null
+          logAudioDebug("audio:appendable_queue_engine_fallback", {
+            trackIndex: createdAppendableEngines.length > 1 ? null : 0,
+            trackCount: buffers.length,
+            reason: error instanceof Error ? error.message : "unknown appendable queue init error",
+          })
+          for (let i = 0; i < buffers.length; i += 1) {
+            const fallback = createSoundTouchEngine(ctx, buffers[i], { bufferSize: soundtouchBufferSize })
+            registerEngine(fallback, i)
+          }
+          engineMode = "soundtouch"
+        }
+      } else if (useRingBufferPilot) {
+        engineMode = "ringbuffer_worklet"
+        for (let i = 0; i < buffers.length; i += 1) {
+          try {
+            let lastRingbufferIssueLogAt = 0
+            let lastLoggedUnderrunFrames = 0
+            let lastLoggedReadWrapCount = 0
+            let lastLoggedWriteWrapCount = 0
+            logAudioDebug("audio:ringbuffer_engine_begin", {
+              trackIndex: i,
+              durationSec: Number((buffers[i]?.duration ?? 0).toFixed(3)),
+            })
+            const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+            const engine = await promiseWithTimeout(
+              createRingBufferWorkletEngine(ctx, buffers[i], {
+                externalTick: true,
+                onStats: (stats) => {
+                  const hasWrapAdvance =
+                    stats.readWrapCount > lastLoggedReadWrapCount || stats.writeWrapCount > lastLoggedWriteWrapCount
+                  if (hasWrapAdvance) {
+                    lastLoggedReadWrapCount = stats.readWrapCount
+                    lastLoggedWriteWrapCount = stats.writeWrapCount
+                    logAudioDebug("ringbuffer:wrap_event", {
+                      trackIndex: i,
+                      readWrapCount: stats.readWrapCount,
+                      writeWrapCount: stats.writeWrapCount,
+                      lastReadWrapDeltaMax: stats.lastReadWrapDeltaMax,
+                      availableFrames: stats.availableFrames,
+                      minAvailableFrames: stats.minAvailableFrames,
+                      maxAvailableFrames: stats.maxAvailableFrames,
+                      queueEstimateFrames: stats.queueEstimateFrames,
+                      sourceFrameCursorSec: stats.sourceFrameCursorSec,
+                    })
+                  }
+                  const lowWaterBreach = stats.minAvailableFrames <= stats.lowWaterFrames
+                  const hasNewUnderrun = stats.underrunFrames > lastLoggedUnderrunFrames
+                  if (!lowWaterBreach && !hasNewUnderrun) return
+                  const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now()
+                  if (!hasNewUnderrun && nowMs - lastRingbufferIssueLogAt < 800) return
+                  lastRingbufferIssueLogAt = nowMs
+                  lastLoggedUnderrunFrames = stats.underrunFrames
+                  logAudioDebug("ringbuffer:stats", {
+                    trackIndex: i,
+                    ...stats,
+                  })
+                },
+              }),
+              RINGBUFFER_ENGINE_INIT_TIMEOUT_MS,
+              `ringbuffer engine #${i}`
+            )
+            const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+            logAudioDebug("audio:ringbuffer_engine_ready", {
+              trackIndex: i,
+              elapsedMs: Number(elapsedMs.toFixed(1)),
+            })
+            registerEngine(engine, i)
+          } catch (error) {
+            logAudioDebug("audio:ringbuffer_engine_fallback", {
+              trackIndex: i,
+              reason: error instanceof Error ? error.message : "unknown ringbuffer init error",
+            })
+            console.warn(`RingBuffer worklet fallback to SoundTouch on track #${i}:`, error)
+            const fallback = createSoundTouchEngine(ctx, buffers[i], { bufferSize: soundtouchBufferSize })
+            registerEngine(fallback, i)
+            engineMode = "soundtouch"
+          }
+        }
+      } else {
+        engineMode = "soundtouch"
+        buffers.forEach((buffer, i) => {
+          const engine = createSoundTouchEngine(ctx, buffer, { bufferSize: soundtouchBufferSize })
+          registerEngine(engine, i)
+        })
+      }
 
       setIsReady(true)
       readyRef.current = true
-      onTrackSetReady?.(trackScopeId)
+      setActiveEngineMode(engineMode)
+      setActiveEngineCapabilities(aggregateCapabilities)
+      logAudioDebug("audio:init_graph", {
+        engines: useStreamingPilot ? trackList.length : buffers.length,
+        mode: engineMode,
+        startupChunkPilotEnabled: useStartupChunkPilot,
+        startupChunkSplicePilotEnabled: useStartupChunkSplicePilot,
+        startupChunkSplicePilotKey: startupChunkSplicePilotKey || null,
+        appendableQueuePilotEnabled,
+        ringBufferPilotEnabled,
+        streamingBufferPilotEnabled,
+        soundtouchBufferSize,
+        isWebKit,
+      })
+      onTrackSetReadyRef.current?.(trackScopeId)
 
-      // peaks
-      requestAnimationFrame(() => {
+      // peaks: draw lightweight placeholders immediately,
+      // then warm them up in two steps:
+      // 1) cheap preview envelope to replace flat placeholders quickly,
+      // 2) full-resolution peaks in a later background task.
+      schedulePreviewPeaks = (delayMs: number) => {
+        if (typeof window === "undefined") return
+        if (previewPeaksTimer != null) window.clearTimeout(previewPeaksTimer)
+        logAudioDebug("waveform:preview_peaks_scheduled", {
+          delayMs,
+          playing: isPlayingRef.current,
+          scope: trackScopeId,
+        })
+        previewPeaksTimer = window.setTimeout(() => {
+          previewPeaksTimer = null
+          void computePreviewWaveformPeaks()
+        }, delayMs)
+      }
+      scheduleDeferredPeaks = (delayMs: number) => {
+        if (typeof window === "undefined") return
+        if (deferredPeaksTimer != null) window.clearTimeout(deferredPeaksTimer)
+        cancelDeferredPeaksIdleCallback()
+        logAudioDebug("waveform:deferred_peaks_scheduled", {
+          delayMs,
+          playing: isPlayingRef.current,
+          scope: trackScopeId,
+        })
+        deferredPeaksTimer = window.setTimeout(() => {
+          deferredPeaksTimer = null
+          const runDeferredPeaks = () => {
+            deferredPeaksIdleCallbackRef.current = null
+            void computeDeferredPeaks()
+          }
+          if (isPlayingRef.current) {
+            if (typeof window.requestIdleCallback === "function") {
+              deferredPeaksIdleCallbackRef.current = window.requestIdleCallback(runDeferredPeaks, {
+                timeout: WAVEFORM_FULL_PEAKS_IDLE_CALLBACK_TIMEOUT_MS,
+              })
+            } else {
+              deferredPeaksIdleCallbackRef.current = window.setTimeout(runDeferredPeaks, 0)
+            }
+            return
+          }
+          runDeferredPeaks()
+        }, delayMs)
+      }
+      deferredPeaksSchedulerRef.current = scheduleDeferredPeaks
+      const computePreviewWaveformPeaks = async () => {
+        if (useStreamingPilot) return
         if (cancelled) return
-        const peaksArr: (WavePeaks | null)[] = []
-        for (let i = 0; i < buffers.length; i++) {
-          const canvas = waveCanvasesRef.current[i]
-          const w = canvas?.clientWidth ? Math.floor(canvas.clientWidth) : 900
-          peaksArr[i] = computePeaks(buffers[i], Math.max(900, w))
+        const waveformBuffers = waveformSourceBuffersRef.current
+        if (!waveformBuffers.length) return
+
+        const peaksArr: (WavePeaks | null)[] = [...peaksRef.current]
+        let cacheHits = 0
+        let computedTracks = 0
+        for (let i = 0; i < waveformBuffers.length; i++) {
+          if (cancelled) return
+          const trackSrc = trackList[i]?.src ?? `track-${i}`
+          const buckets = DEFERRED_PEAKS_BUCKETS
+          const cachedPeaks = readCachedWavePeaks(trackSrc, buckets)
+          if (cachedPeaks) {
+            peaksArr[i] = cachedPeaks
+            cacheHits += 1
+            continue
+          }
+          try {
+            const previewPeaks = computePreviewPeaks(waveformBuffers[i], buckets, {
+              probesPerBucket: WAVEFORM_PREVIEW_PROBES_PER_BUCKET,
+            })
+            peaksArr[i] = previewPeaks
+            writeCachedWavePeaks(trackSrc, previewPeaks, buckets, "preview")
+            computedTracks += 1
+          } catch {
+            peaksArr[i] = makeFlatPeaks(buckets)
+          }
+          if (i < waveformBuffers.length - 1) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 0))
+          }
         }
+        if (cancelled) return
         peaksRef.current = peaksArr
         setWaveReady(true)
+        logAudioDebug("waveform:preview_peaks_ready", {
+          scope: trackScopeId,
+          tracks: peaksArr.length,
+          cacheHits,
+          computedTracks,
+        })
+      }
+      const computeDeferredPeaks = async () => {
+        if (useStreamingPilot) return
+        if (cancelled) return
+        const waveformBuffers = waveformSourceBuffersRef.current
+        if (!waveformBuffers.length) return
+
+        const peaksArr: (WavePeaks | null)[] = []
+        let fullCacheHits = 0
+        let upgradedFromPreview = 0
+        for (let i = 0; i < waveformBuffers.length; i++) {
+          if (cancelled) return
+          const trackSrc = trackList[i]?.src ?? `track-${i}`
+          const buckets = DEFERRED_PEAKS_BUCKETS
+          const cachedFullPeaks = readCachedFullWavePeaks(trackSrc, buckets)
+          if (cachedFullPeaks) {
+            peaksArr[i] = cachedFullPeaks
+            fullCacheHits += 1
+            continue
+          }
+          const cachedPreviewPeaks = readCachedWavePeaks(trackSrc, buckets)
+          if (cachedPreviewPeaks) {
+            peaksArr[i] = cachedPreviewPeaks
+          }
+          try {
+            const computedPeaks = await computePeaksProgressive(waveformBuffers[i], buckets, {
+              yieldEveryBuckets:
+                isPlayingRef.current && useRingBufferPilot
+                  ? WAVEFORM_FULL_PEAKS_RINGBUFFER_PLAYING_YIELD_EVERY_BUCKETS
+                  : isPlayingRef.current
+                    ? WAVEFORM_FULL_PEAKS_PLAYING_YIELD_EVERY_BUCKETS
+                    : 12,
+              maxSliceMs: isPlayingRef.current ? WAVEFORM_FULL_PEAKS_PLAYING_MAX_SLICE_MS : 3,
+              yieldDelayMs:
+                isPlayingRef.current && useRingBufferPilot
+                  ? WAVEFORM_FULL_PEAKS_RINGBUFFER_PLAYING_YIELD_DELAY_MS
+                  : isPlayingRef.current
+                    ? 4
+                    : 0,
+            })
+            peaksArr[i] = computedPeaks
+            writeCachedWavePeaks(trackSrc, computedPeaks, buckets, "full")
+            if (cachedPreviewPeaks) upgradedFromPreview += 1
+          } catch {
+            peaksArr[i] = peaksArr[i] ?? makeFlatPeaks(buckets)
+          }
+          if (i < waveformBuffers.length - 1) {
+            await new Promise<void>((resolve) =>
+              setTimeout(
+                resolve,
+                isPlayingRef.current && useRingBufferPilot
+                  ? WAVEFORM_FULL_PEAKS_RINGBUFFER_BETWEEN_TRACKS_DELAY_MS
+                  : isPlayingRef.current
+                    ? WAVEFORM_FULL_PEAKS_BETWEEN_TRACKS_DELAY_MS
+                    : 0
+              )
+            )
+          }
+        }
+        if (cancelled) return
+        peaksRef.current = peaksArr
+        setWaveReady(true)
+        logAudioDebug("waveform:deferred_peaks_ready", {
+          scope: trackScopeId,
+          tracks: peaksArr.length,
+          fullCacheHits,
+          upgradedFromPreview,
+        })
+      }
+      requestAnimationFrame(() => {
+        if (cancelled) return
+        const waveformBuffers = waveformSourceBuffersRef.current
+        const tracksForPeaks = useStreamingPilot ? trackList.length : (waveformBuffers.length || trackList.length)
+        const startupRuntime = startupChunkRuntimeRef.current
+        const shouldWaitForFullWaveform =
+          !useStreamingPilot && !!startupRuntime?.enabled && !startupRuntime.fullBuffersReady
+        const shouldDeferFullPeaksUntilHandoff =
+          !useStreamingPilot &&
+          !!startupRuntime?.enabled &&
+          startupRuntime.fullBuffersReady &&
+          !startupRuntime.handoffComplete &&
+          isPlayingRef.current
+        const placeholderPeaks: (WavePeaks | null)[] = []
+        const shouldWarmPreview =
+          !useStreamingPilot &&
+          !shouldWaitForFullWaveform &&
+          (isPlayingRef.current || waveformBuffers.some((buffer) => buffer.duration >= WAVEFORM_PREVIEW_DURATION_THRESHOLD_SEC))
+        let missingPreviewPeaks = false
+        let missingDeferredPeaks = false
+        let cacheHits = 0
+        let previewCacheHits = 0
+        let fullCacheHits = 0
+        for (let i = 0; i < tracksForPeaks; i++) {
+          const trackSrc = trackList[i]?.src ?? `track-${i}`
+          const cachedEntry = readCachedWavePeaksEntry(trackSrc, DEFERRED_PEAKS_BUCKETS)
+          if (cachedEntry) {
+            placeholderPeaks[i] = cachedEntry.peaks
+            cacheHits += 1
+            if (cachedEntry.quality === "full") {
+              fullCacheHits += 1
+            } else {
+              previewCacheHits += 1
+              missingDeferredPeaks = true
+            }
+            continue
+          }
+          placeholderPeaks[i] = makeFlatPeaks(DEFERRED_PEAKS_BUCKETS)
+          missingPreviewPeaks = true
+          missingDeferredPeaks = true
+        }
+        peaksRef.current = placeholderPeaks
+        setWaveReady(true)
+        if (shouldWaitForFullWaveform) {
+          logAudioDebug("startup_chunk:waveform_wait_full_buffers", {
+            scope: trackScopeId,
+            tracks: tracksForPeaks,
+          })
+          return
+        }
+        if (shouldWarmPreview && !useStreamingPilot && waveformBuffers.length > 0 && missingPreviewPeaks) {
+          schedulePreviewPeaks(isPlayingRef.current ? WAVEFORM_PREVIEW_WHILE_PLAYING_DELAY_MS : WAVEFORM_PREVIEW_IDLE_DELAY_MS)
+        }
+        if (shouldDeferFullPeaksUntilHandoff) {
+          logAudioDebug("startup_chunk:deferred_peaks_wait_handoff", {
+            scope: trackScopeId,
+            handoffAtSec: Number(getStartupChunkHandoffAtSec(startupRuntime).toFixed(3)),
+          })
+        } else if (!useStreamingPilot && waveformBuffers.length > 0 && missingDeferredPeaks) {
+          scheduleDeferredPeaks(
+            isPlayingRef.current
+              ? useRingBufferPilot
+                ? DEFERRED_PEAKS_RINGBUFFER_WHILE_PLAYING_DELAY_MS
+                : DEFERRED_PEAKS_WHILE_PLAYING_DELAY_MS
+              : DEFERRED_PEAKS_IDLE_DELAY_MS
+          )
+        } else if (!useStreamingPilot && cacheHits > 0) {
+          logAudioDebug("waveform:deferred_peaks_cache_hit", {
+            scope: trackScopeId,
+            tracks: tracksForPeaks,
+            cacheHits,
+            fullCacheHits,
+            previewCacheHits,
+          })
+        }
       })
+      startBackgroundStartupChunkDecode?.()
     }
 
     init().catch((e) => console.error("Audio init error:", e))
     return () => {
       cancelled = true
+      cancelDeferredPeaksIdleCallback()
+      deferredPeaksSchedulerRef.current = () => {}
+      if (typeof window !== "undefined" && previewPeaksTimer != null) window.clearTimeout(previewPeaksTimer)
+      if (typeof window !== "undefined" && deferredPeaksTimer != null) window.clearTimeout(deferredPeaksTimer)
+      if (typeof window !== "undefined" && durationProbeTimer != null) window.clearInterval(durationProbeTimer)
+      if (typeof window !== "undefined" && startupChunkFinalizeTimerRef.current != null) {
+        window.clearTimeout(startupChunkFinalizeTimerRef.current)
+        startupChunkFinalizeTimerRef.current = null
+      }
       fetchControllers.forEach((controller) => controller.abort())
       readyRef.current = false
       if (persistOnUnmount && isPlayingRef.current) return
       disposeTrackAudioGraph()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [disposeTrackAudioGraph, initialTrackVolumes, onTrackSetReady, persistOnUnmount, progressiveLoadEnabled, trackList, trackScopeId])
+  }, [
+    appendableQueueMultistemPilotEnabled,
+    appendableQueuePilotEnabled,
+    disposeTrackAudioGraph,
+    persistOnUnmount,
+    ringBufferPilotEnabled,
+    streamingBufferPilotEnabled,
+    trackScopeId,
+  ])
 
   useEffect(() => {
     return () => {
@@ -2580,6 +4772,14 @@ export default function MultiTrackPlayer({
       try {
         disposeTrackAudioGraph()
       } catch {}
+      if (typeof window !== "undefined" && startupChunkFinalizeTimerRef.current != null) {
+        window.clearTimeout(startupChunkFinalizeTimerRef.current)
+        startupChunkFinalizeTimerRef.current = null
+      }
+      deferredPeaksSchedulerRef.current = () => {}
+      startupChunkRuntimeRef.current = null
+      waveformSourceBuffersRef.current = []
+      teardownAudioDebugMasterTap()
       teardownRecordingV2Tap()
       void closeRecordingV2OpfsWriter()
       const ctx = ctxRef.current
@@ -2589,38 +4789,423 @@ export default function MultiTrackPlayer({
       ctxRef.current = null
       masterInRef.current = null
       masterGainRef.current = null
+      masterLimiterRef.current = null
       wetGainRef.current = null
       dryGainRef.current = null
     }
-  }, [closeRecordingV2OpfsWriter, disposeTrackAudioGraph, persistOnUnmount, teardownRecordingV2Tap, trackScopeId])
+  }, [closeRecordingV2OpfsWriter, disposeTrackAudioGraph, persistOnUnmount, teardownAudioDebugMasterTap, teardownRecordingV2Tap, trackScopeId])
 
-  const stopEnginesHard = useCallback(() => {
-    engineGateRef.current.forEach((g) => rampGainTo(g, 0, 0.02))
+  const setEngineGateTarget = useCallback((target: number, opts?: { immediate?: boolean; rampSec?: number }) => {
+    const safeTarget = clamp(target, 0, 1)
+    const immediate = opts?.immediate ?? false
+    const rampSec = Math.max(0, opts?.rampSec ?? 0.02)
+    engineGateRef.current.forEach((node) => {
+      if (!node) return
+      const g = node.gain
+      const now = node.context.currentTime
+      const current = Number.isFinite(g.value) ? g.value : safeTarget
+      try {
+        g.cancelScheduledValues(now)
+        g.setValueAtTime(current, now)
+        if (immediate || rampSec === 0) g.setValueAtTime(safeTarget, now)
+        else g.linearRampToValueAtTime(safeTarget, now + rampSec)
+      } catch {
+        try {
+          g.value = safeTarget
+        } catch {}
+      }
+    })
+  }, [])
+
+  const setRingbufferSeekResumeEnvelope = useCallback((opts?: { totalRampSec?: number; midRampSec?: number }) => {
+    const totalRampSec = Math.max(0, opts?.totalRampSec ?? SEEK_SMOOTH_RINGBUFFER_OPEN_RAMP_SEC)
+    const midRampSec = clamp(opts?.midRampSec ?? SEEK_SMOOTH_RINGBUFFER_CROSSFADE_MID_RAMP_SEC, 0, totalRampSec)
+    const midGain = clamp(SEEK_SMOOTH_RINGBUFFER_CROSSFADE_MID_GAIN, 0, 1)
+    engineGateRef.current.forEach((node) => {
+      if (!node) return
+      const g = node.gain
+      const now = node.context.currentTime
+      const current = Number.isFinite(g.value) ? g.value : midGain
+      const firstTarget = Math.max(current, midGain)
+      const firstRampEnd = now + midRampSec
+      const finalRampEnd = now + totalRampSec
+      try {
+        g.cancelScheduledValues(now)
+        g.setValueAtTime(current, now)
+        if (midRampSec > 0 && firstTarget > current) {
+          g.linearRampToValueAtTime(firstTarget, firstRampEnd)
+        } else {
+          g.setValueAtTime(firstTarget, now)
+        }
+        if (finalRampEnd > firstRampEnd) {
+          g.linearRampToValueAtTime(1, finalRampEnd)
+        } else {
+          g.setValueAtTime(1, now)
+        }
+      } catch {
+        try {
+          g.value = 1
+        } catch {}
+      }
+    })
+  }, [])
+
+  const stopEnginesHard = useCallback((opts?: { muteGates?: boolean }) => {
+    if (opts?.muteGates ?? true) {
+      setEngineGateTarget(0, { rampSec: 0.02 })
+    }
+    const coordinator =
+      activeEngineMode === "appendable_queue_worklet" && enginesRef.current.length > 1
+        ? appendableQueueCoordinatorRef.current
+        : null
+    if (coordinator) {
+      coordinator.pause()
+      return
+    }
     enginesRef.current.forEach((eng) => {
       try {
         eng?.stop()
       } catch {}
     })
-  }, [])
+  }, [activeEngineMode, setEngineGateTarget])
+
+  const wrapEngineWithAbsoluteOffset = useCallback(
+    (engine: SoundTouchEngine, offsetSec: number, reportedDurationSec?: number): SoundTouchEngine => {
+      const safeOffsetSec = Number.isFinite(offsetSec) ? Math.max(0, offsetSec) : 0
+      const safeDurationSec =
+        Number.isFinite(reportedDurationSec as number) && (reportedDurationSec as number) > 0
+          ? Math.max(safeOffsetSec, reportedDurationSec as number)
+          : undefined
+      return {
+        getCapabilities: engine.getCapabilities,
+        connect: (node) => engine.connect(node),
+        disconnect: () => engine.disconnect(),
+        start: () => engine.start(),
+        stop: () => engine.stop(),
+        seekSeconds: (sec) => engine.seekSeconds(Math.max(0, sec - safeOffsetSec)),
+        getSourcePositionSeconds: () => safeOffsetSec + engine.getSourcePositionSeconds(),
+        getDurationSeconds: () => safeDurationSec ?? (safeOffsetSec + (engine.getDurationSeconds?.() ?? 0)),
+        getBufferedSeconds: engine.getBufferedSeconds ? () => engine.getBufferedSeconds?.() ?? 0 : undefined,
+        getDebugState: engine.getDebugState
+          ? () => ({
+              ...engine.getDebugState?.(),
+              offsetSec: safeOffsetSec,
+              reportedDurationSec: safeDurationSec ?? null,
+            })
+          : undefined,
+        tickPlayback: engine.tickPlayback ? (plan) => engine.tickPlayback?.(plan) : undefined,
+        setTempo: (tempo) => engine.setTempo(tempo),
+        setPitchSemitones: (semitones) => engine.setPitchSemitones(semitones),
+        destroy: () => engine.destroy(),
+      }
+    },
+    []
+  )
+
+  const replaceEnginesWithSoundTouchBuffers = useCallback(
+    (
+      buffers: AudioBuffer[],
+      posSec: number,
+      opts?: { keepPlaying?: boolean; openRampSec?: number; sourceOffsetSec?: number; reportedDurationSec?: number }
+    ) => {
+      const ctx = ctxRef.current
+      if (!ctx || !buffers.length || buffers.length !== engineGateRef.current.length) return false
+      const nextEngines: SoundTouchEngine[] = []
+      const nextGates: GainNode[] = []
+      const previousEngines = enginesRef.current.slice()
+      const previousGates = engineGateRef.current.slice()
+      const keepPlaying = opts?.keepPlaying ?? isPlayingRef.current
+      const sourceOffsetSec =
+        Number.isFinite(opts?.sourceOffsetSec as number) && (opts?.sourceOffsetSec as number) > 0
+          ? (opts?.sourceOffsetSec as number)
+          : 0
+      const reportedDurationSec =
+        Number.isFinite(opts?.reportedDurationSec as number) && (opts?.reportedDurationSec as number) > 0
+          ? (opts?.reportedDurationSec as number)
+          : undefined
+      const sourceWindowDurationSec = buffers[0]?.duration ?? 0
+      const effectiveDurationSec = getStartupChunkEffectiveDurationSec(
+        sourceWindowDurationSec,
+        sourceOffsetSec,
+        reportedDurationSec
+      )
+      const safePosSec = clamp(posSec, 0, effectiveDurationSec ?? posSec)
+      const rampGate = (node: GainNode, target: number, rampSec: number) => {
+        const safeTarget = clamp(target, 0, 1)
+        const now = node.context.currentTime
+        const current = Number.isFinite(node.gain.value) ? node.gain.value : safeTarget
+        try {
+          node.gain.cancelScheduledValues(now)
+          node.gain.setValueAtTime(current, now)
+          if (rampSec <= 0) {
+            node.gain.setValueAtTime(safeTarget, now)
+          } else {
+            node.gain.linearRampToValueAtTime(safeTarget, now + rampSec)
+          }
+        } catch {
+          try {
+            node.gain.value = safeTarget
+          } catch {}
+        }
+      }
+      try {
+        if (!keepPlaying) {
+          buffers.forEach((buffer, index) => {
+            const gate = engineGateRef.current[index]
+            if (!gate) {
+              throw new Error(`missing engine gate for startup handoff track #${index}`)
+            }
+            const baseEngine = createSoundTouchEngine(ctx, buffer, { bufferSize: soundtouchBufferSizeRef.current })
+            const nextEngine =
+              sourceOffsetSec > 0 || reportedDurationSec != null
+                ? wrapEngineWithAbsoluteOffset(baseEngine, sourceOffsetSec, reportedDurationSec)
+                : baseEngine
+            nextEngine.connect(gate)
+            nextEngine.setTempo(tempoRef.current)
+            nextEngine.setPitchSemitones(pitchSemiRef.current)
+            nextEngine.seekSeconds(safePosSec)
+            nextEngines[index] = nextEngine
+          })
+          previousEngines.forEach((engine) => {
+            try {
+              engine?.stop()
+            } catch {}
+          })
+          previousEngines.forEach((engine) => {
+            try {
+              engine?.destroy()
+            } catch {}
+          })
+          enginesRef.current = nextEngines
+          return true
+        }
+
+        const overlapSec = Math.max(STARTUP_CHUNK_HANDOFF_OVERLAP_SEC, opts?.openRampSec ?? 0.05)
+        buffers.forEach((buffer, index) => {
+          const trackGain = trackGainRef.current[index]
+          if (!trackGain) {
+            throw new Error(`missing track gain for startup handoff track #${index}`)
+          }
+          const nextGate = ctx.createGain()
+          nextGate.gain.value = 0
+          nextGate.connect(trackGain)
+          const baseEngine = createSoundTouchEngine(ctx, buffer, { bufferSize: soundtouchBufferSizeRef.current })
+          const nextEngine =
+            sourceOffsetSec > 0 || reportedDurationSec != null
+              ? wrapEngineWithAbsoluteOffset(baseEngine, sourceOffsetSec, reportedDurationSec)
+              : baseEngine
+          nextEngine.connect(nextGate)
+          nextEngine.setTempo(tempoRef.current)
+          nextEngine.setPitchSemitones(pitchSemiRef.current)
+          nextEngine.seekSeconds(safePosSec)
+          nextEngine.start()
+          nextEngines[index] = nextEngine
+          nextGates[index] = nextGate
+        })
+
+        previousGates.forEach((gate) => {
+          if (!gate) return
+          rampGate(gate, 0, overlapSec)
+        })
+        nextGates.forEach((gate) => {
+          rampGate(gate, 1, overlapSec)
+        })
+
+        enginesRef.current = nextEngines
+        engineGateRef.current = nextGates
+
+        if (typeof window !== "undefined" && startupChunkFinalizeTimerRef.current != null) {
+          window.clearTimeout(startupChunkFinalizeTimerRef.current)
+        }
+        if (typeof window !== "undefined") {
+          startupChunkFinalizeTimerRef.current = window.setTimeout(() => {
+            startupChunkFinalizeTimerRef.current = null
+            previousEngines.forEach((engine) => {
+              try {
+                engine?.stop()
+              } catch {}
+            })
+            previousEngines.forEach((engine) => {
+              try {
+                engine?.destroy()
+              } catch {}
+            })
+            previousGates.forEach((gate) => {
+              try {
+                gate?.disconnect()
+              } catch {}
+            })
+          }, Math.ceil(overlapSec * 1000) + 24)
+        }
+        return true
+      } catch (error) {
+        nextEngines.forEach((engine) => {
+          try {
+            engine.destroy()
+          } catch {}
+        })
+        nextGates.forEach((gate) => {
+          try {
+            gate.disconnect()
+          } catch {}
+        })
+        if (keepPlaying) {
+          previousGates.forEach((gate) => {
+            if (!gate) return
+            rampGate(gate, 1, 0.02)
+          })
+        }
+        logAudioDebug("startup_chunk:engine_swap_failed", {
+          posSec: Number(safePosSec.toFixed(3)),
+          reason: error instanceof Error ? error.message : "unknown engine swap error",
+        })
+        return false
+      }
+    },
+    []
+  )
+
+  const performStartupChunkHandoff = useCallback(
+    async (reason: string, targetPosSec?: number) => {
+      const runtime = startupChunkRuntimeRef.current
+      if (!runtime || !runtime.enabled || runtime.handoffComplete || runtime.handoffInProgress) {
+        return false
+      }
+      runtime.handoffInProgress = true
+      const requestedPosSec =
+        typeof targetPosSec === "number" && Number.isFinite(targetPosSec) ? targetPosSec : positionSecRef.current
+      const safePosSec = clamp(
+        requestedPosSec,
+        0,
+        runtime.estimatedTotalDurationSec ?? runtime.fullBuffers?.[0]?.duration ?? requestedPosSec
+      )
+
+      let swapLabel = "handoff"
+      let nextBuffers: AudioBuffer[] | null = null
+      let sourceOffsetSec = 0
+      let stageAfterSwap: StartupChunkRuntimeState["stage"] = runtime.stage
+      let disableRuntimeAfterSwap = false
+      const swapPlan = getStartupChunkSwapPlan(runtime, safePosSec)
+
+      if (swapPlan) {
+        swapLabel = swapPlan.swapLabel
+        sourceOffsetSec = swapPlan.sourceOffsetSec
+        stageAfterSwap = swapPlan.stageAfterSwap
+        disableRuntimeAfterSwap = swapPlan.disableRuntimeAfterSwap
+        if (swapPlan.swapLabel === "tail_handoff") {
+          nextBuffers = runtime.tailBuffers
+        } else {
+          nextBuffers = runtime.fullBuffers
+        }
+      }
+
+      if (!nextBuffers?.length) {
+        runtime.handoffInProgress = false
+        return false
+      }
+
+      logAudioDebug(`startup_chunk:${swapLabel}_begin`, {
+        reason,
+        posSec: Number(safePosSec.toFixed(3)),
+        startupDurationSec: Number(runtime.startupDurationSec.toFixed(3)),
+        tailStartSec: runtime.tailStartSec != null ? Number(runtime.tailStartSec.toFixed(3)) : null,
+        tailDurationSec: runtime.tailDurationSec != null ? Number(runtime.tailDurationSec.toFixed(3)) : null,
+        crossfadeSec: Number(runtime.crossfadeSec.toFixed(3)),
+        overlapSec: Number(Math.max(STARTUP_CHUNK_HANDOFF_OVERLAP_SEC, runtime.crossfadeSec).toFixed(3)),
+      })
+      const swapped = replaceEnginesWithSoundTouchBuffers(nextBuffers, safePosSec, {
+        keepPlaying: isPlayingRef.current,
+        openRampSec: runtime.crossfadeSec,
+        sourceOffsetSec,
+        reportedDurationSec: runtime.estimatedTotalDurationSec ?? nextBuffers[0]?.duration ?? undefined,
+      })
+      runtime.handoffInProgress = false
+      if (!swapped) {
+        logAudioDebug(`startup_chunk:${swapLabel}_failed`, {
+          reason,
+          posSec: Number(safePosSec.toFixed(3)),
+        })
+        return false
+      }
+
+      runtime.stage = stageAfterSwap
+      runtime.handoffComplete = disableRuntimeAfterSwap
+      runtime.enabled = !disableRuntimeAfterSwap
+      const nextDurationSec = runtime.estimatedTotalDurationSec ?? nextBuffers[0]?.duration ?? 0
+      if (nextDurationSec > 0) {
+        setDuration(nextDurationSec)
+      }
+      logAudioDebug(`startup_chunk:${swapLabel}_ready`, {
+        reason,
+        posSec: Number(safePosSec.toFixed(3)),
+        durationSec: Number(nextDurationSec.toFixed(3)),
+        stage: stageAfterSwap,
+        overlapSec: Number(Math.max(STARTUP_CHUNK_HANDOFF_OVERLAP_SEC, runtime.crossfadeSec).toFixed(3)),
+      })
+      if (disableRuntimeAfterSwap && !runtime.deferredPeaksScheduled) {
+        runtime.deferredPeaksScheduled = true
+        const deferredDelayMs = isPlayingRef.current ? DEFERRED_PEAKS_STARTUP_CHUNK_POST_HANDOFF_DELAY_MS : DEFERRED_PEAKS_IDLE_DELAY_MS
+        deferredPeaksSchedulerRef.current(deferredDelayMs)
+        logAudioDebug("startup_chunk:deferred_peaks_resume", {
+          reason,
+          delayMs: deferredDelayMs,
+        })
+      }
+      return true
+    },
+    [replaceEnginesWithSoundTouchBuffers]
+  )
 
   useEffect(() => {
     // New track set must start from a clean transport state.
+    const previousScope = activeTrackScopeRef.current
+    if (previousScope === trackScopeId) return
+    activeTrackScopeRef.current = trackScopeId
     readyRef.current = false
     if (pendingRafRef.current != null) {
       cancelAnimationFrame(pendingRafRef.current)
       pendingRafRef.current = null
     }
     pendingLastFrameMsRef.current = 0
+    pendingPlayRef.current = false
+    pendingStartPositionRef.current = 0
+    forceZeroStartRef.current = true
+    playStartGuardRef.current = null
+    firstFrameProbeArmedRef.current = false
+    abortAudioTtfpAttempt("track_scope_switch")
+    if (typeof window !== "undefined") {
+      for (const timerId of gateWarmupTimersRef.current) {
+        window.clearTimeout(timerId)
+      }
+      gateWarmupTimersRef.current = []
+    }
+    clearSmoothSeekTimers()
+    clearPendingPlayWatchdog()
+    cancelDeferredPeaksIdleCallback()
+    if (typeof window !== "undefined" && startupChunkFinalizeTimerRef.current != null) {
+      window.clearTimeout(startupChunkFinalizeTimerRef.current)
+      startupChunkFinalizeTimerRef.current = null
+    }
+    resetAudioDebugCaptureStore()
+    startupChunkRuntimeRef.current = null
+    waveformSourceBuffersRef.current = []
     setMainPlayPending(false)
     setMainPlayingState(false)
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-    stopEnginesHard()
+    // Do not force-close gates during scope switch; disposed graph/engines are enough to silence.
+    // Closing to 0 here occasionally leaves next start in muted state on Safari.
+    stopEnginesHard({ muteGates: false })
     disposeTrackAudioGraph()
     positionSecRef.current = 0
     setCurrentTime(0)
+    logAudioDebug("switch:reset_position", {
+      from: previousScope,
+      to: trackScopeId,
+      positionSec: 0,
+    })
 
     peaksRef.current = trackList.map(() => null)
     waveCanvasesRef.current = trackList.map(() => null)
@@ -2640,6 +5225,7 @@ export default function MultiTrackPlayer({
     cancelTempoPitchSmoothing()
     applyTempoPitchToEngines(DEFAULT_SPEED, DEFAULT_PITCH_SEMITONES)
   }, [
+    abortAudioTtfpAttempt,
     applyTempoPitchToEngines,
     cancelTempoPitchSmoothing,
     disposeTrackAudioGraph,
@@ -2655,7 +5241,7 @@ export default function MultiTrackPlayer({
    *  ========================= */
   useEffect(() => {
     if (calibrationMutedRef.current) return
-    const target = guestSoloMode ? 0 : masterVol
+    const target = (guestSoloMode ? 0 : clamp(masterVol, 0, 1)) * MASTER_HEADROOM_GAIN
     rampGainTo(masterGainRef.current, target, 0.05)
   }, [masterVol, guestSoloMode])
 
@@ -2669,7 +5255,7 @@ export default function MultiTrackPlayer({
     const anySolo = s.some(Boolean)
     trackGainRef.current.forEach((g, i) => {
       if (!g) return
-      const base = v[i] ?? 1
+      const base = clamp(v[i] ?? 1, 0, TRACK_MAX_GAIN) * TRACK_HEADROOM_GAIN
       const factor = anySolo ? (s[i] ? 1 : 0) : (m[i] ? 0 : 1)
       rampGainTo(g, base * factor, 0.035)
     })
@@ -2708,8 +5294,22 @@ export default function MultiTrackPlayer({
   /** =========================
    *  ENGINE CONTROL
    *  ========================= */
+  const getActiveAppendableQueueCoordinator = () =>
+    activeEngineMode === "appendable_queue_worklet" && enginesRef.current.length > 1
+      ? appendableQueueCoordinatorRef.current
+      : null
+
   const startEngines = () => {
-    engineGateRef.current.forEach((g) => rampGainTo(g, 1, 0.02))
+    markAudioTtfpStage("engines_start")
+    // Safari/WebKit occasionally keeps gate automation pinned at 0 during track switch.
+    // Open gates immediately on start to avoid "playing but silent" first seconds.
+    setEngineGateTarget(1, { immediate: true, rampSec: 0 })
+    markAudioTtfpStage("gate_open")
+    const coordinator = getActiveAppendableQueueCoordinator()
+    if (coordinator) {
+      coordinator.start()
+      return
+    }
     enginesRef.current.forEach((eng) => {
       try {
         eng?.start()
@@ -2726,6 +5326,31 @@ export default function MultiTrackPlayer({
     if (!e0) return
 
     const pos = e0.getSourcePositionSeconds()
+    if (firstFrameProbeArmedRef.current) {
+      firstFrameProbeArmedRef.current = false
+      const startGuard = playStartGuardRef.current
+      logAudioDebug("play:first_frame_probe", {
+        posSec: Number(pos.toFixed(3)),
+        requestedSec: startGuard ? Number(startGuard.requestedSec.toFixed(3)) : null,
+      })
+    }
+    const startupRuntime = startupChunkRuntimeRef.current
+    if (
+      startupRuntime?.enabled &&
+      !startupRuntime.handoffComplete &&
+      !startupRuntime.handoffInProgress
+    ) {
+      const handoffAtSec =
+        startupRuntime.strategy === "splice"
+          ? startupRuntime.stage === "startup"
+            ? getStartupChunkTailHandoffAtSec(startupRuntime)
+            : getStartupChunkFullHandoffAtSec(startupRuntime)
+          : getStartupChunkHandoffAtSec(startupRuntime)
+      if (pos >= handoffAtSec) {
+        void performStartupChunkHandoff("playback_threshold", pos)
+      }
+    }
+    const shouldLoop = loopOnRef.current
 
     // End of track.
     if (duration > 0 && pos >= duration - 0.01) {
@@ -2736,17 +5361,19 @@ export default function MultiTrackPlayer({
       }
       // Stop playback.
       setMainPlayingState(false)
-      stopEnginesHard()
+      stopEnginesHard({ muteGates: !shouldLoop })
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
 
       // Move cursor to start.
       positionSecRef.current = 0
       setCurrentTime(0)
-      enginesRef.current.forEach((eng) => eng?.seekSeconds(0))
+      const appendableCoordinator = getActiveAppendableQueueCoordinator()
+      if (appendableCoordinator) appendableCoordinator.seekSeconds(0)
+      else enginesRef.current.forEach((eng) => eng?.seekSeconds(0))
 
       // If loopOn is enabled, restart.
-      if (loopOn) {
+      if (shouldLoop) {
         emitMiniPlayerTelemetry({
           controllerId: globalControllerIdRef.current,
           action: "track_loop_restart",
@@ -2761,6 +5388,11 @@ export default function MultiTrackPlayer({
         // No extra delay needed, start immediately.
         setMainPlayingState(true)
         startEngines()
+        logAudioDebug("loop:restart_gain_snapshot", {
+          master: masterGainRef.current?.gain.value ?? null,
+          gates: engineGateRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+          tracks: trackGainRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+        })
         rafRef.current = requestAnimationFrame(animate)
       } else {
         emitMiniPlayerTelemetry({
@@ -2779,20 +5411,448 @@ export default function MultiTrackPlayer({
       return
     }
 
+    if (isScrubbingRef.current) {
+      const previewPos = scrubPreviewPositionRef.current
+      if (typeof previewPos === "number" && Number.isFinite(previewPos)) {
+        positionSecRef.current = previewPos
+        setCurrentTime(previewPos)
+      }
+      rafRef.current = requestAnimationFrame(animate)
+      return
+    }
+
     positionSecRef.current = pos
     setCurrentTime(pos)
     rafRef.current = requestAnimationFrame(animate)
   }
 
-  useEffect(() => {
-    if (!waveReady || !duration) return
-    const p = clamp(currentTime / duration, 0, 1)
+  const redrawTrackWaveforms = useCallback(() => {
+    if (!waveReady) return
+    const p = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0
     for (let i = 0; i < trackList.length; i++) {
       const canvas = waveCanvasesRef.current[i]
       const peaks = peaksRef.current[i]
       if (canvas && peaks) drawWaveform(canvas, peaks, p)
     }
-  }, [currentTime, duration, waveReady, trackList.length])
+  }, [currentTime, duration, trackList.length, waveReady])
+
+  useEffect(() => {
+    redrawTrackWaveforms()
+  }, [redrawTrackWaveforms])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (ringbufferSharedTickWorkerRef.current) {
+      ringbufferSharedTickWorkerRef.current.terminate()
+      ringbufferSharedTickWorkerRef.current = null
+    }
+    if (ringbufferSharedTickTimerRef.current != null) {
+      window.clearInterval(ringbufferSharedTickTimerRef.current)
+      ringbufferSharedTickTimerRef.current = null
+    }
+    if (!isPlaying || activeEngineMode !== "ringbuffer_worklet") return
+
+    const tickAll = () => {
+      const ringbufferDebugStates = enginesRef.current
+        .map((engine) => {
+          const debugState = engine?.getDebugState?.()
+          return debugState && typeof debugState === "object" ? debugState : null
+        })
+        .filter((value): value is Record<string, number | string | null | undefined> => !!value)
+      const queueEstimateFrames = ringbufferDebugStates
+        .map((state) => state.queueEstimateFrames)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const lowWaterFrames = ringbufferDebugStates
+        .map((state) => state.lowWaterFrames)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const pushChunkFrames = ringbufferDebugStates
+        .map((state) => state.pushChunkFrames)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const sharedMinQueueEstimateFrames = queueEstimateFrames.length ? Math.min(...queueEstimateFrames) : undefined
+      const minLowWaterFrames = lowWaterFrames.length ? Math.min(...lowWaterFrames) : undefined
+      const maxPushChunkFrames = pushChunkFrames.length ? Math.max(...pushChunkFrames) : undefined
+      const tickPlan =
+        typeof sharedMinQueueEstimateFrames === "number"
+          ? {
+              sharedMinQueueEstimateFrames,
+              queueSlackFrames: typeof maxPushChunkFrames === "number" ? Math.floor(maxPushChunkFrames / 2) : undefined,
+              chunkBudget:
+                typeof minLowWaterFrames === "number" && sharedMinQueueEstimateFrames < minLowWaterFrames ? 2 : 1,
+            }
+          : undefined
+
+      enginesRef.current.forEach((engine) => {
+        try {
+          engine?.tickPlayback?.(tickPlan)
+        } catch {}
+      })
+    }
+
+    tickAll()
+    if (typeof Worker === "function") {
+      try {
+        const worker = new Worker("/workers/rr-ringbuffer-ticker.js")
+        const handleMessage = (event: MessageEvent<{ type?: string }>) => {
+          if (event.data?.type !== "tick") return
+          tickAll()
+        }
+        worker.addEventListener("message", handleMessage)
+        worker.postMessage({ type: "start", intervalMs: 20 })
+        ringbufferSharedTickWorkerRef.current = worker
+        logAudioDebug("ringbuffer:shared_tick_mode", {
+          mode: "worker",
+          intervalMs: 20,
+        })
+        return () => {
+          worker.removeEventListener("message", handleMessage)
+          worker.postMessage({ type: "stop" })
+          worker.terminate()
+          if (ringbufferSharedTickWorkerRef.current === worker) {
+            ringbufferSharedTickWorkerRef.current = null
+          }
+          if (ringbufferSharedTickTimerRef.current != null) {
+            window.clearInterval(ringbufferSharedTickTimerRef.current)
+            ringbufferSharedTickTimerRef.current = null
+          }
+        }
+      } catch (error) {
+        logAudioDebug("ringbuffer:shared_tick_mode", {
+          mode: "timer_fallback",
+          intervalMs: 20,
+          reason: error instanceof Error ? error.message : "worker init failed",
+        })
+      }
+    } else {
+      logAudioDebug("ringbuffer:shared_tick_mode", {
+        mode: "timer_fallback",
+        intervalMs: 20,
+        reason: "worker unsupported",
+      })
+    }
+
+    ringbufferSharedTickTimerRef.current = window.setInterval(tickAll, 20)
+    return () => {
+      if (ringbufferSharedTickWorkerRef.current) {
+        ringbufferSharedTickWorkerRef.current.terminate()
+        ringbufferSharedTickWorkerRef.current = null
+      }
+      if (ringbufferSharedTickTimerRef.current != null) {
+        window.clearInterval(ringbufferSharedTickTimerRef.current)
+        ringbufferSharedTickTimerRef.current = null
+      }
+    }
+  }, [activeEngineMode, isPlaying])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (appendableQueueSharedTickWorkerRef.current) {
+      appendableQueueSharedTickWorkerRef.current.terminate()
+      appendableQueueSharedTickWorkerRef.current = null
+    }
+    if (appendableQueueSharedTickTimerRef.current != null) {
+      window.clearInterval(appendableQueueSharedTickTimerRef.current)
+      appendableQueueSharedTickTimerRef.current = null
+    }
+    const coordinator = appendableQueueCoordinatorRef.current
+    if (!isPlaying || activeEngineMode !== "appendable_queue_worklet" || !coordinator || enginesRef.current.length <= 1) {
+      return
+    }
+
+    const tickAll = () => {
+      coordinator.tick({ force: coordinator.isPlaying() })
+    }
+
+    tickAll()
+    if (typeof Worker === "function") {
+      try {
+        const worker = new Worker("/workers/rr-ringbuffer-ticker.js")
+        const handleMessage = (event: MessageEvent<{ type?: string }>) => {
+          if (event.data?.type !== "tick") return
+          tickAll()
+        }
+        worker.addEventListener("message", handleMessage)
+        worker.postMessage({ type: "start", intervalMs: 20 })
+        appendableQueueSharedTickWorkerRef.current = worker
+        logAudioDebug("appendable_queue:shared_tick_mode", {
+          mode: "worker",
+          intervalMs: 20,
+          trackCount: enginesRef.current.length,
+        })
+        return () => {
+          worker.removeEventListener("message", handleMessage)
+          worker.postMessage({ type: "stop" })
+          worker.terminate()
+          if (appendableQueueSharedTickWorkerRef.current === worker) {
+            appendableQueueSharedTickWorkerRef.current = null
+          }
+          if (appendableQueueSharedTickTimerRef.current != null) {
+            window.clearInterval(appendableQueueSharedTickTimerRef.current)
+            appendableQueueSharedTickTimerRef.current = null
+          }
+        }
+      } catch (error) {
+        logAudioDebug("appendable_queue:shared_tick_mode", {
+          mode: "timer_fallback",
+          intervalMs: 20,
+          trackCount: enginesRef.current.length,
+          reason: error instanceof Error ? error.message : "worker init failed",
+        })
+      }
+    } else {
+      logAudioDebug("appendable_queue:shared_tick_mode", {
+        mode: "timer_fallback",
+        intervalMs: 20,
+        trackCount: enginesRef.current.length,
+        reason: "worker unsupported",
+      })
+    }
+
+    appendableQueueSharedTickTimerRef.current = window.setInterval(tickAll, 20)
+    return () => {
+      if (appendableQueueSharedTickWorkerRef.current) {
+        appendableQueueSharedTickWorkerRef.current.terminate()
+        appendableQueueSharedTickWorkerRef.current = null
+      }
+      if (appendableQueueSharedTickTimerRef.current != null) {
+        window.clearInterval(appendableQueueSharedTickTimerRef.current)
+        appendableQueueSharedTickTimerRef.current = null
+      }
+    }
+  }, [activeEngineMode, isPlaying])
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return
+
+    const logFocusState = (event: "window:blur" | "window:focus" | "document:visibility") => {
+      logAudioDebug("audio:focus_state", {
+        event,
+        currentSec: Number(positionSecRef.current.toFixed(3)),
+        visibilityState: document.visibilityState,
+        playing: isPlayingRef.current,
+        mode: activeEngineMode,
+      })
+    }
+
+    const handleBlur = () => {
+      logFocusState("window:blur")
+    }
+
+    const handleFocus = () => {
+      logFocusState("window:focus")
+    }
+
+    const handleVisibilityChange = () => {
+      logFocusState("document:visibility")
+    }
+
+    window.addEventListener("blur", handleBlur)
+    window.addEventListener("focus", handleFocus)
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      window.removeEventListener("blur", handleBlur)
+      window.removeEventListener("focus", handleFocus)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [activeEngineMode])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!isPlaying || activeEngineMode !== "ringbuffer_worklet") {
+      if (ringbufferRuntimeProbeTimerRef.current != null) {
+        window.clearInterval(ringbufferRuntimeProbeTimerRef.current)
+        ringbufferRuntimeProbeTimerRef.current = null
+      }
+      ringbufferRuntimeProbeLastLogAtMsRef.current = 0
+      ringbufferRuntimeProbeLastMinBufferedSecRef.current = null
+      return
+    }
+
+    const sample = () => {
+      const ringbufferDebugStates = enginesRef.current
+        .map((engine) => {
+          const debugState = engine?.getDebugState?.()
+          return debugState && typeof debugState === "object" ? debugState : null
+        })
+        .filter((value): value is Record<string, number | string | null | undefined> => !!value)
+      const bufferedSecs = enginesRef.current
+        .map((engine) => engine?.getBufferedSeconds?.())
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      if (!bufferedSecs.length) return
+
+      const minBufferedSec = Math.min(...bufferedSecs)
+      const maxBufferedSec = Math.max(...bufferedSecs)
+      const avgBufferedSec = bufferedSecs.reduce((sum, value) => sum + value, 0) / bufferedSecs.length
+      const queueEstimateSecs = ringbufferDebugStates
+        .map((state) => state.queueEstimateSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const queueEstimateFrames = ringbufferDebugStates
+        .map((state) => state.queueEstimateFrames)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const refillCounts = ringbufferDebugStates
+        .map((state) => state.refillCount)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const pushCounts = ringbufferDebugStates
+        .map((state) => state.pushCount)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const sourceCursorSecs = ringbufferDebugStates
+        .map((state) => state.sourceFrameCursorSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const pushChunkSecs = ringbufferDebugStates
+        .map((state) => state.pushChunkSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const refillTriggerSecs = ringbufferDebugStates
+        .map((state) => state.refillTriggerSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const highWaterSecs = ringbufferDebugStates
+        .map((state) => state.highWaterSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const readWrapCounts = ringbufferDebugStates
+        .map((state) => state.readWrapCount)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const writeWrapCounts = ringbufferDebugStates
+        .map((state) => state.writeWrapCount)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const readWrapDeltaMaxes = ringbufferDebugStates
+        .map((state) => state.lastReadWrapDeltaMax)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const nowMs = readAudioPerfNowMs()
+      const lastLogAtMs = ringbufferRuntimeProbeLastLogAtMsRef.current
+      const lastMinBufferedSec = ringbufferRuntimeProbeLastMinBufferedSecRef.current
+      const dropDeltaSec =
+        typeof lastMinBufferedSec === "number" ? Math.max(0, lastMinBufferedSec - minBufferedSec) : 0
+      const dueHeartbeat = lastLogAtMs === 0 || nowMs - lastLogAtMs >= RINGBUFFER_RUNTIME_PROBE_LOG_INTERVAL_MS
+      const notableDrop = dropDeltaSec >= RINGBUFFER_RUNTIME_PROBE_DROP_DELTA_SEC
+
+      if (dueHeartbeat || notableDrop) {
+        ringbufferRuntimeProbeLastLogAtMsRef.current = nowMs
+        logAudioDebug("ringbuffer:runtime_probe", {
+          currentSec: Number(positionSecRef.current.toFixed(3)),
+          minBufferedSec: Number(minBufferedSec.toFixed(3)),
+          maxBufferedSec: Number(maxBufferedSec.toFixed(3)),
+          avgBufferedSec: Number(avgBufferedSec.toFixed(3)),
+          dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
+          minQueueEstimateSec: queueEstimateSecs.length ? Number(Math.min(...queueEstimateSecs).toFixed(3)) : null,
+          maxQueueEstimateSec: queueEstimateSecs.length ? Number(Math.max(...queueEstimateSecs).toFixed(3)) : null,
+          minQueueEstimateFrames: queueEstimateFrames.length ? Math.min(...queueEstimateFrames) : null,
+          maxQueueEstimateFrames: queueEstimateFrames.length ? Math.max(...queueEstimateFrames) : null,
+          refillCounts,
+          pushCounts,
+          sourceCursorSecs,
+          pushChunkSecs,
+          refillTriggerSecs,
+          highWaterSecs,
+          readWrapCounts,
+          writeWrapCounts,
+          readWrapDeltaMaxes,
+          gates: engineGateRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+        })
+      }
+
+      ringbufferRuntimeProbeLastMinBufferedSecRef.current = minBufferedSec
+    }
+
+    sample()
+    ringbufferRuntimeProbeTimerRef.current = window.setInterval(sample, RINGBUFFER_RUNTIME_PROBE_INTERVAL_MS)
+
+    return () => {
+      if (ringbufferRuntimeProbeTimerRef.current != null) {
+        window.clearInterval(ringbufferRuntimeProbeTimerRef.current)
+        ringbufferRuntimeProbeTimerRef.current = null
+      }
+    }
+  }, [activeEngineMode, isPlaying])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const coordinator = appendableQueueCoordinatorRef.current
+    if (!isPlaying || activeEngineMode !== "appendable_queue_worklet" || !coordinator || enginesRef.current.length <= 1) {
+      if (appendableQueueRuntimeProbeTimerRef.current != null) {
+        window.clearInterval(appendableQueueRuntimeProbeTimerRef.current)
+        appendableQueueRuntimeProbeTimerRef.current = null
+      }
+      appendableQueueRuntimeProbeLastLogAtMsRef.current = 0
+      appendableQueueRuntimeProbeLastMinLeadSecRef.current = null
+      setAppendableQueueRuntimeProbeSnapshot((current) =>
+        current.active || current.sampleAtMs != null ? createAppendableQueueRuntimeProbeSnapshot() : current
+      )
+      return
+    }
+
+    const sample = () => {
+      const snapshot = coordinator.getSnapshot()
+      const debugStates = enginesRef.current
+        .map((engine) => {
+          const debugState = engine?.getDebugState?.()
+          return debugState && typeof debugState === "object" ? debugState : null
+        })
+        .filter((value): value is Record<string, number | string | null | undefined> => !!value)
+      const minLeadSec = snapshot.sync.minLeadSec
+      const nowMs = readAudioPerfNowMs()
+      const lastLogAtMs = appendableQueueRuntimeProbeLastLogAtMsRef.current
+      const lastMinLeadSec = appendableQueueRuntimeProbeLastMinLeadSecRef.current
+      const dropDeltaSec =
+        typeof lastMinLeadSec === "number" ? Math.max(0, lastMinLeadSec - minLeadSec) : 0
+      const dueHeartbeat = lastLogAtMs === 0 || nowMs - lastLogAtMs >= APPENDABLE_QUEUE_RUNTIME_PROBE_LOG_INTERVAL_MS
+      const notableDrop = dropDeltaSec >= APPENDABLE_QUEUE_RUNTIME_PROBE_DROP_DELTA_SEC
+
+      setAppendableQueueRuntimeProbeSnapshot({
+        active: true,
+        sampleAtMs: nowMs,
+        currentSec: Number(positionSecRef.current.toFixed(3)),
+        transportSec: snapshot.transportSec,
+        stemDriftSec: snapshot.sync.stemDriftSec,
+        transportDriftSec: snapshot.sync.transportDriftSec,
+        minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
+        maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
+        dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
+        totalUnderrunFrames: snapshot.sync.totalUnderrunFrames,
+        totalDiscontinuityCount: snapshot.sync.totalDiscontinuityCount,
+      })
+
+      if (dueHeartbeat || notableDrop) {
+        appendableQueueRuntimeProbeLastLogAtMsRef.current = nowMs
+        logAudioDebug("appendable_queue:runtime_probe", {
+          currentSec: Number(positionSecRef.current.toFixed(3)),
+          transportSec: snapshot.transportSec,
+          stemDriftSec: snapshot.sync.stemDriftSec,
+          transportDriftSec: snapshot.sync.transportDriftSec,
+          minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
+          maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
+          dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
+          totalUnderrunFrames: snapshot.sync.totalUnderrunFrames,
+          totalDiscontinuityCount: snapshot.sync.totalDiscontinuityCount,
+          availableFrames: debugStates.map((state) => state.availableFrames).filter((value) => typeof value === "number"),
+          appendCounts: debugStates.map((state) => state.appendCount).filter((value) => typeof value === "number"),
+          generations: debugStates.map((state) => state.generation).filter((value) => typeof value === "number"),
+          bufferLeadSecs: debugStates.map((state) => state.bufferLeadSec).filter((value) => typeof value === "number"),
+          gates: engineGateRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+        })
+      }
+
+      appendableQueueRuntimeProbeLastMinLeadSecRef.current = minLeadSec
+    }
+
+    sample()
+    appendableQueueRuntimeProbeTimerRef.current = window.setInterval(sample, APPENDABLE_QUEUE_RUNTIME_PROBE_INTERVAL_MS)
+
+    return () => {
+      if (appendableQueueRuntimeProbeTimerRef.current != null) {
+        window.clearInterval(appendableQueueRuntimeProbeTimerRef.current)
+        appendableQueueRuntimeProbeTimerRef.current = null
+      }
+    }
+  }, [activeEngineMode, isPlaying])
+
+  useEffect(() => {
+    if (!showDetailedSections) return
+    if (typeof window === "undefined") return
+    const rafId = window.requestAnimationFrame(() => {
+      redrawTrackWaveforms()
+    })
+    return () => {
+      window.cancelAnimationFrame(rafId)
+    }
+  }, [redrawTrackWaveforms, showDetailedSections, trackScopeId])
 
   useEffect(() => {
     onTimeChange?.(currentTime)
@@ -2945,6 +6005,14 @@ export default function MultiTrackPlayer({
 
   useEffect(() => {
     if (!teleprompterAutoCollectStorageKey) return
+    if (!teleprompterAutoCollectAllowed) {
+      setTeleprompterAutoCollect(false)
+      try {
+        localStorage.setItem(teleprompterAutoCollectStorageKey, "0")
+      } catch {}
+      teleprompterAutoCollectPrimedRef.current = false
+      return
+    }
     try {
       const raw = localStorage.getItem(teleprompterAutoCollectStorageKey)
       setTeleprompterAutoCollect(raw === "1")
@@ -2952,14 +6020,20 @@ export default function MultiTrackPlayer({
       setTeleprompterAutoCollect(false)
     }
     teleprompterAutoCollectPrimedRef.current = false
-  }, [teleprompterAutoCollectStorageKey])
+  }, [teleprompterAutoCollectAllowed, teleprompterAutoCollectStorageKey])
 
   useEffect(() => {
     if (!teleprompterAutoCollectStorageKey) return
+    if (!teleprompterAutoCollectAllowed) {
+      try {
+        localStorage.setItem(teleprompterAutoCollectStorageKey, "0")
+      } catch {}
+      return
+    }
     try {
       localStorage.setItem(teleprompterAutoCollectStorageKey, teleprompterAutoCollect ? "1" : "0")
     } catch {}
-  }, [teleprompterAutoCollect, teleprompterAutoCollectStorageKey])
+  }, [teleprompterAutoCollect, teleprompterAutoCollectAllowed, teleprompterAutoCollectStorageKey])
 
   useEffect(() => {
     if (!teleprompterPreviewAutoSaveStorageKey) return
@@ -2999,39 +6073,193 @@ export default function MultiTrackPlayer({
     pendingLastFrameMsRef.current = 0
   }, [])
 
+  const clearGateWarmupTimers = useCallback(() => {
+    if (typeof window === "undefined") return
+    for (const timerId of gateWarmupTimersRef.current) {
+      window.clearTimeout(timerId)
+    }
+    gateWarmupTimersRef.current = []
+  }, [])
+
+  const clearSmoothSeekTimers = useCallback(() => {
+    if (typeof window === "undefined") return
+    if (smoothSeekTimerRef.current != null) {
+      window.clearTimeout(smoothSeekTimerRef.current)
+      smoothSeekTimerRef.current = null
+    }
+    if (smoothSeekResumeGateTimerRef.current != null) {
+      window.clearTimeout(smoothSeekResumeGateTimerRef.current)
+      smoothSeekResumeGateTimerRef.current = null
+    }
+    pendingSmoothSeekSecRef.current = null
+  }, [])
+
+  const clearPendingPlayWatchdog = useCallback(() => {
+    if (typeof window === "undefined") return
+    if (pendingPlayWatchdogTimerRef.current != null) {
+      window.clearTimeout(pendingPlayWatchdogTimerRef.current)
+      pendingPlayWatchdogTimerRef.current = null
+    }
+  }, [])
+
+  const cancelDeferredPeaksIdleCallback = useCallback(() => {
+    if (typeof window === "undefined") return
+    const idleId = deferredPeaksIdleCallbackRef.current
+    if (idleId == null) return
+    if (typeof window.cancelIdleCallback === "function") {
+      window.cancelIdleCallback(idleId)
+    } else {
+      window.clearTimeout(idleId)
+    }
+    deferredPeaksIdleCallbackRef.current = null
+  }, [])
+
+  const scheduleGateWarmup = useCallback((reason: string) => {
+    if (typeof window === "undefined") return
+    clearGateWarmupTimers()
+    const delays = [0, 40, 120, 260, 520, 900]
+    for (const delayMs of delays) {
+      const timerId = window.setTimeout(() => {
+        if (!isPlayingRef.current) return
+        setEngineGateTarget(1, { immediate: true, rampSec: 0 })
+        const gateValues = engineGateRef.current.map((g) => (g ? Number(g.gain.value) : null))
+        const hasAnyGate = gateValues.some((value) => typeof value === "number" && Number.isFinite(value))
+        const allNearZero = hasAnyGate && gateValues.every((value) => value == null || value <= 0.001)
+        if (allNearZero) {
+          logAudioDebug("gate:warmup_force_open", {
+            reason,
+            delayMs,
+            gates: gateValues.map((value) => (typeof value === "number" ? Number(value.toFixed(4)) : null)),
+          })
+        }
+
+        const startGuard = playStartGuardRef.current
+        if (!startGuard || startGuard.corrected) return
+        if (startGuard.requestedSec > 0.001) return
+        const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now()
+        const elapsedMs = nowMs - startGuard.startedAtMs
+        // Only apply startup correction in the immediate warmup window.
+        // Delayed timers after long main-thread stalls are not a valid signal.
+        if (elapsedMs > 420) return
+        const sourcePosSec = enginesRef.current[0]?.getSourcePositionSeconds?.() ?? null
+        if (typeof sourcePosSec !== "number" || !Number.isFinite(sourcePosSec)) return
+        const expectedPosSec = startGuard.requestedSec + elapsedMs / 1000
+        const overshootSec = sourcePosSec - expectedPosSec
+        // Correct only when source position jumped materially beyond expected progress.
+        if (sourcePosSec < 0.35 || overshootSec < 0.45) return
+        startGuard.corrected = true
+        positionSecRef.current = 0
+        setCurrentTime(0)
+        const appendableCoordinator = getActiveAppendableQueueCoordinator()
+        if (appendableCoordinator) appendableCoordinator.seekSeconds(0)
+        else enginesRef.current.forEach((eng) => eng?.seekSeconds(0))
+        logAudioDebug("play:start_position_corrected", {
+          reason,
+          delayMs,
+          elapsedMs: Number(elapsedMs.toFixed(1)),
+          expectedPosSec: Number(expectedPosSec.toFixed(3)),
+          overshootSec: Number(overshootSec.toFixed(3)),
+          observedPosSec: Number(sourcePosSec.toFixed(3)),
+        })
+      }, delayMs)
+      gateWarmupTimersRef.current.push(timerId)
+    }
+  }, [clearGateWarmupTimers, setEngineGateTarget])
+
   const startPendingTransport = useCallback(() => {
     if (pendingRafRef.current != null) return
-    const step = (frameMs: number) => {
+    const step = () => {
       if (!pendingPlayRef.current || readyRef.current || isPlayingRef.current) {
         stopPendingTransport()
         return
       }
-      if (guestTransportLinkedRef.current) {
-        pendingLastFrameMsRef.current = frameMs
-        pendingRafRef.current = requestAnimationFrame(step)
-        return
-      }
-      const prev = pendingLastFrameMsRef.current || frameMs
-      const dtSec = Math.max(0, Math.min(0.2, (frameMs - prev) / 1000))
-      pendingLastFrameMsRef.current = frameMs
-      if (dtSec > 0) {
-        const nextPos = positionSecRef.current + dtSec * Math.max(0.6, tempoRef.current)
-        const bounded = duration > 0 ? Math.min(nextPos, duration) : nextPos
-        positionSecRef.current = bounded
-        setCurrentTime(bounded)
-      }
+      // Do not advance timeline while transport is pending.
+      // Simulated progress during preload created a silent "intermediate" state
+      // and visible jitter when real playback started.
       pendingRafRef.current = requestAnimationFrame(step)
     }
     pendingRafRef.current = requestAnimationFrame(step)
-  }, [duration, stopPendingTransport])
+  }, [stopPendingTransport])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    clearPendingPlayWatchdog()
+    if (!mainPlayPending || isReady || isPlayingRef.current) return
+    pendingPlayWatchdogTimerRef.current = window.setTimeout(() => {
+      pendingPlayWatchdogTimerRef.current = null
+      if (!pendingPlayRef.current || readyRef.current || isPlayingRef.current) return
+      logAudioDebug("play:pending_ready_watchdog", {
+        scope: trackScopeId,
+        elapsedMs: PENDING_PLAY_READY_TIMEOUT_MS,
+      })
+      pendingPlayRef.current = false
+      pendingStartPositionRef.current = null
+      stopPendingTransport()
+      setMainPlayPending(false)
+      abortAudioTtfpAttempt("pending_ready_timeout")
+    }, PENDING_PLAY_READY_TIMEOUT_MS)
+    return () => {
+      clearPendingPlayWatchdog()
+    }
+  }, [
+    abortAudioTtfpAttempt,
+    clearPendingPlayWatchdog,
+    isReady,
+    mainPlayPending,
+    stopPendingTransport,
+    trackScopeId,
+  ])
 
   /** =========================
    *  TRANSPORT
    *  ========================= */
-  const play = async () => {
+  const play = async (trigger = "auto") => {
+    if (playInFlightRef.current) {
+      // Coalesce duplicate play requests fired by multiple UI layers.
+      // A second concurrent start can seek/restart on top of an active start
+      // and manifests as intro swallow or "silent until next toggle".
+      logAudioDebug("play:coalesced", { trigger })
+      return
+    }
+    playInFlightRef.current = true
+    try {
+    if (isAudioTtfpEnabled()) {
+      const active = audioTtfpAttemptRef.current
+      if (!active || active.finalized || active.trackScopeId !== trackScopeId) {
+        beginAudioTtfpAttempt(trigger)
+      }
+      markAudioTtfpStage("play_call")
+    }
+
     const ctx = ctxRef.current
     if (!ctx || !readyRef.current) {
+      if (ctx) {
+        if (ctx.state !== "running") {
+          try {
+            await promiseWithTimeout(ctx.resume(), AUDIO_CTX_RESUME_TIMEOUT_MS, `ctx.resume ${trigger}`)
+            markAudioTtfpStage("ctx_resumed", { primed: true })
+          } catch (error) {
+            logAudioDebug("audio:ctx_resume_timeout", {
+              trigger,
+              state: ctx.state,
+              primed: true,
+              reason: error instanceof Error ? error.message : "unknown ctx resume error",
+            })
+            stopPendingTransport()
+            setMainPlayPending(false)
+            pendingPlayRef.current = false
+            pendingStartPositionRef.current = null
+            abortAudioTtfpAttempt("ctx_resume_timeout")
+            return
+          }
+        } else {
+          void ctx.resume().catch(() => {})
+        }
+      }
       pendingPlayRef.current = true
+      if (pendingStartPositionRef.current == null) {
+        pendingStartPositionRef.current = positionSecRef.current
+      }
       setMainPlayPending(true)
       startPendingTransport()
       return
@@ -3039,24 +6267,94 @@ export default function MultiTrackPlayer({
     stopPendingTransport()
     setMainPlayPending(false)
     pendingPlayRef.current = false
+    const pendingPos = pendingStartPositionRef.current
+    pendingStartPositionRef.current = null
     if (registerGlobalAudio && globalControllerRef.current) requestGlobalAudio(globalControllerRef.current)
-    await ctx.resume()
+    if (ctx.state !== "running") {
+      try {
+        await promiseWithTimeout(ctx.resume(), AUDIO_CTX_RESUME_TIMEOUT_MS, `ctx.resume ${trigger}`)
+      } catch (error) {
+        logAudioDebug("audio:ctx_resume_timeout", {
+          trigger,
+          state: ctx.state,
+          primed: false,
+          reason: error instanceof Error ? error.message : "unknown ctx resume error",
+        })
+        stopPendingTransport()
+        setMainPlayPending(false)
+        pendingPlayRef.current = false
+        pendingStartPositionRef.current = null
+        abortAudioTtfpAttempt("ctx_resume_timeout")
+        return
+      }
+    } else {
+      // Safari/WebKit can occasionally resolve resume() slowly even when already running.
+      // Do not block play path in this state.
+      void ctx.resume().catch(() => {})
+    }
+    clearPendingPlayWatchdog()
+    markAudioTtfpStage("ctx_resumed")
     if (guestSoloMode) setGuestSoloMode(false)
-    const masterTarget = guestSoloMode ? 0 : masterVol
+    const masterTarget = clamp(masterVol, 0, 1) * MASTER_HEADROOM_GAIN
     // Restore main bus levels before start after an explicit hard stop.
     rampGainTo(masterGainRef.current, masterTarget, 0.02)
     rampGainTo(wetGainRef.current, reverbAmount, 0.03)
     rampGainTo(dryGainRef.current, 1 - reverbAmount, 0.03)
 
     // If we are at track end, restart from the beginning.
-    const atEnd = duration > 0 && positionSecRef.current >= duration - 0.02
-    const pos = atEnd ? 0 : clamp(positionSecRef.current, 0, duration || positionSecRef.current)
+    const startPos = pendingPos != null ? pendingPos : positionSecRef.current
+    const forceZeroStart = forceZeroStartRef.current
+    forceZeroStartRef.current = false
+    const atEnd = duration > 0 && startPos >= duration - 0.02
+    const explicitRestartRequested = forceZeroStart || pendingPos != null || atEnd
+    if (isPlayingRef.current && !explicitRestartRequested) {
+      // If already running and no explicit seek/restart was requested,
+      // keep transport untouched and just ensure gates stay open.
+      setEngineGateTarget(1, { immediate: true, rampSec: 0 })
+      scheduleGateWarmup(`${trigger}:already_playing`)
+      markAudioTtfpStage("seek_applied", { posSec: Number(positionSecRef.current.toFixed(3)) })
+      markAudioTtfpStage("engines_start")
+      markAudioTtfpStage("gate_open")
+      markAudioTtfpStage("playing_state")
+      flushAudioTtfpAttempt("playing_state")
+      logAudioDebug("play:noop_already_playing", {
+        trigger,
+        posSec: Number(positionSecRef.current.toFixed(3)),
+      })
+      return
+    }
+    const pos = forceZeroStart ? 0 : (atEnd ? 0 : clamp(startPos, 0, duration || startPos))
+    const startupRuntime = startupChunkRuntimeRef.current
+    if (
+      startupRuntime?.enabled &&
+      !startupRuntime.handoffComplete &&
+      !startupRuntime.handoffInProgress
+    ) {
+      const handoffAtSec =
+        startupRuntime.strategy === "splice"
+          ? startupRuntime.stage === "startup"
+            ? getStartupChunkTailHandoffAtSec(startupRuntime)
+            : getStartupChunkFullHandoffAtSec(startupRuntime)
+          : getStartupChunkHandoffAtSec(startupRuntime)
+      if (pos >= handoffAtSec) {
+        await performStartupChunkHandoff("play_prestart", pos)
+      }
+    }
 
     positionSecRef.current = pos
     setCurrentTime(pos)
+    playStartGuardRef.current = {
+      requestedSec: pos,
+      startedAtMs: typeof performance !== "undefined" ? performance.now() : Date.now(),
+      corrected: false,
+    }
+    firstFrameProbeArmedRef.current = true
 
-    stopEnginesHard()
-    enginesRef.current.forEach((eng) => eng?.seekSeconds(pos))
+    if (!isPlayingRef.current) stopEnginesHard({ muteGates: false })
+    const appendableCoordinator = getActiveAppendableQueueCoordinator()
+    if (appendableCoordinator) appendableCoordinator.seekSeconds(pos)
+    else enginesRef.current.forEach((eng) => eng?.seekSeconds(pos))
+    markAudioTtfpStage("seek_applied", { posSec: Number(pos.toFixed(3)) })
     const guestAudio = guestAudioRef.current
     const hasLinkedGuest = guestTransportLinkedRef.current && !!guestAudio && !!guestTrackUrl
     if (hasLinkedGuest && guestAudio) {
@@ -3069,7 +6367,32 @@ export default function MultiTrackPlayer({
     }
 
     startEngines()
+    scheduleGateWarmup(trigger)
+    if (typeof window !== "undefined") {
+      // Recovery guard: in rare races gate automation may remain pinned at 0 after play.
+      // Re-open gates once if they are still effectively muted shortly after start.
+      window.setTimeout(() => {
+        if (!isPlayingRef.current) return
+        const gateValues = engineGateRef.current.map((g) => (g ? Number(g.gain.value) : null))
+        const hasAnyGate = gateValues.some((value) => typeof value === "number" && Number.isFinite(value))
+        const allNearZero = hasAnyGate && gateValues.every((value) => value == null || value <= 0.001)
+        if (!allNearZero) return
+        setEngineGateTarget(1, { immediate: true, rampSec: 0 })
+        logAudioDebug("gate:force_open_recovery", {
+          gates: gateValues.map((value) => (typeof value === "number" ? Number(value.toFixed(4)) : null)),
+        })
+      }, 50)
+    }
     setMainPlayingState(true)
+    markAudioTtfpStage("playing_state")
+    flushAudioTtfpAttempt("playing_state")
+    logAudioDebug("play:gain_snapshot", {
+      master: masterGainRef.current?.gain.value ?? null,
+      gates: engineGateRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+      tracks: trackGainRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+      guestSoloMode,
+      guestLinked: guestTransportLinkedRef.current,
+    })
 
     if (hasLinkedGuest && guestAudio) {
       void (async () => {
@@ -3097,15 +6420,25 @@ export default function MultiTrackPlayer({
 
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     rafRef.current = requestAnimationFrame(animate)
+    } finally {
+      playInFlightRef.current = false
+    }
   }
 
-  const forceStopMainTransport = () => {
+  const forceStopMainTransport = (opts?: { hardDuck?: boolean; muteGates?: boolean }) => {
     stopPendingTransport()
+    clearGateWarmupTimers()
+    playStartGuardRef.current = null
+    firstFrameProbeArmedRef.current = false
+    abortAudioTtfpAttempt("force_stop")
     setMainPlayPending(false)
+    pendingStartPositionRef.current = null
     setMainPlayingState(false)
-    stopEnginesHard()
-    // Hard-duck master bus to instantly cut reverb tail on stop/switch.
-    rampGainTo(masterGainRef.current, 0, 0.012)
+    stopEnginesHard({ muteGates: opts?.muteGates ?? true })
+    if (opts?.hardDuck ?? true) {
+      // Hard-duck master bus to instantly cut reverb tail on stop/switch.
+      rampGainTo(masterGainRef.current, 0, 0.012)
+    }
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     rafRef.current = null
   }
@@ -3114,7 +6447,7 @@ export default function MultiTrackPlayer({
     const guestAudio = guestAudioRef.current
     if (!guestAudio) return
     setGuestSoloMode(false)
-    rampGainTo(masterGainRef.current, masterVol, 0.04)
+    rampGainTo(masterGainRef.current, clamp(masterVol, 0, 1) * MASTER_HEADROOM_GAIN, 0.04)
     beginGuestProgrammaticAction()
     guestAudio.pause()
     endGuestProgrammaticAction()
@@ -3152,7 +6485,7 @@ export default function MultiTrackPlayer({
 
     if (!calibrationMutedRef.current) return
     calibrationMutedRef.current = false
-    const masterTarget = guestSoloMode ? 0 : masterVol
+    const masterTarget = (guestSoloMode ? 0 : clamp(masterVol, 0, 1)) * MASTER_HEADROOM_GAIN
     rampGainTo(master, masterTarget, 0.05)
     if (guestGain) rampGainTo(guestGain, calibrationGuestGainRef.current, 0.04)
     if (audio) {
@@ -3217,7 +6550,7 @@ export default function MultiTrackPlayer({
     const applyBlobAsActiveTake = (blob: Blob, takeId: string | null, takes: GuestTakeMeta[]) => {
       const url = URL.createObjectURL(blob)
       setGuestTrackUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev)
+        scheduleBlobUrlRevoke(prev)
         return url
       })
       setGuestTakes(takes)
@@ -3266,15 +6599,25 @@ export default function MultiTrackPlayer({
       }
       applyBlobAsActiveTake(legacyBlob, legacyId, [legacyTake])
     } catch {}
-  }, [guestRecordStorageKey, guestTakesStorageKey, loadGuestRecordingByKey, selectedSoloTrackIndex])
+  }, [guestRecordStorageKey, guestTakesStorageKey, loadGuestRecordingByKey, scheduleBlobUrlRevoke, selectedSoloTrackIndex])
 
   const pause = () => {
     stopPendingTransport()
+    clearPendingPlayWatchdog()
+    clearSmoothSeekTimers()
     setMainPlayPending(false)
     pendingPlayRef.current = false
+    pendingStartPositionRef.current = null
     clearGuestCalibrateTimer()
     clearGuestStartGuardTimer()
-    forceStopMainTransport()
+    forceStopMainTransport({ hardDuck: false, muteGates: false })
+    logAudioDebug("pause:gain_snapshot", {
+      master: masterGainRef.current?.gain.value ?? null,
+      gates: engineGateRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+      tracks: trackGainRef.current.map((g) => (g ? Number(g.gain.value.toFixed(4)) : null)),
+      guestSoloMode,
+      guestLinked: guestTransportLinkedRef.current,
+    })
 
     const guestAudio = guestAudioRef.current
     if (guestAudio && !guestAudio.paused) {
@@ -3288,30 +6631,288 @@ export default function MultiTrackPlayer({
   }
 
   const togglePlay = () => {
-    if (isPlayingRef.current || mainPlayPending) pause()
-    else play()
+    if (mainPlayPending && !isPlayingRef.current) return
+    if (isPlayingRef.current) pause()
+    else {
+      beginAudioTtfpAttempt("ui_play")
+      markAudioTtfpStage("click")
+      void play("ui_play")
+    }
+  }
+
+  const toggleLoop = () => {
+    setLoopOn((prev) => {
+      const next = !prev
+      loopOnRef.current = next
+      logAudioDebug("loop:toggle", { prev, next, currentSec: positionSecRef.current })
+      return next
+    })
   }
 
   const seekTo = (sec: number) => {
     const pos = clamp(sec, 0, duration || sec)
+    forceZeroStartRef.current = false
+    const startupRuntime = startupChunkRuntimeRef.current
+    if (
+      startupRuntime?.enabled &&
+      !startupRuntime.handoffComplete &&
+      !startupRuntime.handoffInProgress
+    ) {
+      const handoffAtSec =
+        startupRuntime.strategy === "splice"
+          ? startupRuntime.stage === "startup"
+            ? getStartupChunkTailHandoffAtSec(startupRuntime)
+            : getStartupChunkFullHandoffAtSec(startupRuntime)
+          : getStartupChunkHandoffAtSec(startupRuntime)
+      if (pos >= handoffAtSec) {
+        void performStartupChunkHandoff("seek_target", pos)
+      }
+    }
     positionSecRef.current = pos
+    if (pendingPlayRef.current || mainPlayPending) {
+      pendingStartPositionRef.current = pos
+    }
     setCurrentTime(pos)
 
     const wasPlaying = isPlayingRef.current
+    const isBufferedQueueSeek =
+      activeEngineMode === "ringbuffer_worklet" || activeEngineMode === "appendable_queue_worklet"
 
-    stopEnginesHard()
-    enginesRef.current.forEach((eng) => eng?.seekSeconds(pos))
+    clearSmoothSeekTimers()
+    const appendableCoordinator = getActiveAppendableQueueCoordinator()
 
-    if (wasPlaying) {
-      startEngines()
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = requestAnimationFrame(animate)
+    if (!wasPlaying) {
+      if (appendableCoordinator) appendableCoordinator.seekSeconds(pos)
+      else enginesRef.current.forEach((eng) => eng?.seekSeconds(pos))
+      if (guestTransportLinkedRef.current) {
+        syncGuestToMain(pos, true)
+      }
+      return
     }
 
-    if (guestTransportLinkedRef.current) {
-      syncGuestToMain(pos, true)
-    }
+    setEngineGateTarget(isBufferedQueueSeek ? SEEK_SMOOTH_RINGBUFFER_CLOSE_FLOOR_GAIN : 0, {
+      rampSec: SEEK_SMOOTH_CLOSE_RAMP_SEC,
+    })
+    pendingSmoothSeekSecRef.current = pos
+    smoothSeekTimerRef.current = window.setTimeout(() => {
+      smoothSeekTimerRef.current = null
+      const targetPos = pendingSmoothSeekSecRef.current ?? pos
+      pendingSmoothSeekSecRef.current = null
+      positionSecRef.current = targetPos
+      setCurrentTime(targetPos)
+      if (appendableCoordinator) appendableCoordinator.seekSeconds(targetPos)
+      else enginesRef.current.forEach((eng) => eng?.seekSeconds(targetPos))
+      if (guestTransportLinkedRef.current) {
+        syncGuestToMain(targetPos, true)
+      }
+      let minBufferedSec: number | null = null
+      if (isBufferedQueueSeek) {
+        for (const engine of enginesRef.current) {
+          const bufferedSec = engine?.getBufferedSeconds?.()
+          if (typeof bufferedSec !== "number" || !Number.isFinite(bufferedSec)) continue
+          minBufferedSec = minBufferedSec == null ? bufferedSec : Math.min(minBufferedSec, bufferedSec)
+        }
+      }
+      const bufferedEnough =
+        isBufferedQueueSeek &&
+        typeof minBufferedSec === "number" &&
+        minBufferedSec >= SEEK_SMOOTH_RINGBUFFER_BUFFERED_THRESHOLD_SEC
+      const gateResumeDelayMs = isBufferedQueueSeek
+        ? bufferedEnough
+          ? SEEK_SMOOTH_RINGBUFFER_FAST_RESUME_DELAY_MS
+          : SEEK_SMOOTH_RINGBUFFER_RESUME_DELAY_MS
+        : SEEK_SMOOTH_RESUME_DELAY_MS
+      const gateOpenRampSec = isBufferedQueueSeek
+        ? bufferedEnough
+          ? SEEK_SMOOTH_RINGBUFFER_FAST_OPEN_RAMP_SEC
+          : SEEK_SMOOTH_RINGBUFFER_OPEN_RAMP_SEC
+        : SEEK_SMOOTH_OPEN_RAMP_SEC
+      const gateCrossfadeMidRampSec = isBufferedQueueSeek
+        ? bufferedEnough
+          ? SEEK_SMOOTH_RINGBUFFER_FAST_CROSSFADE_MID_RAMP_SEC
+          : SEEK_SMOOTH_RINGBUFFER_CROSSFADE_MID_RAMP_SEC
+        : 0
+      smoothSeekResumeGateTimerRef.current = window.setTimeout(() => {
+        smoothSeekResumeGateTimerRef.current = null
+        if (!isPlayingRef.current) return
+        if (isBufferedQueueSeek) {
+          setRingbufferSeekResumeEnvelope({
+            totalRampSec: gateOpenRampSec,
+            midRampSec: gateCrossfadeMidRampSec,
+          })
+          return
+        }
+        setEngineGateTarget(1, { rampSec: gateOpenRampSec })
+      }, gateResumeDelayMs)
+      logAudioDebug("seek:smoothed", {
+        posSec: Number(targetPos.toFixed(3)),
+        debounceMs: SEEK_SMOOTH_DEBOUNCE_MS,
+        resumeDelayMs: gateResumeDelayMs,
+        gateOpenRampSec: Number(gateOpenRampSec.toFixed(3)),
+        gateCrossfadeMidRampSec: isBufferedQueueSeek ? Number(gateCrossfadeMidRampSec.toFixed(3)) : 0,
+        mode: activeEngineMode,
+        minBufferedSec: typeof minBufferedSec === "number" ? Number(minBufferedSec.toFixed(3)) : null,
+        closeFloorGain: isBufferedQueueSeek ? SEEK_SMOOTH_RINGBUFFER_CLOSE_FLOOR_GAIN : 0,
+        crossfadeMidGain: isBufferedQueueSeek ? SEEK_SMOOTH_RINGBUFFER_CROSSFADE_MID_GAIN : 1,
+      })
+    }, SEEK_SMOOTH_DEBOUNCE_MS)
+
+    if (rafRef.current == null) rafRef.current = requestAnimationFrame(animate)
   }
+
+  const getAppendableRoutePilotDebugState = useCallback((): AppendableRoutePilotDebugState => {
+    return {
+      trackScopeId,
+      playing: isPlayingRef.current,
+      audioMode: activeEngineMode,
+      checklist: {
+        status: appendablePilotChecklistState.status,
+        statusLabel: appendablePilotChecklistState.statusLabel,
+        steps: appendablePilotChecklistState.steps.slice(),
+      },
+      runtimeProbe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
+      report: cloneAppendableRoutePilotReport(appendableRoutePilotReport),
+    }
+  }, [
+    activeEngineMode,
+    appendablePilotChecklistState.status,
+    appendablePilotChecklistState.statusLabel,
+    appendablePilotChecklistState.steps,
+    appendableQueueRuntimeProbeSnapshot,
+    appendableRoutePilotReport,
+    trackScopeId,
+  ])
+
+  const runAppendableRouteQuickPilot = useCallback(
+    async (seekSec: number | null = 12, options?: { downloadPacket?: boolean }) => {
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms)
+        })
+      const readState = () =>
+        (typeof window !== "undefined" ? window.__rrAppendableRoutePilotDebug?.getState() : null) ??
+        getAppendableRoutePilotDebugState()
+
+      setAppendableRouteQuickPilotRunning(true)
+      setAppendableRouteQuickPilotMessage(uiLang === "ru" ? "идет quick pilot..." : "quick pilot running...")
+      try {
+        await play("route_quick_pilot")
+        await wait(2300)
+        if (typeof seekSec === "number" && Number.isFinite(seekSec)) {
+          seekTo(seekSec)
+          await wait(2200)
+        }
+        const snapshot = buildAppendableRoutePilotSnapshot()
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot)
+        setAppendableRoutePilotReport(nextReport)
+
+        let finalState = readState()
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          finalState = readState()
+          if (
+            finalState.checklist.status === "ready_for_manual_pilot" ||
+            finalState.checklist.status === "attention_required"
+          ) {
+            break
+          }
+          await wait(200)
+        }
+        if (options?.downloadPacket) {
+          downloadAppendableRoutePilotPacket(nextReport)
+        }
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru"
+            ? `quick pilot: ${finalState.checklist.statusLabel}`
+            : `quick pilot: ${finalState.checklist.statusLabel}`
+        )
+        return finalState
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "quick_pilot_failed"
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru" ? `quick pilot error: ${message}` : `quick pilot error: ${message}`
+        )
+        throw error
+      } finally {
+        setAppendableRouteQuickPilotRunning(false)
+      }
+    },
+    [
+      buildAppendableRoutePilotReportWithSnapshot,
+      buildAppendableRoutePilotSnapshot,
+      downloadAppendableRoutePilotPacket,
+      getAppendableRoutePilotDebugState,
+      play,
+      seekTo,
+      uiLang,
+    ]
+  )
+
+  const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
+    const snapshot = buildAppendableRoutePilotSnapshot()
+    const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot)
+    setAppendableRoutePilotReport(nextReport)
+    downloadAppendableRoutePilotPacket(nextReport)
+    setAppendableRouteQuickPilotMessage(
+      uiLang === "ru" ? "сохранено текущее diagnostics" : "saved current diagnostics"
+    )
+  }, [
+    buildAppendableRoutePilotReportWithSnapshot,
+    buildAppendableRoutePilotSnapshot,
+    downloadAppendableRoutePilotPacket,
+    uiLang,
+  ])
+
+  const saveAppendableRouteQuickPilotDiagnostics = useCallback(async () => {
+    await runAppendableRouteQuickPilot(12, { downloadPacket: true })
+  }, [runAppendableRouteQuickPilot])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.__rrAppendableRoutePilotDebug = {
+      play: () => play("route_debug_api"),
+      pause: () => pause(),
+      seek: (sec: number) => {
+        seekTo(sec)
+        return positionSecRef.current
+      },
+      captureReport: () => captureAppendableRoutePilotSnapshot(),
+      saveCurrentDiagnostics: () => {
+        saveCurrentAppendableRouteDiagnostics()
+      },
+      markPass: () => {
+        markAppendableRoutePilotReport("pass")
+      },
+      markFail: () => {
+        markAppendableRoutePilotReport("fail")
+      },
+      resetReport: () => {
+        resetAppendableRoutePilotReport()
+      },
+      downloadReport: () => {
+        downloadAppendableRoutePilotReport()
+      },
+      downloadPacket: () => {
+        downloadAppendableRoutePilotPacket()
+      },
+      getState: () => getAppendableRoutePilotDebugState(),
+      runQuickPilot: (seekSec?: number | null) => runAppendableRouteQuickPilot(seekSec ?? null),
+    }
+    return () => {
+      window.__rrAppendableRoutePilotDebug = undefined
+    }
+  }, [
+    captureAppendableRoutePilotSnapshot,
+    downloadAppendableRoutePilotPacket,
+    downloadAppendableRoutePilotReport,
+    getAppendableRoutePilotDebugState,
+    markAppendableRoutePilotReport,
+    pause,
+    play,
+    resetAppendableRoutePilotReport,
+    runAppendableRouteQuickPilot,
+    saveCurrentAppendableRouteDiagnostics,
+    seekTo,
+  ])
 
   const goToStart = () => {
     pause()
@@ -3321,7 +6922,7 @@ export default function MultiTrackPlayer({
   useEffect(() => {
     if (!isReady || !pendingPlayRef.current) return
     pendingPlayRef.current = false
-    void play()
+    void play("pending_ready")
     // play intentionally excluded to avoid unstable callback re-triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady])
@@ -3334,7 +6935,7 @@ export default function MultiTrackPlayer({
     navResumePlayRef.current = false
     seekTo(resumePos)
     if (resumePlay) {
-      void play()
+      void play("nav_resume")
     }
     // seekTo/play intentionally excluded to avoid unstable callback re-triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3352,12 +6953,12 @@ export default function MultiTrackPlayer({
       },
       stop: () => pause(),
       play: () => {
-        play().catch(() => {})
+        play("controller_play").catch(() => {})
       },
       pause: () => pause(),
       toggle: () => {
         if (isPlayingRef.current) pause()
-        else play().catch(() => {})
+        else play("controller_toggle").catch(() => {})
       },
       prev: () => {
         seekTo(Math.max(0, positionSecRef.current - 10))
@@ -3372,7 +6973,10 @@ export default function MultiTrackPlayer({
         playing: isPlayingRef.current,
       }),
       getLoop: () => loopOnRef.current,
-      setLoop: (loop: boolean) => setLoopOn(loop),
+      setLoop: (loop: boolean) => {
+        loopOnRef.current = loop
+        setLoopOn(loop)
+      },
     }
     onControllerReady?.(globalControllerRef.current)
     return () => {
@@ -3395,6 +6999,10 @@ export default function MultiTrackPlayer({
   useEffect(() => {
     return () => {
       stopPendingTransport()
+      clearGateWarmupTimers()
+      clearPendingPlayWatchdog()
+      playStartGuardRef.current = null
+      firstFrameProbeArmedRef.current = false
       pendingPlayRef.current = false
       clearGuestCalibrateTimer()
       clearGuestStartGuardTimer()
@@ -3427,7 +7035,7 @@ export default function MultiTrackPlayer({
       }
       teardownRecordingV2Tap()
       void closeRecordingV2OpfsWriter()
-      if (guestTrackUrl) URL.revokeObjectURL(guestTrackUrl)
+      scheduleBlobUrlRevoke(guestTrackUrl, 0)
       recordStreamRef.current?.getTracks().forEach((t) => t.stop())
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop()
@@ -3435,10 +7043,13 @@ export default function MultiTrackPlayer({
     }
   }, [
     cancelTempoPitchSmoothing,
+    clearPendingPlayWatchdog,
+    clearGateWarmupTimers,
     closeRecordingV2OpfsWriter,
     flushRecorderCapabilityTelemetry,
     guestTrackUrl,
     recordingV2UploadState,
+    scheduleBlobUrlRevoke,
     stopPendingTransport,
     teardownRecordingV2Tap,
   ])
@@ -3840,7 +7451,7 @@ export default function MultiTrackPlayer({
 
           const url = URL.createObjectURL(finalBlob)
           setGuestTrackUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev)
+            scheduleBlobUrlRevoke(prev)
             return url
           })
           saveGuestRecording(finalBlob, takeRecordKey).catch(() => {})
@@ -3998,7 +7609,7 @@ export default function MultiTrackPlayer({
     }
     const url = URL.createObjectURL(blob)
     setGuestTrackUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
+      scheduleBlobUrlRevoke(prev)
       return url
     })
     setActiveGuestTakeId(take.id)
@@ -4084,7 +7695,7 @@ export default function MultiTrackPlayer({
       guestTogetherFirstStartRef.current = false
       seekTo(startPos)
 
-      await play()
+      await play("guest_with_track")
     })
   }
 
@@ -4919,16 +8530,25 @@ export default function MultiTrackPlayer({
         const data = await res.json()
         if (!res.ok || !data?.ok) throw new Error(String(data?.error ?? `http_${res.status}`))
         setTeleprompterCollectState("saved")
-        setTeleprompterCollectInfo(`${t.teleprompterCollectSavedPrefix} ${data.rowsWritten} ${t.teleprompterLinesWord}`)
+        if (data?.deduplicated) {
+          setTeleprompterCollectInfo(
+            uiLang === "ru"
+              ? "без изменений; identical snapshot не дописан"
+              : "unchanged; identical snapshot was skipped"
+          )
+        } else {
+          setTeleprompterCollectInfo(`${t.teleprompterCollectSavedPrefix} ${data.rowsWritten} ${t.teleprompterLinesWord}`)
+        }
       } catch (e) {
         setTeleprompterCollectState("error")
         setTeleprompterCollectInfo(`${t.teleprompterErrorPrefix} ${e instanceof Error ? e.message : "save_failed"}`)
       }
     },
-    [datasetRows, t, trackScopeId]
+    [datasetRows, t, trackScopeId, uiLang]
   )
 
   useEffect(() => {
+    if (!teleprompterAutoCollectAllowed) return
     if (!teleprompterAutoCollect) return
     if (!effectiveTeleprompterSourceUrl || !datasetRows?.length) return
     if (!teleprompterAutoCollectPrimedRef.current) {
@@ -4943,6 +8563,7 @@ export default function MultiTrackPlayer({
     datasetRows,
     postTeleprompterDatasetSnapshot,
     teleprompterAnchors,
+    teleprompterAutoCollectAllowed,
     teleprompterAutoCollect,
     effectiveTeleprompterSourceUrl,
     teleprompterTextOverrides,
@@ -4965,6 +8586,34 @@ export default function MultiTrackPlayer({
     document.execCommand("copy")
     document.body.removeChild(ta)
   }, [datasetRows])
+
+  const copyAudioDebugLog = useCallback(async () => {
+    const text = formatAudioDebugBuffer(getAudioDebugBufferSnapshot())
+    if (!text) {
+      setAudioDebugCopyState("error")
+      return
+    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const ta = document.createElement("textarea")
+        ta.value = text
+        ta.style.position = "fixed"
+        ta.style.left = "-9999px"
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand("copy")
+        document.body.removeChild(ta)
+      }
+      setAudioDebugCopyState("copied")
+      window.setTimeout(() => {
+        setAudioDebugCopyState((current) => (current === "copied" ? "idle" : current))
+      }, 2000)
+    } catch {
+      setAudioDebugCopyState("error")
+    }
+  }, [])
 
   const downloadTeleprompterDatasetJsonl = useCallback(() => {
     if (!datasetRows || !datasetRows.length) return
@@ -5114,8 +8763,78 @@ export default function MultiTrackPlayer({
    *  WAVE SCRUB (drag)
    *  ========================= */
   const isScrubbingRef = useRef(false)
+  const scrubPreviewPositionRef = useRef<number | null>(null)
+  const scrubPreviewTimerRef = useRef<number | null>(null)
+  const scrubLastCommittedPositionRef = useRef<number | null>(null)
+  const scrubLastCommittedAtMsRef = useRef(0)
 
-  const scrubFromEvent = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  const clearScrubPreviewTimer = useCallback(() => {
+    if (typeof window === "undefined") return
+    if (scrubPreviewTimerRef.current != null) {
+      window.clearTimeout(scrubPreviewTimerRef.current)
+      scrubPreviewTimerRef.current = null
+    }
+  }, [])
+
+  const commitScrubPreviewSeek = useCallback((targetSec: number, immediate = false) => {
+    if (typeof window === "undefined") {
+      seekTo(targetSec)
+      return
+    }
+    scrubPreviewPositionRef.current = targetSec
+    positionSecRef.current = targetSec
+    setCurrentTime(targetSec)
+
+    const applySeek = () => {
+      clearScrubPreviewTimer()
+      seekTo(targetSec)
+      scrubLastCommittedPositionRef.current = targetSec
+      scrubLastCommittedAtMsRef.current = readAudioPerfNowMs()
+    }
+
+    if (immediate || !isPlayingRef.current) {
+      applySeek()
+      return
+    }
+
+    const lastCommittedTarget = scrubLastCommittedPositionRef.current
+    const latestTargetDeltaSec =
+      lastCommittedTarget == null ? Number.POSITIVE_INFINITY : Math.abs(targetSec - lastCommittedTarget)
+    const sinceLastCommittedMs = readAudioPerfNowMs() - scrubLastCommittedAtMsRef.current
+
+    if (
+      latestTargetDeltaSec >= SCRUB_PREVIEW_LIVE_MIN_DELTA_SEC &&
+      sinceLastCommittedMs >= SCRUB_PREVIEW_LIVE_MIN_INTERVAL_MS
+    ) {
+      applySeek()
+      return
+    }
+
+    if (scrubPreviewTimerRef.current != null) return
+
+    const trailingDelayMs = Math.max(0, SCRUB_PREVIEW_LIVE_MIN_INTERVAL_MS - sinceLastCommittedMs)
+    scrubPreviewTimerRef.current = window.setTimeout(() => {
+      scrubPreviewTimerRef.current = null
+      const latestTarget = scrubPreviewPositionRef.current ?? targetSec
+      const latestCommittedTarget = scrubLastCommittedPositionRef.current
+      const latestCommittedDeltaSec =
+        latestCommittedTarget == null ? Number.POSITIVE_INFINITY : Math.abs(latestTarget - latestCommittedTarget)
+      const sinceLatestCommittedMs = readAudioPerfNowMs() - scrubLastCommittedAtMsRef.current
+
+      if (
+        latestCommittedDeltaSec < SCRUB_PREVIEW_LIVE_MIN_DELTA_SEC ||
+        sinceLatestCommittedMs < SCRUB_PREVIEW_LIVE_MIN_INTERVAL_MS
+      ) {
+        return
+      }
+
+      seekTo(latestTarget)
+      scrubLastCommittedPositionRef.current = latestTarget
+      scrubLastCommittedAtMsRef.current = readAudioPerfNowMs()
+    }, trailingDelayMs)
+  }, [clearScrubPreviewTimer, seekTo])
+
+  const scrubFromEvent = (e: React.PointerEvent<HTMLCanvasElement>, immediate = false) => {
     if (!duration) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - rect.left
@@ -5134,20 +8853,33 @@ export default function MultiTrackPlayer({
       guestNeedsRecalibrateRef.current = true
     }
 
-    seekTo(p * duration)
+    commitScrubPreviewSeek(p * duration, immediate)
   }
 
   const onWavePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     ;(e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId)
     isScrubbingRef.current = true
-    scrubFromEvent(e)
+    scrubFromEvent(e, true)
   }
   const onWavePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isScrubbingRef.current) return
     scrubFromEvent(e)
   }
   const onWavePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const finalPos = scrubPreviewPositionRef.current
     isScrubbingRef.current = false
+    clearScrubPreviewTimer()
+    scrubPreviewPositionRef.current = null
+    if (finalPos != null) {
+      positionSecRef.current = finalPos
+      setCurrentTime(finalPos)
+      const lastCommittedTarget = scrubLastCommittedPositionRef.current
+      if (lastCommittedTarget == null || Math.abs(finalPos - lastCommittedTarget) > 0.001) {
+        seekTo(finalPos)
+        scrubLastCommittedPositionRef.current = finalPos
+        scrubLastCommittedAtMsRef.current = readAudioPerfNowMs()
+      }
+    }
     try {
       ;(e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId)
     } catch {}
@@ -5165,7 +8897,12 @@ export default function MultiTrackPlayer({
   }
 
   const setSpeedUI = (v: number) => {
-    if (recording || countInBeat != null || guestTransportLinkedRef.current) {
+    if (
+      recording ||
+      countInBeat != null ||
+      guestTransportLinkedRef.current ||
+      !activeEngineCapabilities.supportsTempo
+    ) {
       setRecordError(t.tempoLocked)
       return
     }
@@ -5176,7 +8913,12 @@ export default function MultiTrackPlayer({
   }
 
   const setPitchUI = (semi: number) => {
-    if (recording || countInBeat != null || guestTransportLinkedRef.current) {
+    if (
+      recording ||
+      countInBeat != null ||
+      guestTransportLinkedRef.current ||
+      !activeEngineCapabilities.supportsIndependentPitch
+    ) {
       setRecordError(t.pitchLocked)
       return
     }
@@ -5231,7 +8973,7 @@ export default function MultiTrackPlayer({
   const setVol = (i: number, value: number) => {
     setVolUI((prev) => {
       const next = [...prev]
-      next[i] = value
+      next[i] = clamp(value, 0, TRACK_MAX_GAIN)
       applyMuteSoloVolume(muted, solo, next)
       return next
     })
@@ -5272,7 +9014,17 @@ export default function MultiTrackPlayer({
           ? "bg-amber-700/80 text-white"
         : "bg-zinc-800 text-white/70"
   const referenceLockActive = referenceLockEnabled && (recording || countInBeat != null || guestTransportLinkedRef.current)
-  const tempoPitchLocked = recording || countInBeat != null || (referenceLockEnabled && guestTransportLinkedRef.current)
+  const tempoControlLocked =
+    recording ||
+    countInBeat != null ||
+    (referenceLockEnabled && guestTransportLinkedRef.current) ||
+    !activeEngineCapabilities.supportsTempo
+  const pitchControlLocked =
+    recording ||
+    countInBeat != null ||
+    (referenceLockEnabled && guestTransportLinkedRef.current) ||
+    !activeEngineCapabilities.supportsIndependentPitch
+  const isPendingMainStart = mainPlayPending && !isPlaying
   const guestWithTrackUiActive = guestTransportLinkedRef.current && (isPlaying || guestIsPlaying)
 
   /** =========================
@@ -5312,14 +9064,15 @@ export default function MultiTrackPlayer({
 
                     <button
                       onClick={togglePlay}
-                      aria-label={isPlaying || mainPlayPending ? t.pauseAria : t.playAria}
+                      aria-label={isPendingMainStart ? t.loadingAudio : (isPlaying ? t.pauseAria : t.playAria)}
+                      disabled={isPendingMainStart}
                       className="px-5 h-11 bg-white text-black rounded-full font-medium hover:bg-white/90 transition"
                     >
-                      {isPlaying || mainPlayPending ? t.pauseButton : t.playButton}
+                      {isPendingMainStart ? t.loadingAudio : (isPlaying ? t.pauseButton : t.playButton)}
                     </button>
 
                     <button
-                      onClick={() => setLoopOn((v) => !v)}
+                      onClick={toggleLoop}
                       aria-label={t.repeatTrackAria}
                       className={`btn-round ${loopOn ? "btn-round--active" : ""}`}
                       title={t.repeatTrackTitle}
@@ -5420,8 +9173,8 @@ export default function MultiTrackPlayer({
                         step="0.01"
                         value={speed}
                         onChange={(e) => setSpeedUI(Number(e.currentTarget.value))}
-                        className={`w-full range-thin ${tempoPitchLocked ? "opacity-60" : ""}`}
-                        disabled={tempoPitchLocked}
+                        className={`w-full range-thin ${tempoControlLocked ? "opacity-60" : ""}`}
+                        disabled={tempoControlLocked}
                       />
                     </div>
                   </div>
@@ -5438,8 +9191,8 @@ export default function MultiTrackPlayer({
                         step={1}
                         value={pitchSemi}
                         onChange={(e) => setPitchUI(Number(e.currentTarget.value))}
-                        className={`w-full range-thin ${tempoPitchLocked ? "opacity-60" : ""}`}
-                        disabled={tempoPitchLocked}
+                        className={`w-full range-thin ${pitchControlLocked ? "opacity-60" : ""}`}
+                        disabled={pitchControlLocked}
                       />
                     </div>
                   </div>
@@ -5603,8 +9356,23 @@ export default function MultiTrackPlayer({
                               {teleprompterPreviewAutoSave ? t.teleprompterAutoPreviewOn : t.teleprompterAutoPreviewOff}
                             </button>
                             <button
-                              onClick={() => setTeleprompterAutoCollect((v) => !v)}
-                              className={`rounded-sm px-2 py-1 text-xs ${teleprompterAutoCollect ? "bg-[#5f82aa] text-white" : "bg-white/10 text-white/80 hover:bg-white/20"}`}
+                              onClick={() => {
+                                if (!teleprompterAutoCollectAllowed) return
+                                setTeleprompterAutoCollect((v) => !v)
+                              }}
+                              disabled={!teleprompterAutoCollectAllowed}
+                              title={
+                                teleprompterAutoCollectAllowed
+                                  ? undefined
+                                  : "Set NEXT_PUBLIC_TELEPROMPTER_AUTOCOLLECT=1 to enable auto collect"
+                              }
+                              className={`rounded-sm px-2 py-1 text-xs ${
+                                teleprompterAutoCollect
+                                  ? "bg-[#5f82aa] text-white"
+                                  : teleprompterAutoCollectAllowed
+                                    ? "bg-white/10 text-white/80 hover:bg-white/20"
+                                    : "cursor-not-allowed bg-white/5 text-white/35"
+                              }`}
                             >
                               {teleprompterAutoCollect ? t.teleprompterAutoCollectOn : t.teleprompterAutoCollectOff}
                             </button>
@@ -5831,6 +9599,54 @@ export default function MultiTrackPlayer({
                             {t.progressiveLoadFlag}: {progressiveLoadEnabled ? "on" : "off"}
                           </div>
                           <div>
+                            {t.startupChunkFlag}: {startupChunkPilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
+                            {t.startupChunkSpliceFlag}: {startupChunkSplicePilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
+                            {t.streamingBufferFlag}: {streamingBufferPilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
+                            {t.appendableQueueFlag}: {appendableQueuePilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
+                            appendable multistem flag: {appendableQueueMultistemPilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
+                            appendable queue probe: {appendableQueueRuntimeProbeSnapshot.active ? "active" : "idle"}
+                          </div>
+                          <div>
+                            appendable min lead sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.minLeadSec)}
+                          </div>
+                          <div>
+                            appendable max lead sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.maxLeadSec)}
+                          </div>
+                          <div>
+                            appendable stem drift sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.stemDriftSec, 4)}
+                          </div>
+                          <div>
+                            appendable transport drift sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.transportDriftSec, 4)}
+                          </div>
+                          <div>
+                            appendable probe drop delta sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.dropDeltaSec)}
+                          </div>
+                          <div>
+                            appendable total underrun: {appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames}
+                          </div>
+                          <div>
+                            appendable total discontinuity: {appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount}
+                          </div>
+                          <div>
+                            {t.ringBufferFlag}: {ringBufferPilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
+                            audio mode: {activeEngineMode}
+                          </div>
+                          <div>
+                            tempo: {activeEngineCapabilities.supportsTempo ? "on" : "off"} / pitch: {activeEngineCapabilities.supportsIndependentPitch ? "on" : "off"}
+                          </div>
+                          <div>
                             {t.recordingV2Flag}: {recordingEngineV2Enabled ? "on" : "off"}
                           </div>
                           <div>
@@ -5913,6 +9729,186 @@ export default function MultiTrackPlayer({
                           </div>
                           {bluetoothRouteRisk ? <div className="text-amber-300">{t.bluetoothRisk}</div> : null}
                           {referenceLockActive ? <div className="text-amber-300">{t.referenceLockActive}</div> : null}
+                          <div>
+                            debug entries: {audioDebugEntries.length}
+                          </div>
+                        </div>
+                        <div
+                          data-testid="appendable-route-checklist"
+                          className="rounded-sm border border-white/10 bg-black/20 p-2 text-[11px] text-white/70 md:col-span-2"
+                        >
+                          <div className="font-medium text-white/85">
+                            {uiLang === "ru" ? "Чеклист appendable pilot" : "Appendable pilot checklist"}
+                          </div>
+                          <div
+                            data-testid="appendable-route-checklist-status"
+                            className="mt-1 text-[11px] text-white/60"
+                          >
+                            {uiLang === "ru" ? "Статус" : "Status"}: {appendablePilotChecklistState.statusLabel}
+                          </div>
+                          <ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px] text-white/65">
+                            {appendablePilotChecklistState.steps.map((step) => (
+                              <li key={step}>{step}</li>
+                            ))}
+                          </ol>
+                        </div>
+                        <div
+                          data-testid="appendable-route-pilot-report"
+                          className="rounded-sm border border-white/10 bg-black/20 p-2 text-[11px] text-white/70 md:col-span-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="font-medium text-white/85">
+                              {uiLang === "ru" ? "Отчет appendable pilot" : "Appendable pilot report"}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={resetAppendableRoutePilotReport}
+                              className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[11px] text-white/75 hover:bg-white/10 hover:text-white"
+                            >
+                              {uiLang === "ru" ? "Сбросить" : "Reset"}
+                            </button>
+                          </div>
+                          <div
+                            data-testid="appendable-route-pilot-report-status"
+                            data-status={appendableRoutePilotReport.status}
+                            className="mt-1 text-[11px] text-white/60"
+                          >
+                            {uiLang === "ru" ? "Результат" : "Result"}:{" "}
+                            {appendableRoutePilotReport.status === "pass"
+                              ? "pass"
+                              : appendableRoutePilotReport.status === "fail"
+                                ? "fail"
+                                : "pending"}
+                          </div>
+                          <div
+                            data-testid="appendable-route-pilot-report-captured-at"
+                            className="mt-1 text-[11px] text-white/45"
+                          >
+                            capturedAt: {appendableRoutePilotReport.snapshot?.capturedAt ?? "—"}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid="appendable-route-pilot-report-capture"
+                              onClick={captureAppendableRoutePilotSnapshot}
+                              className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 hover:text-white"
+                            >
+                              {uiLang === "ru" ? "Снять snapshot" : "Capture snapshot"}
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-pilot-report-pass"
+                              onClick={() => markAppendableRoutePilotReport("pass")}
+                              className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200 hover:bg-emerald-500/15"
+                            >
+                              Mark pass
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-pilot-report-fail"
+                              onClick={() => markAppendableRoutePilotReport("fail")}
+                              className="rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[11px] text-rose-200 hover:bg-rose-500/15"
+                            >
+                              Mark fail
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-pilot-report-download"
+                              onClick={() => downloadAppendableRoutePilotReport()}
+                              className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 hover:text-white"
+                            >
+                              {uiLang === "ru" ? "Скачать report" : "Download report"}
+                            </button>
+                          </div>
+                          <label className="mt-2 block text-[11px] text-white/60">
+                            NOTES
+                            <textarea
+                              data-testid="appendable-route-pilot-report-notes"
+                              value={appendableRoutePilotReport.notes}
+                              onChange={(e) => setAppendableRoutePilotNotes(e.currentTarget.value)}
+                              rows={3}
+                              className="mt-1 w-full rounded-sm border border-white/15 bg-black/25 px-2 py-1 text-[11px] text-white outline-none"
+                            />
+                          </label>
+                          {appendableRoutePilotReport.snapshot ? (
+                            <div className="mt-2 space-y-1 text-[11px] text-white/50">
+                              <div>audio mode: {appendableRoutePilotReport.snapshot.audioMode}</div>
+                              <div>
+                                flags: appendable={appendableRoutePilotReport.snapshot.flags.appendableQueuePilotEnabled ? "on" : "off"} / multistem=
+                                {appendableRoutePilotReport.snapshot.flags.appendableQueueMultistemPilotEnabled ? "on" : "off"}
+                              </div>
+                              <div>
+                                probe: {appendableRoutePilotReport.snapshot.probe.active ? "active" : "idle"} / underrun=
+                                {appendableRoutePilotReport.snapshot.probe.totalUnderrunFrames} / discontinuity=
+                                {appendableRoutePilotReport.snapshot.probe.totalDiscontinuityCount}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              data-testid="appendable-route-debug-save-current-diagnostics"
+                              onClick={saveCurrentAppendableRouteDiagnostics}
+                              className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 hover:text-white"
+                            >
+                              {uiLang === "ru" ? "Сохранить текущее diagnostics" : "Save current diagnostics"}
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-debug-run-quick-pilot-save"
+                              disabled={appendableRouteQuickPilotRunning}
+                              onClick={() => {
+                                void saveAppendableRouteQuickPilotDiagnostics()
+                              }}
+                              className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px] text-sky-100 hover:bg-sky-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {appendableRouteQuickPilotRunning
+                                ? uiLang === "ru"
+                                  ? "идет quick pilot..."
+                                  : "quick pilot running..."
+                                : uiLang === "ru"
+                                  ? "Запустить quick pilot + сохранить"
+                                  : "Run quick pilot + save diagnostics"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copyAudioDebugLog()}
+                              className="rounded border border-white/20 bg-white/5 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10 hover:text-white"
+                            >
+                              Copy debug log
+                            </button>
+                            <span className="text-[11px] text-white/45">
+                              {audioDebugCopyState === "copied"
+                                ? "copied"
+                                : audioDebugCopyState === "error"
+                                  ? "copy failed"
+                                  : `${audioDebugEntries.length} buffered`}
+                            </span>
+                          </div>
+                          <div
+                            data-testid="appendable-route-debug-diagnostics-status"
+                            className="text-[11px] text-white/45"
+                          >
+                            {appendableRouteQuickPilotMessage ?? "—"}
+                          </div>
+                          <div className="max-h-48 overflow-auto rounded border border-white/10 bg-black/20 p-2 text-[10px] leading-4 text-white/55">
+                            {recentAudioDebugEntries.length ? (
+                              recentAudioDebugEntries.map((entry) => (
+                                <div key={entry.id} className="mb-1 break-words last:mb-0">
+                                  <span className="text-white/35">{entry.ts}</span>{" "}
+                                  <span className="text-sky-200">{entry.channel}</span>{" "}
+                                  {entry.channel === "AUDIO_DEBUG" ? (
+                                    <span className="text-amber-200">{entry.event}</span>
+                                  ) : null}{" "}
+                                  <span>{JSON.stringify(entry.payload)}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div>no buffered audio events</div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ) : null}
@@ -6006,10 +10002,10 @@ export default function MultiTrackPlayer({
                       <input
                         type="range"
                         min={0}
-                        max={1.5}
+                        max={GUEST_MAX_GAIN}
                         step={0.01}
                         value={guestVolume}
-                        onChange={(e) => setGuestVolume(Number(e.currentTarget.value))}
+                        onChange={(e) => setGuestVolume(clamp(Number(e.currentTarget.value), 0, GUEST_MAX_GAIN))}
                         className="w-full range-thin"
                         aria-label={t.guestVolumeAria}
                       />

@@ -1,4 +1,14 @@
-@import "tailwindcss";
+/* Limit Tailwind source scanning in dev to app/** to avoid full-repo scan stalls. */
+@import "tailwindcss" source(none);
+@source "./**/*.{js,jsx,ts,tsx,mdx}";
+@source not "../tmp";
+@source not "../.backup";
+@source not "../docs";
+@source not "../data";
+@source not "../reports";
+@source not "../scripts";
+@source not "../playwright-report";
+@source not "../test-results";
 
 :root {
   --background: #f2f2f2;
