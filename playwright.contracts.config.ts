@@ -24,10 +24,10 @@ const projects = isCI
       },
     ];
 
-export function createContractsConfig(testMatch: string[]) {
+export function createContractsConfig(options: { testDir: string; testMatch: string[] }) {
   return defineConfig({
-    testDir: ".",
-    testMatch,
+    testDir: options.testDir,
+    testMatch: options.testMatch,
     fullyParallel: true,
     forbidOnly: isCI,
     retries: isCI ? 2 : 0,
@@ -47,4 +47,7 @@ export function createContractsConfig(testMatch: string[]) {
   });
 }
 
-export default createContractsConfig(["tests/e2e/**/*.spec.ts"]);
+export default createContractsConfig({
+  testDir: "tests/e2e",
+  testMatch: ["**/*.spec.ts"],
+});
