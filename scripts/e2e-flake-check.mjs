@@ -177,7 +177,7 @@ function runOnce(runIndex) {
       'playwright',
       'test',
       ...CRITICAL_TESTS,
-      '--config=playwright.webpack.config.ts',
+      '--config=playwright.contracts.config.ts',
       '--project=chromium',
       '--workers=1',
       '--reporter=line,json',
