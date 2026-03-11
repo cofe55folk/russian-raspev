@@ -377,6 +377,10 @@ test("multistem appendable pilot runs on the normal player route when both flags
             runtimeProbe: {
               dataPlaneMode: string | null
               controlPlaneMode: string | null
+              preferredDataPlaneMode: string | null
+              sabReady: boolean | null
+              crossOriginIsolated: boolean | null
+              sabRequirement: string | null
               sampleRates: number[]
               appendMessageCount: number
             }
@@ -387,6 +391,10 @@ test("multistem appendable pilot runs on the normal player route when both flags
   })
   expect(runtimeProbe?.dataPlaneMode).toBe("postmessage_pcm")
   expect(runtimeProbe?.controlPlaneMode).toBe("message_port")
+  expect(runtimeProbe?.preferredDataPlaneMode).toBe("postmessage_pcm_fallback")
+  expect(runtimeProbe?.sabReady).toBe(false)
+  expect(runtimeProbe?.crossOriginIsolated).toBe(false)
+  expect(runtimeProbe?.sabRequirement).toBe("cross_origin_isolation_required")
   expect(runtimeProbe?.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(runtimeProbe?.appendMessageCount ?? 0).toBeGreaterThan(0)
   await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
@@ -433,7 +441,14 @@ test("appendable route captureReport returns the derived rollout verdict, not th
       __rrAppendableRoutePilotDebug?: {
         captureReport: () => {
           gate: { status: string }
-          transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+          transport: {
+            passed: boolean | null
+            dataPlaneMode: string | null
+            controlPlaneMode: string | null
+            preferredDataPlaneMode: string | null
+            sabReady: boolean | null
+            sabRequirement: string | null
+          }
           rollout: { status: string; reason: string | null }
         }
         pause: () => void
@@ -447,26 +462,69 @@ test("appendable route captureReport returns the derived rollout verdict, not th
   const expectedRolloutStatus =
     (capturedSnapshot as {
       gate: { status: string }
-      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+      transport: {
+        passed: boolean | null
+        dataPlaneMode: string | null
+        controlPlaneMode: string | null
+        preferredDataPlaneMode: string | null
+        sabReady: boolean | null
+        sabRequirement: string | null
+      }
       rollout: { status: string; reason: string | null }
     }).gate.status === "ready_for_manual_pilot"
       ? "pending"
       : "fail"
   expect(
     (capturedSnapshot as {
-      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+      transport: {
+        passed: boolean | null
+        dataPlaneMode: string | null
+        controlPlaneMode: string | null
+        preferredDataPlaneMode: string | null
+        sabReady: boolean | null
+        sabRequirement: string | null
+      }
     }).transport.passed
   ).toBe(true)
   expect(
     (capturedSnapshot as {
-      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+      transport: {
+        passed: boolean | null
+        dataPlaneMode: string | null
+        controlPlaneMode: string | null
+        preferredDataPlaneMode: string | null
+        sabReady: boolean | null
+        sabRequirement: string | null
+      }
     }).transport.dataPlaneMode
   ).toBe("postmessage_pcm")
   expect(
     (capturedSnapshot as {
-      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+      transport: {
+        passed: boolean | null
+        dataPlaneMode: string | null
+        controlPlaneMode: string | null
+        preferredDataPlaneMode: string | null
+        sabReady: boolean | null
+        sabRequirement: string | null
+      }
     }).transport.controlPlaneMode
   ).toBe("message_port")
+  expect(
+    (capturedSnapshot as {
+      transport: {
+        preferredDataPlaneMode: string | null
+        sabReady: boolean | null
+        sabRequirement: string | null
+      }
+    }).transport.preferredDataPlaneMode
+  ).toBe("postmessage_pcm_fallback")
+  expect(
+    (capturedSnapshot as { transport: { sabReady: boolean | null } }).transport.sabReady
+  ).toBe(false)
+  expect(
+    (capturedSnapshot as { transport: { sabRequirement: string | null } }).transport.sabRequirement
+  ).toBe("cross_origin_isolation_required")
   expect((capturedSnapshot as { rollout: { status: string } }).rollout.status).toBe(expectedRolloutStatus)
   if (expectedRolloutStatus === "pending") {
     expect((capturedSnapshot as { rollout: { reason: string | null } }).rollout.reason).toBe("qualification:missing")
@@ -1250,6 +1308,9 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
   expect(packet.report.snapshot?.transport.passed).toBe(true)
   expect(packet.report.snapshot?.transport.dataPlaneMode).toBe("postmessage_pcm")
   expect(packet.report.snapshot?.transport.controlPlaneMode).toBe("message_port")
+  expect(packet.report.snapshot?.transport.preferredDataPlaneMode).toBe("postmessage_pcm_fallback")
+  expect(packet.report.snapshot?.transport.sabReady).toBe(false)
+  expect(packet.report.snapshot?.transport.sabRequirement).toBe("cross_origin_isolation_required")
   expect(packet.report.snapshot?.transport.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(packet.report.snapshot?.transport.appendMessageCount ?? 0).toBeGreaterThan(0)
   expect(packet.report.snapshot?.qualification.targetSoakSec).toBe(6)
@@ -1330,6 +1391,9 @@ test("downloaded appendable report preserves cumulative rollout evidence after q
   expect(report.snapshot?.transport.passed).toBe(true)
   expect(report.snapshot?.transport.dataPlaneMode).toBe("postmessage_pcm")
   expect(report.snapshot?.transport.controlPlaneMode).toBe("message_port")
+  expect(report.snapshot?.transport.preferredDataPlaneMode).toBe("postmessage_pcm_fallback")
+  expect(report.snapshot?.transport.sabReady).toBe(false)
+  expect(report.snapshot?.transport.sabRequirement).toBe("cross_origin_isolation_required")
   expect(report.snapshot?.transport.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(report.snapshot?.transport.appendMessageCount ?? 0).toBeGreaterThan(0)
   expect(report.snapshot?.qualification.targetSoakSec).toBe(6)
@@ -1378,7 +1442,14 @@ test("saved appendable route report rehydrates after reload with the same cumula
             snapshot:
               | {
                   capturedAt: string
-                  transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+                  transport: {
+                    passed: boolean | null
+                    dataPlaneMode: string | null
+                    controlPlaneMode: string | null
+                    preferredDataPlaneMode?: string | null
+                    sabReady?: boolean | null
+                    sabRequirement?: string | null
+                  }
                   rollout: { status: string; reason: string | null }
                 }
               | null
@@ -1402,6 +1473,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
   expect(persistedBeforeReload?.report.snapshot?.transport.passed).toBe(true)
   expect(persistedBeforeReload?.report.snapshot?.transport.dataPlaneMode).toBe("postmessage_pcm")
   expect(persistedBeforeReload?.report.snapshot?.transport.controlPlaneMode).toBe("message_port")
+  expect(persistedBeforeReload?.report.snapshot?.transport.preferredDataPlaneMode).toBe("postmessage_pcm_fallback")
+  expect(persistedBeforeReload?.report.snapshot?.transport.sabReady).toBe(false)
+  expect(persistedBeforeReload?.report.snapshot?.transport.sabRequirement).toBe("cross_origin_isolation_required")
 
   const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
   const expectedCapturedAt = persistedBeforeReload?.report.snapshot?.capturedAt ?? ""
@@ -1414,7 +1488,14 @@ test("saved appendable route report rehydrates after reload with the same cumula
         status: string
         snapshot: {
           capturedAt: string
-          transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+          transport: {
+            passed: boolean | null
+            dataPlaneMode: string | null
+            controlPlaneMode: string | null
+            preferredDataPlaneMode: string | null
+            sabReady: boolean | null
+            sabRequirement: string | null
+          }
           rollout: { status: string; reason: string | null }
         }
       }
@@ -1431,6 +1512,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
               passed?: boolean | null
               dataPlaneMode?: string | null
               controlPlaneMode?: string | null
+              preferredDataPlaneMode?: string | null
+              sabReady?: boolean | null
+              sabRequirement?: string | null
             }
             rollout?: { status?: string; reason?: string | null }
           }
@@ -1441,6 +1525,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
           parsed.snapshot?.transport?.passed === true &&
           parsed.snapshot?.transport?.dataPlaneMode === "postmessage_pcm" &&
           parsed.snapshot?.transport?.controlPlaneMode === "message_port" &&
+          parsed.snapshot?.transport?.preferredDataPlaneMode === "postmessage_pcm_fallback" &&
+          parsed.snapshot?.transport?.sabReady === false &&
+          parsed.snapshot?.transport?.sabRequirement === "cross_origin_isolation_required" &&
           parsed.snapshot?.rollout?.status === expectedRolloutStatus &&
           (parsed.snapshot?.rollout?.reason ?? null) === expectedRolloutReason &&
           parsed.status === expectedStatus
@@ -1453,6 +1540,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
                 passed: parsed.snapshot.transport.passed ?? null,
                 dataPlaneMode: parsed.snapshot.transport.dataPlaneMode ?? null,
                 controlPlaneMode: parsed.snapshot.transport.controlPlaneMode ?? null,
+                preferredDataPlaneMode: parsed.snapshot.transport.preferredDataPlaneMode ?? null,
+                sabReady: parsed.snapshot.transport.sabReady ?? null,
+                sabRequirement: parsed.snapshot.transport.sabRequirement ?? null,
               },
               rollout: {
                 status: parsed.snapshot.rollout.status,
@@ -1489,6 +1579,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
                       passed: boolean | null
                       dataPlaneMode: string | null
                       controlPlaneMode: string | null
+                      preferredDataPlaneMode: string | null
+                      sabReady: boolean | null
+                      sabRequirement: string | null
                     }
                     rollout: { status: string; reason: string | null }
                   } | null
@@ -1506,6 +1599,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
             transportPassed: state.report.snapshot?.transport.passed ?? null,
             dataPlaneMode: state.report.snapshot?.transport.dataPlaneMode ?? null,
             controlPlaneMode: state.report.snapshot?.transport.controlPlaneMode ?? null,
+            preferredDataPlaneMode: state.report.snapshot?.transport.preferredDataPlaneMode ?? null,
+            sabReady: state.report.snapshot?.transport.sabReady ?? null,
+            sabRequirement: state.report.snapshot?.transport.sabRequirement ?? null,
             rolloutStatus: state.report.snapshot?.rollout.status ?? null,
             rolloutReason: state.report.snapshot?.rollout.reason ?? null,
           }
@@ -1520,6 +1616,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
       transportPassed: expectedStoredReport?.snapshot.transport.passed ?? true,
       dataPlaneMode: expectedStoredReport?.snapshot.transport.dataPlaneMode ?? "postmessage_pcm",
       controlPlaneMode: expectedStoredReport?.snapshot.transport.controlPlaneMode ?? "message_port",
+      preferredDataPlaneMode: expectedStoredReport?.snapshot.transport.preferredDataPlaneMode ?? "postmessage_pcm_fallback",
+      sabReady: expectedStoredReport?.snapshot.transport.sabReady ?? false,
+      sabRequirement: expectedStoredReport?.snapshot.transport.sabRequirement ?? "cross_origin_isolation_required",
       rolloutStatus: expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus,
       rolloutReason: expectedStoredReport?.snapshot.rollout.reason ?? expectedRolloutReason,
     })
@@ -1538,6 +1637,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
                 passed: boolean | null
                 dataPlaneMode: string | null
                 controlPlaneMode: string | null
+                preferredDataPlaneMode: string | null
+                sabReady: boolean | null
+                sabRequirement: string | null
               }
               rollout: { status: string; reason: string | null }
             } | null
@@ -1570,6 +1672,15 @@ test("saved appendable route report rehydrates after reload with the same cumula
   )
   expect(persistedAfterReload?.report.snapshot?.transport.controlPlaneMode).toBe(
     expectedStoredReport?.snapshot.transport.controlPlaneMode ?? "message_port"
+  )
+  expect(persistedAfterReload?.report.snapshot?.transport.preferredDataPlaneMode).toBe(
+    expectedStoredReport?.snapshot.transport.preferredDataPlaneMode ?? "postmessage_pcm_fallback"
+  )
+  expect(persistedAfterReload?.report.snapshot?.transport.sabReady).toBe(
+    expectedStoredReport?.snapshot.transport.sabReady ?? false
+  )
+  expect(persistedAfterReload?.report.snapshot?.transport.sabRequirement).toBe(
+    expectedStoredReport?.snapshot.transport.sabRequirement ?? "cross_origin_isolation_required"
   )
   expect(persistedAfterReload?.report.snapshot?.rollout.status).toBe(
     expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus

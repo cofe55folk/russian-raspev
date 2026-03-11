@@ -5,6 +5,8 @@ import type {
   AppendableQueueControlPlaneMode,
   AppendableQueueDataPlaneMode,
   AppendableQueueDebugStats,
+  AppendableQueuePreferredDataPlaneMode,
+  AppendableQueueSabRequirement,
 } from "./appendableQueueEngine"
 import type { SoundTouchEngine } from "./soundtouchEngine"
 
@@ -41,6 +43,11 @@ export type AppendableQueueCoordinatorSnapshot = {
   tempo: number
   dataPlaneMode: string | null
   controlPlaneMode: string | null
+  preferredDataPlaneMode: string | null
+  sabCapable: boolean | null
+  sabReady: boolean | null
+  crossOriginIsolated: boolean | null
+  sabRequirement: string | null
   sampleRates: number[]
   totalAppendMessages: number
   totalAppendedBytes: number
@@ -88,10 +95,17 @@ function toFiniteNumber(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback
 }
 
+function toBoolean(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value
+  if (value === 1 || value === "1" || value === "true") return true
+  if (value === 0 || value === "0" || value === "false") return false
+  return fallback
+}
+
 function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStats | null {
   const debugState = engine.getDebugState?.()
   if (!debugState || typeof debugState !== "object") return null
-  const stats = debugState as Record<string, number | string | null | undefined>
+  const stats = debugState as Record<string, number | string | boolean | null | undefined>
   const availableFrames = toFiniteNumber(stats.availableFrames, 0)
   const bufferLeadFrames = toFiniteNumber(stats.bufferLeadFrames, 0)
   const bufferLeadSec = toFiniteNumber(stats.bufferLeadSec, 0)
@@ -120,6 +134,15 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
       typeof stats.controlPlaneMode === "string"
         ? (stats.controlPlaneMode as AppendableQueueControlPlaneMode)
         : "message_port",
+    preferredDataPlaneMode:
+      typeof stats.preferredDataPlaneMode === "string"
+        ? (stats.preferredDataPlaneMode as AppendableQueuePreferredDataPlaneMode)
+        : "postmessage_pcm_fallback",
+    sabCapable: toBoolean(stats.sabCapable, false),
+    sabReady: toBoolean(stats.sabReady, false),
+    crossOriginIsolated: toBoolean(stats.crossOriginIsolated, false),
+    sabRequirement:
+      typeof stats.sabRequirement === "string" ? (stats.sabRequirement as AppendableQueueSabRequirement) : null,
     minAvailableFrames: toFiniteNumber(stats.minAvailableFrames, availableFrames),
     maxAvailableFrames: toFiniteNumber(stats.maxAvailableFrames, availableFrames),
     underrunFrames,
@@ -328,6 +351,43 @@ export function createAppendableQueueMultitrackCoordinator(
             .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0)
         )
       ).sort((a, b) => a - b)
+      const preferredDataPlaneModes = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.preferredDataPlaneMode)
+            .filter(
+              (value): value is AppendableQueuePreferredDataPlaneMode => typeof value === "string" && value.length > 0
+            )
+        )
+      )
+      const sabRequirements = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.sabRequirement)
+            .filter((value): value is AppendableQueueSabRequirement => typeof value === "string" && value.length > 0)
+        )
+      )
+      const sabCapableStates = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.sabCapable)
+            .filter((value): value is boolean => typeof value === "boolean")
+        )
+      )
+      const sabReadyStates = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.sabReady)
+            .filter((value): value is boolean => typeof value === "boolean")
+        )
+      )
+      const crossOriginIsolatedStates = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.crossOriginIsolated)
+            .filter((value): value is boolean => typeof value === "boolean")
+        )
+      )
       const totalAppendMessages = stemSnapshots.reduce(
         (sum, stem) => sum + (typeof stem.stats?.appendMessageCount === "number" ? stem.stats.appendMessageCount : 0),
         0
@@ -347,6 +407,23 @@ export function createAppendableQueueMultitrackCoordinator(
             : controlPlaneModes.length
               ? controlPlaneModes.join(",")
               : null,
+        preferredDataPlaneMode:
+          preferredDataPlaneModes.length === 1
+            ? (preferredDataPlaneModes[0] ?? null)
+            : preferredDataPlaneModes.length
+              ? preferredDataPlaneModes.join(",")
+              : null,
+        sabCapable:
+          sabCapableStates.length === 1 ? sabCapableStates[0] ?? null : sabCapableStates.length ? null : null,
+        sabReady: sabReadyStates.length === 1 ? sabReadyStates[0] ?? null : sabReadyStates.length ? null : null,
+        crossOriginIsolated:
+          crossOriginIsolatedStates.length === 1
+            ? crossOriginIsolatedStates[0] ?? null
+            : crossOriginIsolatedStates.length
+              ? null
+              : null,
+        sabRequirement:
+          sabRequirements.length === 1 ? (sabRequirements[0] ?? null) : sabRequirements.length ? sabRequirements.join(",") : null,
         sampleRates,
         totalAppendMessages,
         totalAppendedBytes,

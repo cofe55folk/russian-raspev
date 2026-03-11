@@ -17,6 +17,8 @@ type AppendableQueueLabStemState = {
     sampleRate: number
     dataPlaneMode: string
     controlPlaneMode: string
+    preferredDataPlaneMode: string | null
+    sabReady: boolean | null
     appendMessageCount: number
     appendedBytes: number
     underrunFrames: number
@@ -33,6 +35,11 @@ type AppendableQueueLabState = {
   tempo: number
   dataPlaneMode: string | null
   controlPlaneMode: string | null
+  preferredDataPlaneMode: string | null
+  sabCapable: boolean | null
+  sabReady: boolean | null
+  crossOriginIsolated: boolean | null
+  sabRequirement: string | null
   sampleRates: number[]
   totalAppendMessages: number
   totalAppendedBytes: number
@@ -398,10 +405,16 @@ test("tempo-only mode keeps appendable multistem playback aligned", async ({ pag
   expect(initialState.tempo).toBeCloseTo(1.2, 3)
   expect(initialState.dataPlaneMode).toBe("postmessage_pcm")
   expect(initialState.controlPlaneMode).toBe("message_port")
+  expect(initialState.preferredDataPlaneMode).toBe("postmessage_pcm_fallback")
+  expect(initialState.sabReady).toBe(false)
+  expect(initialState.crossOriginIsolated).toBe(false)
+  expect(initialState.sabRequirement).toBe("cross_origin_isolation_required")
   expect(initialState.sampleRates.length).toBeGreaterThan(0)
   expect(initialState.totalAppendMessages).toBeGreaterThan(0)
   expect(initialState.totalAppendedBytes).toBeGreaterThan(0)
   expect(initialState.stems.every((stem) => stem.stats?.dataPlaneMode === "postmessage_pcm")).toBe(true)
+  expect(initialState.stems.every((stem) => stem.stats?.preferredDataPlaneMode === "postmessage_pcm_fallback")).toBe(true)
+  expect(initialState.stems.every((stem) => stem.stats?.sabReady === false)).toBe(true)
 
   await page.getByRole("button", { name: "Play", exact: true }).click()
   await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1)
