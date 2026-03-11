@@ -2000,7 +2000,34 @@ Suggested opening prompt for the next window:
    - scoped activation targeting is now separately reviewable
    - if no new CI regression appears, the next move should be merge of `PR #7`, not another return to splice/runtime R&D
 
-## 8.138 External Web Pro review confirmed the next production-phase order
+## 8.138 Teleprompter dataset dedupe has now been re-landed onto current `develop`
+1. Historical note:
+   - the earlier teleprompter fix lived on `codex/p0-reset-position-on-switch`
+   - its key commits were `766dc93` and `cd38bea`
+   - they were documented earlier, but they were not actually ancestors of current `develop`
+2. Current problem confirmation on the live mainline before this slice:
+   - `app/api/dataset/teleprompter/route.ts` was still doing raw `appendFile(...)`
+   - `MultiTrackPlayer.tsx` was already expecting `deduplicated` responses from the API
+   - dataset had regrown to `1264` lines / `30` snapshots / `11` unique semantic snapshots
+3. Re-landed fix in current branch:
+   - restored semantic dedupe in `app/api/dataset/teleprompter/route.ts`
+   - duplicate detection ignores:
+     - `exported_at`
+     - `ingested_at`
+     - `snapshot_id`
+   - grouping stays scoped to `song_scope + source_url`
+4. Re-landed cleanup in current dataset:
+   - compacted `data/datasets/teleprompter-dataset.jsonl`
+   - kept the first snapshot block for each unique semantic signature per `song_scope + source_url`
+5. Current result after re-landing:
+   - `1264 -> 437` lines
+   - `30 -> 10` snapshots
+   - duplicate groups: `7 -> 0`
+6. Practical consequence:
+   - future no-op auto-collect recomputes should no longer append semantic duplicates
+   - the historical docs are now aligned with the real mainline code again
+
+## 8.139 External Web Pro review confirmed the next production-phase order
 1. Post-merge state recap:
    - `appendable queue + AudioWorklet` remains the correct forward path
    - old `startup -> tail -> full` engine-swap path stays closed

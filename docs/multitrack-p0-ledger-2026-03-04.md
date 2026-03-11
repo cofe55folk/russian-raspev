@@ -3685,7 +3685,42 @@ Comment for the next window:
    - а либо смержить `PR #7`,
    - либо после merge уже расширять allowlist rollout controlled way.
 
-## 9.86 Update 2026-03-11: External Web Pro review refined the next appendable production phase
+## 9.86 Update 2026-03-11: Teleprompter dedupe and cleanup were re-landed onto current mainline
+Что выяснили:
+1. Исторические teleprompter commits из старого окна существовали:
+   - `766dc93` `fix: dedupe teleprompter dataset snapshots`
+   - `cd38bea` `chore: compact teleprompter dataset history`
+2. Но они не входили в текущий `develop`.
+3. Поэтому docs уже утверждали, что проблема закрыта, а реальный mainline-код этому не соответствовал:
+   - `app/api/dataset/teleprompter/route.ts` все еще делал raw `appendFile(...)`
+   - dataset успел разрастись обратно до `1264` строк
+
+Что пере-применили на текущую ветку от `develop`:
+1. Вернули semantic dedupe в `app/api/dataset/teleprompter/route.ts`.
+2. Логика duplicate detection:
+   - игнорирует `exported_at`, `ingested_at`, `snapshot_id`
+   - группирует snapshots по `song_scope + source_url`
+   - не дописывает incoming snapshot, если semantic signature уже есть
+3. Отдельно заново compacted текущий `data/datasets/teleprompter-dataset.jsonl`, уже по фактическому содержимому mainline-файла.
+
+Проверенный результат:
+1. До cleanup:
+   - `1264` lines
+   - `30` snapshots
+   - `11` unique semantic snapshots
+   - `7` duplicate groups
+2. После cleanup:
+   - `437` lines
+   - `10` snapshots
+   - `10` unique semantic snapshots
+   - `0` duplicate groups
+
+Рабочий вывод после `9.86`:
+1. Проблема “телепромптер постоянно меняется без реальных изменений” в старой ветке была исправлена правильно, но не была доведена до current mainline.
+2. В этой ветке fix наконец переносится в актуальный forward path.
+3. После merge текущего teleprompter slice dataset должен снова меняться только при реальном semantic изменении snapshot.
+
+## 9.87 Update 2026-03-11: External Web Pro review refined the next appendable production phase
 Что подтвердил внешний review:
 1. Мы уже на правильном forward path:
    - `appendable queue`
@@ -3722,7 +3757,7 @@ Comment for the next window:
    - wide rollout
 3. Не строить следующий шаг вокруг partial `decodeAudioData()` windows.
 
-Рабочий вывод после `9.86`:
+Рабочий вывод после `9.87`:
 1. Appendable architecture после merge подтверждена не только нашими тестами, но и внешним production-oriented review.
 2. Следующая инженерная цель теперь сформулирована точнее:
    - не `progressive decode next`,
