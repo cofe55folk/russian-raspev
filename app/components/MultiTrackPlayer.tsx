@@ -3414,8 +3414,9 @@ export default function MultiTrackPlayer({
 
   const captureAppendableRoutePilotSnapshot = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
-    commitAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot))
-    return snapshot
+    const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot)
+    commitAppendableRoutePilotReport(nextReport)
+    return cloneAppendableRoutePilotReport(nextReport).snapshot ?? snapshot
   }, [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot, commitAppendableRoutePilotReport])
 
   const setAppendableRoutePilotNotes = useCallback((notes: string) => {
