@@ -3,6 +3,8 @@
 import { ensureAnalyticsSessionId, ensureVisitorId } from "./clientIdentity";
 import type { AnalyticsContentType, AnalyticsEventType } from "./store-file";
 
+const ANALYTICS_PERSIST_IN_DEV = process.env.NEXT_PUBLIC_ANALYTICS_PERSIST_IN_DEV === "1";
+
 type EmitPayload = {
   contentType: AnalyticsContentType;
   contentId: string;
@@ -13,6 +15,9 @@ type EmitPayload = {
 };
 
 export function emitAnalyticsClientEvent(payload: EmitPayload): void {
+  const shouldPersist = process.env.NODE_ENV === "production" || ANALYTICS_PERSIST_IN_DEV;
+  if (!shouldPersist) return;
+
   const visitorId = ensureVisitorId();
   const sessionId = ensureAnalyticsSessionId();
   const body = {

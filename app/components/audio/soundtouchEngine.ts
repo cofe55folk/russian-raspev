@@ -3,6 +3,7 @@
 import { PitchShifter } from "soundtouchjs"
 
 export type SoundTouchEngine = {
+  getCapabilities: () => AudioEngineCapabilities
   connect: (node: AudioNode) => void
   disconnect: () => void
 
@@ -11,11 +12,27 @@ export type SoundTouchEngine = {
 
   seekSeconds: (sec: number) => void
   getSourcePositionSeconds: () => number
+  getDurationSeconds?: () => number
+  getBufferedSeconds?: () => number
+  getDebugState?: () => Record<string, number | string | null | undefined>
+  tickPlayback?: (plan?: AudioEngineTickPlan) => void
 
   setTempo: (tempo: number) => void
   setPitchSemitones: (semitones: number) => void
 
   destroy: () => void
+}
+
+export type AudioEngineCapabilities = {
+  supportsTempo: boolean
+  supportsIndependentPitch: boolean
+}
+
+export type AudioEngineTickPlan = {
+  sharedMinQueueEstimateFrames?: number
+  queueSlackFrames?: number
+  chunkBudget?: number
+  force?: boolean
 }
 
 type CreateOpts = {
@@ -26,6 +43,8 @@ type PitchShifterInstance = {
   sourcePosition: number
   tempo: number
   pitchSemitones: number
+  percentagePlayed?: number
+  _filter?: { sourcePosition: number }
   connect: (node: AudioNode) => void
   disconnect: () => void
   off?: () => void
@@ -41,20 +60,6 @@ function clamp(n: number, a: number, b: number) {
   return Math.min(b, Math.max(a, n))
 }
 
-function sliceAudioBuffer(ctx: AudioContext, src: AudioBuffer, startSample: number) {
-  const channels = src.numberOfChannels
-  const length = src.length
-  const start = Math.max(0, Math.min(length, startSample))
-  const newLen = Math.max(1, length - start)
-
-  const out = ctx.createBuffer(channels, newLen, src.sampleRate)
-  for (let c = 0; c < channels; c++) {
-    const from = src.getChannelData(c).subarray(start, start + newLen)
-    out.getChannelData(c).set(from)
-  }
-  return out
-}
-
 export function createSoundTouchEngine(
   audioCtx: AudioContext,
   audioBuffer: AudioBuffer,
@@ -68,19 +73,57 @@ export function createSoundTouchEngine(
   let tempo = 1
   let pitchSemi = 0
 
-  let baseOffsetSamples = 0
-  let currentBuffer: AudioBuffer = original
+  const maxSourceSample = Math.max(0, original.length - 1)
+  let targetSourcePositionSamples = 0
 
   const PitchShifterClass = PitchShifter as PitchShifterCtor
   let shifter: PitchShifterInstance | null = null
 
   let outputNode: AudioNode | null = null
   let isRunning = false
+  let isConnected = false
+  let needsRebuildOnStart = true
 
-  const getLocalPosSamples = () => {
+  const clampSourcePosition = (samples: number) => clamp(Math.floor(samples), 0, maxSourceSample)
+
+  const setShifterSourcePosition = (samples: number) => {
+    const pos = clampSourcePosition(samples)
+    targetSourcePositionSamples = pos
+    if (!shifter) return
+
+    let positioned = false
+    try {
+      if (shifter._filter) {
+        shifter._filter.sourcePosition = pos
+        positioned = true
+      }
+    } catch {}
+    try {
+      shifter.sourcePosition = pos
+    } catch {}
+    if (positioned) return
+
+    // Fallback for implementations where direct filter position is unavailable.
+    const fullSamples = original.duration * sr
+    if (fullSamples > 0 && Number.isFinite(fullSamples)) {
+      try {
+        const perc = clamp(pos / fullSamples, 0, 1)
+        shifter.percentagePlayed = perc
+      } catch {}
+    }
+  }
+
+  const getShifterPosSamples = () => {
     if (!shifter) return 0
+    const filterPos = shifter._filter?.sourcePosition
+    if (typeof filterPos === "number") return clampSourcePosition(filterPos)
     const sp = shifter.sourcePosition
-    return typeof sp === "number" ? sp : 0
+    return typeof sp === "number" ? clampSourcePosition(sp) : 0
+  }
+
+  const getCurrentPosSamples = () => {
+    if (!shifter) return targetSourcePositionSamples
+    return getShifterPosSamples()
   }
 
   const rebuildShifter = () => {
@@ -88,21 +131,22 @@ export function createSoundTouchEngine(
       try {
         shifter.disconnect()
       } catch {}
+      isConnected = false
     }
 
-    shifter = new PitchShifterClass(audioCtx, currentBuffer, bufferSize)
+    shifter = new PitchShifterClass(audioCtx, original, bufferSize)
 
     shifter.tempo = clamp(tempo, 0.25, 4)
     shifter.pitchSemitones = clamp(pitchSemi, -24, 24)
 
-    // стартуем из 0 текущего слайса
-    try {
-      shifter.sourcePosition = 0
-    } catch {}
+    // Keep absolute source position without rebuilding/copying tail buffers.
+    setShifterSourcePosition(targetSourcePositionSamples)
+    needsRebuildOnStart = false
 
-    if (outputNode) {
+    if (outputNode && isRunning) {
       try {
         shifter.connect(outputNode)
+        isConnected = true
       } catch {}
     }
   }
@@ -111,81 +155,99 @@ export function createSoundTouchEngine(
     if (!shifter) rebuildShifter()
   }
 
+  const connectShifter = () => {
+    if (!shifter || !outputNode || isConnected) return
+    try {
+      shifter.connect(outputNode)
+      isConnected = true
+    } catch {}
+  }
+
+  const disconnectShifter = () => {
+    if (!shifter) return
+    try {
+      shifter.disconnect()
+    } catch {}
+    isConnected = false
+  }
+
   const applySeekSamples = (absoluteSamples: number) => {
-    baseOffsetSamples = Math.max(0, Math.min(original.length - 1, absoluteSamples))
-    currentBuffer = sliceAudioBuffer(audioCtx, original, baseOffsetSamples)
-    rebuildShifter()
+    setShifterSourcePosition(absoluteSamples)
+    if (!shifter) return
+    // Safari/WebKit can ignore in-place filter reposition while processor is actively pulling.
+    // Rebuild node on active playback to make seek deterministic without buffer slicing.
+    if (isRunning) {
+      rebuildShifter()
+      return
+    }
+    if (shifter._filter) return
+    try {
+      shifter.sourcePosition = targetSourcePositionSamples
+    } catch {
+      rebuildShifter()
+    }
   }
 
   return {
+    getCapabilities() {
+      return {
+        supportsTempo: true,
+        supportsIndependentPitch: true,
+      }
+    },
+
     connect(node: AudioNode) {
       outputNode = node
-      ensureShifter()
-      try {
-        shifter?.connect(node)
-      } catch {}
+      if (!isRunning) return
+      if (needsRebuildOnStart || !shifter) {
+        rebuildShifter()
+        return
+      }
+      connectShifter()
     },
 
     disconnect() {
-      try {
-        shifter?.disconnect()
-      } catch {}
+      disconnectShifter()
       outputNode = null
+      isRunning = false
     },
 
     start() {
       if (isRunning) return
       if (!outputNode) return
-      ensureShifter()
-
-      try {
-        shifter?.connect(outputNode)
-      } catch {}
-
       isRunning = true
+      if (needsRebuildOnStart || !shifter) {
+        rebuildShifter()
+        return
+      }
+      setShifterSourcePosition(targetSourcePositionSamples)
+      connectShifter()
     },
 
     stop() {
-      if (!isRunning) return
+      if (isRunning) {
+        targetSourcePositionSamples = getCurrentPosSamples()
+      }
 
-      const local = getLocalPosSamples()
-      baseOffsetSamples = clamp(baseOffsetSamples + local, 0, original.length - 1)
-
-      currentBuffer = sliceAudioBuffer(audioCtx, original, baseOffsetSamples)
-
-      try {
-        shifter?.disconnect()
-      } catch {}
-
+      disconnectShifter()
       isRunning = false
+      needsRebuildOnStart = true
     },
 
     seekSeconds(sec: number) {
       const dur = original.duration || 0
       const s = clamp(sec, 0, dur)
       const absSamples = Math.floor(s * sr)
-
-      const wasRunning = isRunning
-      if (wasRunning) {
-        try {
-          shifter?.disconnect()
-        } catch {}
-        isRunning = false
-      }
-
       applySeekSamples(absSamples)
-
-      if (wasRunning && outputNode) {
-        try {
-          shifter?.connect(outputNode)
-        } catch {}
-        isRunning = true
-      }
+      if (!isRunning) needsRebuildOnStart = true
     },
 
     getSourcePositionSeconds() {
-      const local = getLocalPosSamples()
-      return (baseOffsetSamples + local) / sr
+      return getCurrentPosSamples() / sr
+    },
+
+    getDurationSeconds() {
+      return original.duration || 0
     },
 
     setTempo(t: number) {
@@ -199,15 +261,15 @@ export function createSoundTouchEngine(
     },
 
     destroy() {
-      try {
-        shifter?.disconnect()
-      } catch {}
+      disconnectShifter()
       try {
         shifter?.off?.()
       } catch {}
       shifter = null
       outputNode = null
       isRunning = false
+      isConnected = false
+      needsRebuildOnStart = true
     },
   }
 }

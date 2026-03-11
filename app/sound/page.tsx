@@ -11,6 +11,7 @@ import { toIntlLocale } from "../lib/i18n/format"
 import { getAuthHref, getSoundTrackHref } from "../lib/i18n/routing"
 import { getMiniPlayerStateSnapshot, subscribeMiniPlayerState } from "../lib/miniPlayerStateStore"
 import { localizeSoundItem, SOUND_ITEMS, type LocalizedSoundItem } from "../lib/soundCatalog"
+import { getSoundRoutePlayerReadySnapshot, subscribeSoundRoutePlayerReady } from "../lib/soundRoutePlayerReady"
 import { dispatchSoundRoutePlay } from "../lib/soundRoutePlayerBus"
 
 function hasValue(value?: string) {
@@ -35,8 +36,14 @@ export default function SoundPage() {
   const { locale, t } = useI18n()
   const intlLocale = toIntlLocale(locale)
   const miniPlayerState = useSyncExternalStore(subscribeMiniPlayerState, getMiniPlayerStateSnapshot, getMiniPlayerStateSnapshot)
+  const routePlayerReady = useSyncExternalStore(
+    subscribeSoundRoutePlayerReady,
+    getSoundRoutePlayerReadySnapshot,
+    getSoundRoutePlayerReadySnapshot
+  )
+  const activeSlug = miniPlayerState.activeSlug
   const isPreviewPlaying = !!miniPlayerState.progress.playing
-  const activeTitle = miniPlayerState.title
+  const [pendingPreviewSlug, setPendingPreviewSlug] = useState<string | null>(null)
   const [sessionLoaded, setSessionLoaded] = useState(false)
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
 
@@ -77,17 +84,31 @@ export default function SoundPage() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!pendingPreviewSlug) return
+    const clearDelayMs = activeSlug === pendingPreviewSlug ? 0 : 12000
+    const timerId = window.setTimeout(() => {
+      setPendingPreviewSlug((current) => (current === pendingPreviewSlug ? null : current))
+    }, clearDelayMs)
+    return () => {
+      window.clearTimeout(timerId)
+    }
+  }, [activeSlug, pendingPreviewSlug])
+
   const togglePreview = (item: (typeof SOUND_ITEMS)[number]) => {
     if (!item.previewSrc) return
     const active = getGlobalAudioController()
     const activeIsRoutePlayer = active?.id === "rr-sound-route-player"
-    const activeTitleNow = active ? (active.getTitle ? active.getTitle() : active.title) : ""
+    const activeSlugNow = miniPlayerState.activeSlug
 
-    if (activeIsRoutePlayer && activeTitleNow === item.title) {
+    if (activeIsRoutePlayer && activeSlugNow === item.slug) {
+      setPendingPreviewSlug(null)
       active?.toggle()
       return
     }
 
+    if (!routePlayerReady) return
+    setPendingPreviewSlug(item.slug)
     dispatchSoundRoutePlay({ slug: item.slug, autoplay: true })
   }
 
@@ -138,7 +159,8 @@ export default function SoundPage() {
             ) : null}
             {tracks.map((item) => {
               const secondLine = composeSecondLine(item)
-              const isCurrent = activeTitle === item.title
+              const isCurrent = activeSlug === item.slug
+              const isPending = pendingPreviewSlug === item.slug && !isCurrent
               const isPlaying = isCurrent && isPreviewPlaying
               return (
                 <article key={item.id} className="rounded-md border border-[#d4c39f] bg-[#f5efe2] px-2 py-1.5 text-[#1f2937]">
@@ -147,15 +169,17 @@ export default function SoundPage() {
                     <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-sm border border-[#b9a783] bg-zinc-900/85">
                       <button
                         type="button"
-                        aria-label={isPlaying ? t("sound.preview.pauseMasterAria") : t("sound.preview.playMasterAria")}
+                        aria-label={isPlaying || isPending ? t("sound.preview.pauseMasterAria") : t("sound.preview.playMasterAria")}
                         title={item.previewSrc ? t("sound.preview.listenMasterTitle") : t("sound.preview.missingMasterTitle")}
-                        disabled={!item.previewSrc}
+                        disabled={!item.previewSrc || isPending || !routePlayerReady}
                         onClick={() => togglePreview(item)}
                         className={`absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 ${
-                          item.previewSrc ? "bg-[#1f2937]/85 text-white hover:bg-[#0f172a]" : "cursor-not-allowed bg-[#475569]/60 text-white/40"
+                          item.previewSrc && !isPending && routePlayerReady
+                            ? "bg-[#1f2937]/85 text-white hover:bg-[#0f172a]"
+                            : "cursor-not-allowed bg-[#475569]/60 text-white/40"
                         }`}
                       >
-                        {isPlaying ? (
+                        {isPlaying || isPending ? (
                           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
                             <rect x="6" y="5" width="4" height="14" rx="1" />
                             <rect x="14" y="5" width="4" height="14" rx="1" />

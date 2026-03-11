@@ -21,11 +21,22 @@ type GlobalMiniPlayerProps = {
 }
 
 type TransportBadgeState = "idle" | "buffering" | "stalled" | "retrying" | "recovered"
+const FOLLOW_CARD_STORAGE_KEY = "rr_miniplayer_follow_card_v2"
+const TRANSPORT_BUFFERING_THRESHOLD_MS = 1800
+const TRANSPORT_STALLED_THRESHOLD_MS = 5200
 
 export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerProps = {}) {
   const router = useRouter()
   const { locale, t } = useI18n()
   const snapshot = useSyncExternalStore(subscribeMiniPlayerState, getMiniPlayerStateSnapshot, getMiniPlayerStateSnapshot)
+  const [desktopViewport, setDesktopViewport] = useState(() => {
+    if (typeof window === "undefined") return true
+    try {
+      return window.matchMedia("(min-width: 640px)").matches
+    } catch {
+      return true
+    }
+  })
   const [expanded, setExpanded] = useState(false)
   const [playlistOpen, setPlaylistOpen] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
@@ -46,7 +57,7 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
   const [followCard, setFollowCard] = useState(() => {
     if (typeof window === "undefined") return false
     try {
-      return localStorage.getItem("rr_miniplayer_follow_card") === "1"
+      return localStorage.getItem(FOLLOW_CARD_STORAGE_KEY) === "1"
     } catch {
       return false
     }
@@ -54,13 +65,14 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
 
   useEffect(() => {
     try {
-      localStorage.setItem("rr_miniplayer_follow_card", followCard ? "1" : "0")
+      localStorage.setItem(FOLLOW_CARD_STORAGE_KEY, followCard ? "1" : "0")
     } catch {}
   }, [followCard])
 
   const controller = getGlobalAudioController()
   const isActiveController = !!snapshot.controllerId && !!controller && controller.id === snapshot.controllerId
   const activeController = isActiveController ? controller : null
+  const controlsActive = mobile ? !desktopViewport : desktopViewport
 
   const loopOn = snapshot.loopOn
   const title = snapshot.title
@@ -73,6 +85,29 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
     isScrubbing && scrubValue !== null
       ? scrubValue
       : Math.min(progress.current, progress.duration > 0 ? progress.duration : progress.current)
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    let active = true
+    const media = window.matchMedia("(min-width: 640px)")
+    const sync = () => {
+      if (!active) return
+      setDesktopViewport(media.matches)
+    }
+    sync()
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", sync)
+      return () => {
+        active = false
+        media.removeEventListener("change", sync)
+      }
+    }
+    media.addListener(sync)
+    return () => {
+      active = false
+      media.removeListener(sync)
+    }
+  }, [])
 
   const emitMiniPlayerAction = (action: MiniPlayerAction, endStreamReason?: MiniPlayerEndStreamReason) => {
     emitMiniPlayerTelemetry({
@@ -118,7 +153,7 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
   }
 
   useEffect(() => {
-    if (!isActiveController) return
+    if (!controlsActive || !isActiveController) return
     const prevId = previousControllerIdRef.current
     if (prevId && snapshot.controllerId && prevId !== snapshot.controllerId) {
       emitMiniPlayerTelemetry({
@@ -135,10 +170,10 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
       })
     }
     previousControllerIdRef.current = snapshot.controllerId
-  }, [isActiveController, locale, loopOn, playlistIndex, progress, snapshot.controllerId])
+  }, [controlsActive, isActiveController, locale, loopOn, playlistIndex, progress, snapshot.controllerId])
 
   useEffect(() => {
-    if (!isActiveController || !activeController) return
+    if (!controlsActive || !isActiveController || !activeController) return
     const now = performance.now()
     const progressState = lastProgressRef.current
     const current = progress.current
@@ -174,35 +209,12 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
 
     if (!progress.playing && hasPlaybackIntent) {
       const intentElapsedMs = now - playbackIntentStartedAtMsRef.current
-      if (intentElapsedMs >= 1200 && transportBadge === "idle") {
+      if (intentElapsedMs >= TRANSPORT_BUFFERING_THRESHOLD_MS && transportBadge === "idle") {
         deferBadge("buffering")
       }
-      if (intentElapsedMs >= 2600 && transportBadge !== "stalled" && transportBadge !== "retrying") {
+      if (intentElapsedMs >= TRANSPORT_STALLED_THRESHOLD_MS && transportBadge !== "stalled" && transportBadge !== "retrying") {
         deferBadge("stalled")
         emitTransportStalled()
-      }
-      if (intentElapsedMs >= 4200 && now - progressState.retryAtMs >= 3200) {
-        deferBadge("stalled")
-        emitTransportStalled()
-        progressState.retryAtMs = now
-        deferBadge("retrying")
-        emitMiniPlayerTelemetry({
-          controllerId: snapshot.controllerId || activeController.id,
-          action: "transport_retry",
-          endStreamReason: "retrying",
-          playing: progress.playing,
-          currentSec: progress.current,
-          durationSec: progress.duration,
-          loopOn,
-          playlistIndex,
-          route: typeof window !== "undefined" ? window.location.pathname : "",
-          locale,
-        })
-        try {
-          markPlaybackIntent()
-          activeController.play()
-          touchMiniPlayerState()
-        } catch {}
       }
       return
     }
@@ -230,45 +242,22 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
       }
     } else {
       const idleMs = now - progressState.advancedAtMs
-      if (idleMs >= 1200 && transportBadge === "idle") {
+      if (idleMs >= TRANSPORT_BUFFERING_THRESHOLD_MS && transportBadge === "idle") {
         deferBadge("buffering")
       }
-      if (idleMs >= 2600 && transportBadge !== "stalled" && transportBadge !== "retrying") {
+      if (idleMs >= TRANSPORT_STALLED_THRESHOLD_MS && transportBadge !== "stalled" && transportBadge !== "retrying") {
         deferBadge("stalled")
         emitTransportStalled()
-      }
-      if (idleMs >= 4200 && now - progressState.retryAtMs >= 3200) {
-        deferBadge("stalled")
-        emitTransportStalled()
-        progressState.retryAtMs = now
-        deferBadge("retrying")
-        emitMiniPlayerTelemetry({
-          controllerId: snapshot.controllerId || activeController.id,
-          action: "transport_retry",
-          endStreamReason: "retrying",
-          playing: progress.playing,
-          currentSec: progress.current,
-          durationSec: progress.duration,
-          loopOn,
-          playlistIndex,
-          route: typeof window !== "undefined" ? window.location.pathname : "",
-          locale,
-        })
-        try {
-          markPlaybackIntent()
-          activeController.play()
-          touchMiniPlayerState()
-        } catch {}
       }
     }
 
     if (transportBadge === "recovered" && now >= progressState.recoveredUntilMs) {
       deferBadge("idle")
     }
-  }, [activeController, isActiveController, locale, loopOn, playlistIndex, progress, snapshot.controllerId, transportBadge, transportPulse])
+  }, [activeController, controlsActive, isActiveController, locale, loopOn, playlistIndex, progress, snapshot.controllerId, transportBadge, transportPulse])
 
   useEffect(() => {
-    if (!isActiveController || !activeController) return
+    if (!controlsActive || !isActiveController || !activeController) return
     const timer = window.setInterval(() => {
       const now = performance.now()
       const hasPlaybackIntent = now <= playbackIntentUntilMsRef.current
@@ -279,7 +268,7 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
     return () => {
       window.clearInterval(timer)
     }
-  }, [activeController, isActiveController, progress.playing, transportBadge])
+  }, [activeController, controlsActive, isActiveController, progress.playing, transportBadge])
 
   const beginScrub = () => {
     isScrubbingRef.current = true
@@ -302,20 +291,29 @@ export default function GlobalMiniPlayer({ mobile = false }: GlobalMiniPlayerPro
     const base = playlistIndex >= 0 ? playlistIndex : 0
     const nextIdx = (base + delta + playlist.length) % playlist.length
     emitMiniPlayerAction(delta < 0 ? "queue_prev" : "queue_next", delta < 0 ? "previous_track" : "next_track")
-    activeController.jumpTo?.(nextIdx)
+    const jumpTo = activeController.jumpTo
+    const hasJumpTo = typeof jumpTo === "function"
+    if (hasJumpTo) jumpTo(nextIdx)
+    else if (delta < 0) activeController.prev()
+    else activeController.next()
     touchMiniPlayerState()
     if (followCard) {
       const slug = playlist[nextIdx]?.id
       if (slug) router.push(getSoundTrackHref(locale, slug))
     }
-    window.setTimeout(() => {
-      const p = activeController.getProgress()
-      if (!p.playing) activeController.play()
-      touchMiniPlayerState()
-    }, 30)
+    // Controllers with jumpTo() already own autoplay behavior.
+    // Extra forced play here creates a second controller_play and can cause
+    // audible stutter / swallowed intro on Safari.
+    if (!hasJumpTo) {
+      window.setTimeout(() => {
+        const p = activeController.getProgress()
+        if (!p.playing) activeController.play()
+        touchMiniPlayerState()
+      }, 30)
+    }
   }
 
-  if (!isActiveController || !activeController) return null
+  if (!controlsActive || !isActiveController || !activeController) return null
 
   if (mobile) {
     return (

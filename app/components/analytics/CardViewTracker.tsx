@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { ensureAnalyticsSessionId, ensureVisitorId } from "../../lib/analytics/clientIdentity";
 
+const ANALYTICS_PERSIST_IN_DEV = process.env.NEXT_PUBLIC_ANALYTICS_PERSIST_IN_DEV === "1";
+
 type Props = {
   contentType: "article" | "video" | "sound" | "education";
   contentId: string;
@@ -43,6 +45,9 @@ export default function CardViewTracker({ contentType, contentId }: Props) {
   const firedRef = useRef(false);
 
   useEffect(() => {
+    const shouldPersist = process.env.NODE_ENV === "production" || ANALYTICS_PERSIST_IN_DEV;
+    if (!shouldPersist) return;
+
     const element = markerRef.current;
     if (!element || firedRef.current) return;
 
