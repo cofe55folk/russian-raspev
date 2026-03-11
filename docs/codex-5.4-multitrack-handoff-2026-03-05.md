@@ -2467,3 +2467,41 @@ Suggested opening prompt for the next window:
    - widened appendable rollout now has a stricter qualification artifact, not only raw soak evidence
    - future route soak/stress slices can build on an explicit qualification verdict instead of inventing a separate pass/fail layer
    - the route e2e pack is less sensitive to transient page/bootstrap hiccups while still exercising the same appendable path
+
+## 8.152 Route diagnostics now have a dedicated stress pilot that runs a scripted seek sequence and stores an explicit stress verdict
+1. The next slice after `8.151` still stays entirely in route diagnostics/debug tooling.
+2. Before this step, the route layer had:
+   - quick pilot for a single seek-oriented sanity check
+   - soak pilot for longer steady-state evidence
+   - qualification pilot for a stricter longer-soak verdict
+   - but no explicit scripted stress pass over multiple route seeks
+3. This slice adds a dedicated stress pilot path:
+   - debug API now exposes `runStressPilot(holdSec?)`
+   - guest-panel debug controls now expose `Run stress pilot + save diagnostics`
+   - saved report snapshots now persist a `stress` block with:
+     - `holdPerSeekSec`
+     - `seekSequenceSec`
+     - `completedSeeks`
+     - `passed`
+     - `reason`
+4. Current stress semantics in this slice:
+   - default per-seek hold is `2.5s`
+   - current scripted seek sequence is `[18, 46]`
+   - route starts playback, walks through that seek script, waits the configured hold after each seek, then settles into a terminal gate
+   - stress becomes `pass` only when:
+     - gate is `ready_for_manual_pilot`
+     - runtime remains clean
+     - the full seek sequence completes
+   - otherwise the saved report becomes `fail` with an explicit stress reason
+5. Practical debug/reporting effect:
+   - route diagnostics can now distinguish steady-state qualification from post-seek stress survival
+   - saved packets now carry a scripted seek verdict instead of requiring manual reconstruction from raw logs and timestamps
+   - route e2e now covers the direct stress API and the save-from-UI stress flow
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `40/40`
+   - `npm run build`
+7. Practical consequence after `8.152`:
+   - widened appendable rollout now has explicit stress evidence in addition to soak and qualification evidence
+   - future route hardening can build on scripted-seek verdicts instead of inventing another manual stress checklist
+   - this still does not introduce a new playback path; it only strengthens route-level verification

@@ -135,6 +135,13 @@ type AppendableRouteQualificationSnapshot = {
   passed: boolean | null
   reason: string | null
 }
+type AppendableRouteStressSnapshot = {
+  holdPerSeekSec: number | null
+  seekSequenceSec: number[]
+  completedSeeks: number
+  passed: boolean | null
+  reason: string | null
+}
 type AppendableRoutePilotReportSnapshot = {
   capturedAt: string
   trackScopeId: string
@@ -163,6 +170,7 @@ type AppendableRoutePilotReportSnapshot = {
   probe: AppendableQueueRuntimeProbeSnapshot
   sourceProgress: AppendableQueueSourceProgressSnapshot
   qualification: AppendableRouteQualificationSnapshot
+  stress: AppendableRouteStressSnapshot
 }
 type AppendableRoutePilotReport = {
   version: 1
@@ -199,6 +207,7 @@ type AppendableRoutePilotDebugApi = {
   runQuickPilot: (seekSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runSoakPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runQualificationPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
+  runStressPilot: (holdSec?: number | null) => Promise<AppendableRoutePilotDebugState>
 }
 type NavHandoffState = {
   trackScopeId: string
@@ -447,6 +456,8 @@ const APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC = 3
 const APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC = 8
 const APPENDABLE_ROUTE_QUALIFICATION_PILOT_DURATION_SEC = 6
 const APPENDABLE_ROUTE_QUALIFICATION_GRACE_SEC = 0.5
+const APPENDABLE_ROUTE_STRESS_PILOT_HOLD_SEC = 2.5
+const APPENDABLE_ROUTE_STRESS_PILOT_SEEK_SEQUENCE_SEC = [18, 46]
 const SEEK_SMOOTH_DEBOUNCE_MS = 28
 const SEEK_SMOOTH_CLOSE_RAMP_SEC = 0.008
 const SEEK_SMOOTH_OPEN_RAMP_SEC = 0.03
@@ -643,6 +654,26 @@ function cloneAppendableRouteQualificationSnapshot(
   }
 }
 
+function createAppendableRouteStressSnapshot(): AppendableRouteStressSnapshot {
+  return {
+    holdPerSeekSec: null,
+    seekSequenceSec: [],
+    completedSeeks: 0,
+    passed: null,
+    reason: null,
+  }
+}
+
+function cloneAppendableRouteStressSnapshot(snapshot: AppendableRouteStressSnapshot): AppendableRouteStressSnapshot {
+  return {
+    holdPerSeekSec: snapshot.holdPerSeekSec,
+    seekSequenceSec: snapshot.seekSequenceSec.slice(),
+    completedSeeks: snapshot.completedSeeks,
+    passed: snapshot.passed,
+    reason: snapshot.reason,
+  }
+}
+
 function withAppendableRouteQualificationSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot,
   targetSoakSec: number
@@ -670,6 +701,42 @@ function withAppendableRouteQualificationSnapshot(
     qualification: {
       targetSoakSec: safeTargetSoakSec,
       observedCleanSoakSec,
+      passed,
+      reason,
+    },
+  }
+}
+
+function withAppendableRouteStressSnapshot(
+  snapshot: AppendableRoutePilotReportSnapshot,
+  options: { holdPerSeekSec: number; seekSequenceSec: number[]; completedSeeks: number }
+): AppendableRoutePilotReportSnapshot {
+  const holdPerSeekSec = Math.max(1, Math.min(20, options.holdPerSeekSec))
+  const seekSequenceSec = options.seekSequenceSec
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.max(0, value))
+  const completedSeeks = Math.max(0, Math.min(seekSequenceSec.length, options.completedSeeks))
+  const cleanRuntime =
+    snapshot.probe.totalUnderrunFrames === 0 && snapshot.probe.totalDiscontinuityCount === 0
+  let passed = false
+  let reason: string | null = null
+
+  if (snapshot.gate.status !== "ready_for_manual_pilot") {
+    reason = `gate:${snapshot.gate.status}`
+  } else if (!cleanRuntime) {
+    reason = "runtime_not_clean"
+  } else if (completedSeeks < seekSequenceSec.length) {
+    reason = "incomplete_seek_sequence"
+  } else {
+    passed = true
+  }
+
+  return {
+    ...snapshot,
+    stress: {
+      holdPerSeekSec,
+      seekSequenceSec,
+      completedSeeks,
       passed,
       reason,
     },
@@ -712,6 +779,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
           sourceProgress: cloneAppendableQueueSourceProgressSnapshot(report.snapshot.sourceProgress),
           qualification: cloneAppendableRouteQualificationSnapshot(report.snapshot.qualification),
+          stress: cloneAppendableRouteStressSnapshot(report.snapshot.stress),
         }
       : null,
   }
@@ -828,6 +896,30 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                           : null,
                     }
                   : createAppendableRouteQualificationSnapshot(),
+              stress:
+                parsed.snapshot.stress && typeof parsed.snapshot.stress === "object"
+                  ? {
+                      holdPerSeekSec:
+                        typeof parsed.snapshot.stress.holdPerSeekSec === "number" &&
+                        Number.isFinite(parsed.snapshot.stress.holdPerSeekSec)
+                          ? parsed.snapshot.stress.holdPerSeekSec
+                          : null,
+                      seekSequenceSec: Array.isArray(parsed.snapshot.stress.seekSequenceSec)
+                        ? parsed.snapshot.stress.seekSequenceSec.filter(
+                            (value): value is number => typeof value === "number" && Number.isFinite(value)
+                          )
+                        : [],
+                      completedSeeks:
+                        typeof parsed.snapshot.stress.completedSeeks === "number" &&
+                        Number.isFinite(parsed.snapshot.stress.completedSeeks)
+                          ? parsed.snapshot.stress.completedSeeks
+                          : 0,
+                      passed:
+                        typeof parsed.snapshot.stress.passed === "boolean" ? parsed.snapshot.stress.passed : null,
+                      reason:
+                        typeof parsed.snapshot.stress.reason === "string" ? parsed.snapshot.stress.reason : null,
+                    }
+                  : createAppendableRouteStressSnapshot(),
             }
           : null,
     }
@@ -2248,6 +2340,7 @@ export default function MultiTrackPlayer({
   const [appendableRouteQuickPilotRunning, setAppendableRouteQuickPilotRunning] = useState(false)
   const [appendableRouteSoakPilotRunning, setAppendableRouteSoakPilotRunning] = useState(false)
   const [appendableRouteQualificationPilotRunning, setAppendableRouteQualificationPilotRunning] = useState(false)
+  const [appendableRouteStressPilotRunning, setAppendableRouteStressPilotRunning] = useState(false)
   const [appendableRouteQuickPilotMessage, setAppendableRouteQuickPilotMessage] = useState<string | null>(null)
   const [ringBufferPilotEnabled, setRingBufferPilotEnabled] = useState(
     () =>
@@ -3132,6 +3225,7 @@ export default function MultiTrackPlayer({
       probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
       qualification: createAppendableRouteQualificationSnapshot(),
+      stress: createAppendableRouteStressSnapshot(),
     }
   }, [
     activeEngineMode,
@@ -8136,6 +8230,95 @@ export default function MultiTrackPlayer({
     ]
   )
 
+  const runAppendableRouteStressPilot = useCallback(
+    async (
+      holdSec: number | null = APPENDABLE_ROUTE_STRESS_PILOT_HOLD_SEC,
+      options?: { downloadPacket?: boolean }
+    ) => {
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms)
+        })
+      const readState = () =>
+        (typeof window !== "undefined" ? window.__rrAppendableRoutePilotDebug?.getState() : null) ??
+        getAppendableRoutePilotDebugState()
+      const safeHoldSec =
+        typeof holdSec === "number" && Number.isFinite(holdSec)
+          ? Math.max(1, Math.min(20, holdSec))
+          : APPENDABLE_ROUTE_STRESS_PILOT_HOLD_SEC
+      const seekSequenceSec = APPENDABLE_ROUTE_STRESS_PILOT_SEEK_SEQUENCE_SEC.slice()
+      let completedSeeks = 0
+
+      setAppendableRouteStressPilotRunning(true)
+      setAppendableRouteQuickPilotMessage(
+        uiLang === "ru"
+          ? `идет stress pilot (${seekSequenceSec.length} seek / ${safeHoldSec.toFixed(1)}s)...`
+          : `stress pilot running (${seekSequenceSec.length} seeks / ${safeHoldSec.toFixed(1)}s)...`
+      )
+      try {
+        await play("route_stress_pilot")
+        await wait(2200)
+        for (const seekSec of seekSequenceSec) {
+          seekTo(seekSec)
+          completedSeeks += 1
+          await wait(safeHoldSec * 1000)
+        }
+        let finalState = readState()
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          finalState = readState()
+          if (
+            finalState.checklist.status === "ready_for_manual_pilot" ||
+            finalState.checklist.status === "blocked_by_targeting" ||
+            finalState.checklist.status === "attention_required"
+          ) {
+            break
+          }
+          await wait(250)
+        }
+        const settledSnapshot = withAppendableRouteStressSnapshot(buildAppendableRoutePilotSnapshotFromDebugState(finalState), {
+          holdPerSeekSec: safeHoldSec,
+          seekSequenceSec,
+          completedSeeks,
+        })
+        const stressPassed = settledSnapshot.stress.passed === true
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, {
+          status: stressPassed ? "pass" : "fail",
+        })
+        setAppendableRoutePilotReport(nextReport)
+        finalState = {
+          ...finalState,
+          report: cloneAppendableRoutePilotReport(nextReport),
+        }
+        if (options?.downloadPacket) {
+          downloadAppendableRoutePilotPacket(nextReport)
+        }
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru"
+            ? `stress pilot: ${stressPassed ? "pass" : "fail"} (${completedSeeks}/${seekSequenceSec.length} seek)`
+            : `stress pilot: ${stressPassed ? "pass" : "fail"} (${completedSeeks}/${seekSequenceSec.length} seeks)`
+        )
+        return finalState
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "stress_pilot_failed"
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru" ? `stress pilot error: ${message}` : `stress pilot error: ${message}`
+        )
+        throw error
+      } finally {
+        setAppendableRouteStressPilotRunning(false)
+      }
+    },
+    [
+      buildAppendableRoutePilotReportWithSnapshot,
+      buildAppendableRoutePilotSnapshotFromDebugState,
+      downloadAppendableRoutePilotPacket,
+      getAppendableRoutePilotDebugState,
+      play,
+      seekTo,
+      uiLang,
+    ]
+  )
+
   const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
     const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot, { autoStatus: true })
@@ -8164,6 +8347,12 @@ export default function MultiTrackPlayer({
       downloadPacket: true,
     })
   }, [runAppendableRouteQualificationPilot])
+
+  const saveAppendableRouteStressPilotDiagnostics = useCallback(async () => {
+    await runAppendableRouteStressPilot(APPENDABLE_ROUTE_STRESS_PILOT_HOLD_SEC, {
+      downloadPacket: true,
+    })
+  }, [runAppendableRouteStressPilot])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -8197,6 +8386,7 @@ export default function MultiTrackPlayer({
       runQuickPilot: (seekSec?: number | null) => runAppendableRouteQuickPilot(seekSec ?? null),
       runSoakPilot: (durationSec?: number | null) => runAppendableRouteSoakPilot(durationSec ?? null),
       runQualificationPilot: (durationSec?: number | null) => runAppendableRouteQualificationPilot(durationSec ?? null),
+      runStressPilot: (holdSec?: number | null) => runAppendableRouteStressPilot(holdSec ?? null),
     }
     return () => {
       window.__rrAppendableRoutePilotDebug = undefined
@@ -8210,6 +8400,7 @@ export default function MultiTrackPlayer({
     pause,
     play,
     runAppendableRouteQualificationPilot,
+    runAppendableRouteStressPilot,
     resetAppendableRoutePilotReport,
     runAppendableRouteQuickPilot,
     runAppendableRouteSoakPilot,
@@ -11260,6 +11451,20 @@ export default function MultiTrackPlayer({
                                   : ""}
                               </div>
                               <div>
+                                stress: {appendableRoutePilotReport.snapshot.stress.passed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.stress.passed
+                                    ? "pass"
+                                    : "fail"}{" "}
+                                / seeks=
+                                {appendableRoutePilotReport.snapshot.stress.completedSeeks}/
+                                {appendableRoutePilotReport.snapshot.stress.seekSequenceSec.length} / hold=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.stress.holdPerSeekSec)}
+                                {appendableRoutePilotReport.snapshot.stress.reason
+                                  ? ` (${appendableRoutePilotReport.snapshot.stress.reason})`
+                                  : ""}
+                              </div>
+                              <div>
                                 transport: data={appendableRoutePilotReport.snapshot.probe.dataPlaneMode ?? "—"} / control=
                                 {appendableRoutePilotReport.snapshot.probe.controlPlaneMode ?? "—"} / rates=
                                 {appendableRoutePilotReport.snapshot.probe.sampleRates.length
@@ -11351,6 +11556,23 @@ export default function MultiTrackPlayer({
                                 : uiLang === "ru"
                                   ? "Запустить qualification pilot + сохранить"
                                   : "Run qualification pilot + save diagnostics"}
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-debug-run-stress-pilot-save"
+                              disabled={appendableRouteStressPilotRunning}
+                              onClick={() => {
+                                void saveAppendableRouteStressPilotDiagnostics()
+                              }}
+                              className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-100 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {appendableRouteStressPilotRunning
+                                ? uiLang === "ru"
+                                  ? "идет stress pilot..."
+                                  : "stress pilot running..."
+                                : uiLang === "ru"
+                                  ? "Запустить stress pilot + сохранить"
+                                  : "Run stress pilot + save diagnostics"}
                             </button>
                             <button
                               type="button"
