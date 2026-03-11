@@ -3684,3 +3684,29 @@ Comment for the next window:
    - не переоткрывать old audio R&D,
    - а либо смержить `PR #7`,
    - либо после merge уже расширять allowlist rollout controlled way.
+
+## 9.86 Update 2026-03-11: Scoped activation targeting is already merged into `develop`
+Фактический апдейт после `9.85`:
+1. `PR #7` уже смержен, а не просто green:
+   - merged at: `2026-03-11 07:55:17Z`
+   - merge commit: `eb4fd77`
+2. Текущий `develop` теперь содержит обе forward-path фазы:
+   - `8ee9920` `p1: transplant appendable queue pilot stack (#6)`
+   - `eb4fd77` `p1: add scoped appendable activation targeting (#7)`
+
+Что это значит practically:
+1. Этап `appendable extraction + activation targeting` завершен.
+2. В active work больше не входят:
+   - merge этих PR
+   - CI stabilization для этих двух slices
+   - возврат к `soundCatalog.ts` или old splice runtime
+3. Открытый инженерный вопрос теперь уже следующий:
+   - как добивать production phase после merged appendable path:
+     - tempo/pitch parity
+     - progressive fetch/decode
+     - controlled rollout widening criteria
+
+Рабочий вывод после `9.86`:
+1. По теме “новый принцип буферизации” текущая merge-стадия завершена.
+2. Следующая meaningful работа должна начинаться уже от `develop`, а не от старых feature-веток.
+3. Полезный внешний input теперь нужен только для next-phase architecture judgment, не для предыдущих appendable merge decisions.

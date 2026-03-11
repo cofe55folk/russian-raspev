@@ -1999,3 +1999,21 @@ Suggested opening prompt for the next window:
    - appendable queue is merged into `develop`
    - scoped activation targeting is now separately reviewable
    - if no new CI regression appears, the next move should be merge of `PR #7`, not another return to splice/runtime R&D
+
+## 8.138 Both appendable phases are now merged into `develop`
+1. `PR #7` is no longer pending:
+   - merged at: `2026-03-11 07:55:17Z`
+   - merge commit: `eb4fd77`
+   - title: `p1: add scoped appendable activation targeting (#7)`
+2. Current `develop` now already contains:
+   - appendable queue pilot stack from `#6`
+   - scoped activation targeting from `#7`
+3. This changes the stage boundary:
+   - merge/CI for appendable activation is no longer the active task
+   - the active open question is the next production-phase decision after scoped rollout control
+4. Practical next step for the next window:
+   - do not reopen splice, ringbuffer tuning, PR extraction, or CI triage
+   - use the next external review only to judge the next phase:
+     - tempo/pitch parity
+     - progressive fetch/decode
+     - wider rollout criteria
