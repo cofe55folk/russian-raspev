@@ -118,8 +118,30 @@ test("multistem appendable pilot runs on the normal player route when both flags
 
   await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
   await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable data plane: postmessage_pcm")
+  await waitForPlayerText(page, "appendable control plane: message_port")
   await waitForPlayerText(page, "appendable total underrun: 0")
   await waitForPlayerText(page, "appendable total discontinuity: 0")
+  const runtimeProbe = await page.evaluate(() => {
+    return (
+      (window as Window & {
+        __rrAppendableRoutePilotDebug?: {
+          getState: () => {
+            runtimeProbe: {
+              dataPlaneMode: string | null
+              controlPlaneMode: string | null
+              sampleRates: number[]
+              appendMessageCount: number
+            }
+          }
+        }
+      }).__rrAppendableRoutePilotDebug?.getState().runtimeProbe ?? null
+    )
+  })
+  expect(runtimeProbe?.dataPlaneMode).toBe("postmessage_pcm")
+  expect(runtimeProbe?.controlPlaneMode).toBe("message_port")
+  expect(runtimeProbe?.sampleRates.length ?? 0).toBeGreaterThan(0)
+  expect(runtimeProbe?.appendMessageCount ?? 0).toBeGreaterThan(0)
   await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("готов к ручному pilot")
   await page.getByTestId("appendable-route-pilot-report-capture").click()
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")

@@ -49,6 +49,11 @@ type AppendableQueueLabSnapshot = {
   ready: boolean
   playing: boolean
   tempo: number
+  dataPlaneMode: string | null
+  controlPlaneMode: string | null
+  sampleRates: number[]
+  totalAppendMessages: number
+  totalAppendedBytes: number
   trackLabel: string
   stemCount: number
   transportSec: number
@@ -241,6 +246,11 @@ function createUnavailableSnapshot(error: string | null = null): AppendableQueue
     ready: false,
     playing: false,
     tempo: 1,
+    dataPlaneMode: null,
+    controlPlaneMode: null,
+    sampleRates: [],
+    totalAppendMessages: 0,
+    totalAppendedBytes: 0,
     trackLabel: "loading...",
     stemCount: 0,
     transportSec: 0,
@@ -476,6 +486,11 @@ export default function AppendableQueueLabPage() {
       ready: true,
       playing: coordinatorSnapshot.playing,
       tempo: coordinatorSnapshot.tempo,
+      dataPlaneMode: coordinatorSnapshot.dataPlaneMode,
+      controlPlaneMode: coordinatorSnapshot.controlPlaneMode,
+      sampleRates: coordinatorSnapshot.sampleRates,
+      totalAppendMessages: coordinatorSnapshot.totalAppendMessages,
+      totalAppendedBytes: coordinatorSnapshot.totalAppendedBytes,
       trackLabel: harness.trackLabel,
       stemCount: coordinatorSnapshot.stemCount,
       transportSec: coordinatorSnapshot.transportSec,
@@ -1056,6 +1071,11 @@ export default function AppendableQueueLabPage() {
               ready: true,
               playing: coordinatorSnapshot.playing,
               tempo: coordinatorSnapshot.tempo,
+              dataPlaneMode: coordinatorSnapshot.dataPlaneMode,
+              controlPlaneMode: coordinatorSnapshot.controlPlaneMode,
+              sampleRates: coordinatorSnapshot.sampleRates,
+              totalAppendMessages: coordinatorSnapshot.totalAppendMessages,
+              totalAppendedBytes: coordinatorSnapshot.totalAppendedBytes,
               trackLabel: current.trackLabel,
               stemCount: coordinatorSnapshot.stemCount,
               transportSec: coordinatorSnapshot.transportSec,
@@ -1132,6 +1152,11 @@ export default function AppendableQueueLabPage() {
       ["context", snapshot.contextState],
       ["playing", snapshot.playing ? "yes" : "no"],
       ["tempo", formatNumber(snapshot.tempo)],
+      ["dataPlane", snapshot.dataPlaneMode ?? "-"],
+      ["controlPlane", snapshot.controlPlaneMode ?? "-"],
+      ["sampleRates", snapshot.sampleRates.length ? snapshot.sampleRates.join(", ") : "-"],
+      ["appendMessages", String(snapshot.totalAppendMessages)],
+      ["appendedMiB", formatNumber(snapshot.totalAppendedBytes / (1024 * 1024), 3)],
       ["track", snapshot.trackLabel],
       ["stems", String(snapshot.stemCount)],
       ["harnessInstanceId", snapshot.harnessInstanceId == null ? "-" : String(snapshot.harnessInstanceId)],
@@ -1870,6 +1895,24 @@ export default function AppendableQueueLabPage() {
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-[#9fb4ca]">leadSec</span>
                       <span className="font-mono text-[#edf1f6]">{formatNumber(stem.stats?.bufferLeadSec)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[#9fb4ca]">dataPlane</span>
+                      <span className="font-mono text-[#edf1f6]">{stem.stats?.dataPlaneMode ?? "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[#9fb4ca]">sampleRate</span>
+                      <span className="font-mono text-[#edf1f6]">{stem.stats?.sampleRate ?? "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[#9fb4ca]">appendMessages</span>
+                      <span className="font-mono text-[#edf1f6]">{stem.stats?.appendMessageCount ?? "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[#9fb4ca]">appendedMiB</span>
+                      <span className="font-mono text-[#edf1f6]">
+                        {stem.stats ? formatNumber(stem.stats.appendedBytes / (1024 * 1024), 3) : "-"}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-[#9fb4ca]">underrunFrames</span>

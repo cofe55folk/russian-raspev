@@ -1,7 +1,11 @@
 "use client"
 
 import { createAppendableTransportClock, type AppendableTransportClock } from "./appendableTransportClock"
-import type { AppendableQueueDebugStats } from "./appendableQueueEngine"
+import type {
+  AppendableQueueControlPlaneMode,
+  AppendableQueueDataPlaneMode,
+  AppendableQueueDebugStats,
+} from "./appendableQueueEngine"
 import type { SoundTouchEngine } from "./soundtouchEngine"
 
 export type AppendableQueueCoordinatorStem = {
@@ -35,6 +39,11 @@ export type AppendableQueueCoordinatorStemSnapshot = {
 export type AppendableQueueCoordinatorSnapshot = {
   playing: boolean
   tempo: number
+  dataPlaneMode: string | null
+  controlPlaneMode: string | null
+  sampleRates: number[]
+  totalAppendMessages: number
+  totalAppendedBytes: number
   transportSec: number
   durationSec: number
   stemCount: number
@@ -103,6 +112,14 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
   }
   return {
     availableFrames,
+    sampleRate: toFiniteNumber(stats.sampleRate, 0),
+    channelCount: toFiniteNumber(stats.channelCount, 0),
+    dataPlaneMode:
+      typeof stats.dataPlaneMode === "string" ? (stats.dataPlaneMode as AppendableQueueDataPlaneMode) : "postmessage_pcm",
+    controlPlaneMode:
+      typeof stats.controlPlaneMode === "string"
+        ? (stats.controlPlaneMode as AppendableQueueControlPlaneMode)
+        : "message_port",
     minAvailableFrames: toFiniteNumber(stats.minAvailableFrames, availableFrames),
     maxAvailableFrames: toFiniteNumber(stats.maxAvailableFrames, availableFrames),
     underrunFrames,
@@ -112,7 +129,10 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
     discontinuityCount,
     generation: toFiniteNumber(stats.generation, 0),
     appendCount,
+    appendMessageCount: toFiniteNumber(stats.appendMessageCount, appendCount),
     appendedFrames,
+    appendedSec: toFiniteNumber(stats.appendedSec, 0),
+    appendedBytes: toFiniteNumber(stats.appendedBytes, 0),
     bufferLeadFrames,
     bufferLeadSec,
     targetLeadFrames: toFiniteNumber(stats.targetLeadFrames, 0),
@@ -283,9 +303,53 @@ export function createAppendableQueueMultitrackCoordinator(
         if (stem.stats) return stem.stats.bufferLeadSec
         return Math.max(0, stem.sourceBufferedUntilSec - transport.currentSec)
       })
+      const dataPlaneModes = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.dataPlaneMode)
+            .filter(
+              (value): value is AppendableQueueDataPlaneMode => typeof value === "string" && value.length > 0
+            )
+        )
+      )
+      const controlPlaneModes = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.controlPlaneMode)
+            .filter(
+              (value): value is AppendableQueueControlPlaneMode => typeof value === "string" && value.length > 0
+            )
+        )
+      )
+      const sampleRates = Array.from(
+        new Set(
+          stemSnapshots
+            .map((stem) => stem.stats?.sampleRate)
+            .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0)
+        )
+      ).sort((a, b) => a - b)
+      const totalAppendMessages = stemSnapshots.reduce(
+        (sum, stem) => sum + (typeof stem.stats?.appendMessageCount === "number" ? stem.stats.appendMessageCount : 0),
+        0
+      )
+      const totalAppendedBytes = stemSnapshots.reduce(
+        (sum, stem) => sum + (typeof stem.stats?.appendedBytes === "number" ? stem.stats.appendedBytes : 0),
+        0
+      )
       return {
         playing,
         tempo: Number(tempo.toFixed(3)),
+        dataPlaneMode:
+          dataPlaneModes.length === 1 ? (dataPlaneModes[0] ?? null) : dataPlaneModes.length ? dataPlaneModes.join(",") : null,
+        controlPlaneMode:
+          controlPlaneModes.length === 1
+            ? (controlPlaneModes[0] ?? null)
+            : controlPlaneModes.length
+              ? controlPlaneModes.join(",")
+              : null,
+        sampleRates,
+        totalAppendMessages,
+        totalAppendedBytes,
         transportSec: Number(transport.currentSec.toFixed(3)),
         durationSec: Number(durationSec.toFixed(3)),
         stemCount: stemSnapshots.length,

@@ -72,6 +72,11 @@ type AppendableQueueRuntimeProbeSnapshot = {
   sampleAtMs: number | null
   currentSec: number | null
   transportSec: number | null
+  dataPlaneMode: string | null
+  controlPlaneMode: string | null
+  sampleRates: number[]
+  appendMessageCount: number
+  appendedMiB: number | null
   stemDriftSec: number | null
   transportDriftSec: number | null
   minLeadSec: number | null
@@ -372,6 +377,11 @@ function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProb
     sampleAtMs: null,
     currentSec: null,
     transportSec: null,
+    dataPlaneMode: null,
+    controlPlaneMode: null,
+    sampleRates: [],
+    appendMessageCount: 0,
+    appendedMiB: null,
     stemDriftSec: null,
     transportDriftSec: null,
     minLeadSec: null,
@@ -390,6 +400,11 @@ function cloneAppendableQueueRuntimeProbeSnapshot(
     sampleAtMs: snapshot.sampleAtMs,
     currentSec: snapshot.currentSec,
     transportSec: snapshot.transportSec,
+    dataPlaneMode: snapshot.dataPlaneMode,
+    controlPlaneMode: snapshot.controlPlaneMode,
+    sampleRates: snapshot.sampleRates.slice(),
+    appendMessageCount: snapshot.appendMessageCount,
+    appendedMiB: snapshot.appendedMiB,
     stemDriftSec: snapshot.stemDriftSec,
     transportDriftSec: snapshot.transportDriftSec,
     minLeadSec: snapshot.minLeadSec,
@@ -5904,6 +5919,36 @@ export default function MultiTrackPlayer({
           return debugState && typeof debugState === "object" ? debugState : null
         })
         .filter((value): value is Record<string, number | string | null | undefined> => !!value)
+      const dataPlaneModes = Array.from(
+        new Set(
+          debugStates
+            .map((state) => state.dataPlaneMode)
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+        )
+      )
+      const controlPlaneModes = Array.from(
+        new Set(
+          debugStates
+            .map((state) => state.controlPlaneMode)
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+        )
+      )
+      const sampleRates = Array.from(
+        new Set(
+          debugStates
+            .map((state) => state.sampleRate)
+            .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0)
+        )
+      ).sort((a, b) => a - b)
+      const appendMessageCount = debugStates.reduce(
+        (sum, state) =>
+          sum + (typeof state.appendMessageCount === "number" ? state.appendMessageCount : typeof state.appendCount === "number" ? state.appendCount : 0),
+        0
+      )
+      const appendedBytes = debugStates.reduce(
+        (sum, state) => sum + (typeof state.appendedBytes === "number" ? state.appendedBytes : 0),
+        0
+      )
       const minLeadSec = snapshot.sync.minLeadSec
       const nowMs = readAudioPerfNowMs()
       const lastLogAtMs = appendableQueueRuntimeProbeLastLogAtMsRef.current
@@ -5918,6 +5963,13 @@ export default function MultiTrackPlayer({
         sampleAtMs: nowMs,
         currentSec: Number(positionSecRef.current.toFixed(3)),
         transportSec: snapshot.transportSec,
+        dataPlaneMode:
+          dataPlaneModes.length === 1 ? dataPlaneModes[0] : dataPlaneModes.length ? dataPlaneModes.join(",") : null,
+        controlPlaneMode:
+          controlPlaneModes.length === 1 ? controlPlaneModes[0] : controlPlaneModes.length ? controlPlaneModes.join(",") : null,
+        sampleRates,
+        appendMessageCount,
+        appendedMiB: Number((appendedBytes / (1024 * 1024)).toFixed(3)),
         stemDriftSec: snapshot.sync.stemDriftSec,
         transportDriftSec: snapshot.sync.transportDriftSec,
         minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
@@ -5934,6 +5986,11 @@ export default function MultiTrackPlayer({
           transportSec: snapshot.transportSec,
           stemDriftSec: snapshot.sync.stemDriftSec,
           transportDriftSec: snapshot.sync.transportDriftSec,
+          dataPlaneMode: dataPlaneModes.length === 1 ? dataPlaneModes[0] : dataPlaneModes,
+          controlPlaneMode: controlPlaneModes.length === 1 ? controlPlaneModes[0] : controlPlaneModes,
+          sampleRates,
+          appendMessageCount,
+          appendedMiB: Number((appendedBytes / (1024 * 1024)).toFixed(3)),
           minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
           maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
           dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
@@ -9745,6 +9802,24 @@ export default function MultiTrackPlayer({
                             appendable queue probe: {appendableQueueRuntimeProbeSnapshot.active ? "active" : "idle"}
                           </div>
                           <div>
+                            appendable data plane: {appendableQueueRuntimeProbeSnapshot.dataPlaneMode ?? "—"}
+                          </div>
+                          <div>
+                            appendable control plane: {appendableQueueRuntimeProbeSnapshot.controlPlaneMode ?? "—"}
+                          </div>
+                          <div>
+                            appendable sample rates:{" "}
+                            {appendableQueueRuntimeProbeSnapshot.sampleRates.length
+                              ? appendableQueueRuntimeProbeSnapshot.sampleRates.join(", ")
+                              : "—"}
+                          </div>
+                          <div>
+                            appendable append messages: {appendableQueueRuntimeProbeSnapshot.appendMessageCount}
+                          </div>
+                          <div>
+                            appendable appended MiB: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.appendedMiB, 3)}
+                          </div>
+                          <div>
                             appendable min lead sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.minLeadSec)}
                           </div>
                           <div>
@@ -9972,6 +10047,13 @@ export default function MultiTrackPlayer({
                                 probe: {appendableRoutePilotReport.snapshot.probe.active ? "active" : "idle"} / underrun=
                                 {appendableRoutePilotReport.snapshot.probe.totalUnderrunFrames} / discontinuity=
                                 {appendableRoutePilotReport.snapshot.probe.totalDiscontinuityCount}
+                              </div>
+                              <div>
+                                transport: data={appendableRoutePilotReport.snapshot.probe.dataPlaneMode ?? "—"} / control=
+                                {appendableRoutePilotReport.snapshot.probe.controlPlaneMode ?? "—"} / rates=
+                                {appendableRoutePilotReport.snapshot.probe.sampleRates.length
+                                  ? appendableRoutePilotReport.snapshot.probe.sampleRates.join(", ")
+                                  : "—"}
                               </div>
                             </div>
                           ) : null}

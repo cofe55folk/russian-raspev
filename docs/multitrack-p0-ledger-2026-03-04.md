@@ -3802,3 +3802,43 @@ Comment for the next window:
    - merge tempo slice в `develop`
    - controlled rollout widening only for safe `1.0x` / no-pitch modes
    - потом `startup head PCM as first queued data`
+
+## 9.89 Appendable `postMessage PCM` transport is now treated as an explicit phase-one limitation
+
+Что добавлено:
+1. Зафиксирован новый practical constraint после follow-up external review:
+   - текущий appendable runtime всё ещё подаёт PCM в worklet через `postMessage`
+   - это допустимо для pilot / phase-one bridge
+   - но это не должно молча считаться финальным broad-rollout data plane
+2. Реализован отдельный qualification slice:
+   - engine debug state теперь явно отдаёт:
+     - `dataPlaneMode = postmessage_pcm`
+     - `controlPlaneMode = message_port`
+     - `sampleRate`
+     - append message count
+     - appended PCM bytes
+   - coordinator агрегирует эти поля по stem’ам
+   - route diagnostics и appendable lab теперь показывают их напрямую
+3. Смысл этого шага:
+   - не менять transport architecture прямо сейчас
+   - а сделать её текущее ограничение явным и наблюдаемым
+   - чтобы следующий rollout шаг опирался на telemetry, а не на скрытые предположения
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium — `7/7`
+3. `appendable-queue-lab.spec.ts` Chromium — `8/8`
+4. `appendable-queue-player-pilot.spec.ts` WebKit — `7/7`
+5. `appendable-queue-lab.spec.ts` WebKit — `8/8`
+
+Что это меняет в плане:
+1. Wider rollout теперь должен смотреть не только на seam/underrun, но и на:
+   - transport mode
+   - sample-rate matrix
+   - append traffic volume
+2. Следующий ingest step не надо вести в сторону:
+   - partial `decodeAudioData()` windows
+   - MSE/media-element hybrid
+3. После safe rollout widening правильный latency path остаётся таким:
+   - independently decodable continuation chunks first
+   - optional `WebCodecs` / optional `SharedArrayBuffer` later
