@@ -3842,3 +3842,37 @@ Comment for the next window:
 3. После safe rollout widening правильный latency path остаётся таким:
    - independently decodable continuation chunks first
    - optional `WebCodecs` / optional `SharedArrayBuffer` later
+
+## 9.90 Safe rollout widening separated from targeted pilot
+
+Что сделано:
+1. После merge `PR #12` реализован следующий rollout-control slice, а не новый runtime-R&D:
+   - appendable activation теперь различает:
+     - `targeted_pilot`
+     - `safe_rollout`
+2. Новая practical semantics:
+   - `rr_audio_appendable_queue_activation_targets`
+     - остаётся engineer/pilot allowlist
+     - tempo там по-прежнему доступен
+   - `rr_audio_appendable_queue_safe_rollout_targets`
+     - это уже widened route cohort
+     - но с intentionally locked `tempo=1.0` и выключенным pitch
+3. Политика приоритетов:
+   - если route одновременно попадает в обе конфигурации, выигрывает `targeted_pilot`
+   - safe rollout не должен снижать возможности узкого pilot path
+4. Route/UI behavior после этого шага:
+   - appendable route diagnostics теперь показывают:
+     - activation mode
+     - tempo policy (`unlocked` / `locked`)
+   - в `safe_rollout` speed slider intentionally disabled
+   - при входе в safe rollout локальный tempo/pitch state принудительно возвращается к `1.0 / 0`
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium — `8/8`
+3. `appendable-queue-player-pilot.spec.ts` WebKit — `8/8`
+
+Итог после `9.90`:
+1. Wider rollout больше не равен “тот же pilot, но на большем количестве route targets”.
+2. Теперь есть отдельный safe-rollout tier, который расширяет appendable exposure без расширения feature surface.
+3. После merge этого slice можно уже controlled way расширять allowlist именно через `safe_rollout`, а не через pilot-target wildcard.

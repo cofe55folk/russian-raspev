@@ -4,7 +4,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import Link from "next/link"
 import { createAppendableQueueEngine, createAudioBufferAppendableSource } from "./audio/appendableQueueEngine"
 import { createAppendableQueueMultitrackCoordinator, type AppendableQueueMultitrackCoordinator } from "./audio/appendableQueueMultitrackCoordinator"
-import { resolveClientAppendablePilotActivation } from "./audio/appendablePilotActivation"
+import {
+  resolveClientAppendablePilotActivation,
+  type AppendablePilotActivationState,
+} from "./audio/appendablePilotActivation"
 import { resolveAudioPilotRouting, type AudioPilotEngineMode } from "./audio/audioPilotRouting"
 import { createSoundTouchEngine, type AudioEngineCapabilities, type SoundTouchEngine } from "./audio/soundtouchEngine"
 import { createMediaStreamingEngine } from "./audio/mediaStreamingEngine"
@@ -97,9 +100,13 @@ type AppendableRoutePilotReportSnapshot = {
   activation: {
     configured: boolean
     allowed: boolean
+    mode: "unscoped" | "targeted_pilot" | "safe_rollout"
+    tempoControlUnlocked: boolean
     matchedTarget: string | null
     currentTargets: string[]
     configuredTargets: string[]
+    targetedPilotConfiguredTargets: string[]
+    safeRolloutConfiguredTargets: string[]
   }
   probe: AppendableQueueRuntimeProbeSnapshot
 }
@@ -443,9 +450,13 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           activation: {
             configured: report.snapshot.activation.configured,
             allowed: report.snapshot.activation.allowed,
+            mode: report.snapshot.activation.mode,
+            tempoControlUnlocked: report.snapshot.activation.tempoControlUnlocked,
             matchedTarget: report.snapshot.activation.matchedTarget,
             currentTargets: report.snapshot.activation.currentTargets.slice(),
             configuredTargets: report.snapshot.activation.configuredTargets.slice(),
+            targetedPilotConfiguredTargets: report.snapshot.activation.targetedPilotConfiguredTargets.slice(),
+            safeRolloutConfiguredTargets: report.snapshot.activation.safeRolloutConfiguredTargets.slice(),
           },
           probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
         }
@@ -484,6 +495,15 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
               activation: {
                 configured: !!parsed.snapshot.activation?.configured,
                 allowed: parsed.snapshot.activation?.allowed == null ? true : !!parsed.snapshot.activation?.allowed,
+                mode:
+                  parsed.snapshot.activation?.mode === "targeted_pilot" ||
+                  parsed.snapshot.activation?.mode === "safe_rollout"
+                    ? parsed.snapshot.activation.mode
+                    : "unscoped",
+                tempoControlUnlocked:
+                  parsed.snapshot.activation?.tempoControlUnlocked == null
+                    ? true
+                    : !!parsed.snapshot.activation?.tempoControlUnlocked,
                 matchedTarget:
                   typeof parsed.snapshot.activation?.matchedTarget === "string"
                     ? parsed.snapshot.activation.matchedTarget
@@ -495,6 +515,16 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                   : [],
                 configuredTargets: Array.isArray(parsed.snapshot.activation?.configuredTargets)
                   ? parsed.snapshot.activation.configuredTargets.filter(
+                      (target): target is string => typeof target === "string" && target.trim().length > 0
+                    )
+                  : [],
+                targetedPilotConfiguredTargets: Array.isArray(parsed.snapshot.activation?.targetedPilotConfiguredTargets)
+                  ? parsed.snapshot.activation.targetedPilotConfiguredTargets.filter(
+                      (target): target is string => typeof target === "string" && target.trim().length > 0
+                    )
+                  : [],
+                safeRolloutConfiguredTargets: Array.isArray(parsed.snapshot.activation?.safeRolloutConfiguredTargets)
+                  ? parsed.snapshot.activation.safeRolloutConfiguredTargets.filter(
                       (target): target is string => typeof target === "string" && target.trim().length > 0
                     )
                   : [],
@@ -914,6 +944,18 @@ function getEngineModeCapabilities(mode: EngineMode): AudioEngineCapabilities {
         supportsTempo: true,
         supportsIndependentPitch: true,
       }
+  }
+}
+
+function applyAppendableActivationPolicyToCapabilities(
+  mode: EngineMode,
+  capabilities: AudioEngineCapabilities,
+  activation: AppendablePilotActivationState
+): AudioEngineCapabilities {
+  if (mode !== "appendable_queue_worklet") return capabilities
+  return {
+    supportsTempo: capabilities.supportsTempo && activation.tempoControlUnlocked,
+    supportsIndependentPitch: capabilities.supportsIndependentPitch,
   }
 }
 
@@ -1888,7 +1930,11 @@ export default function MultiTrackPlayer({
   )
   const [activeEngineMode, setActiveEngineMode] = useState<EngineMode>(() => initialAudioPilotRouting.engineMode)
   const [activeEngineCapabilities, setActiveEngineCapabilities] = useState<AudioEngineCapabilities>(() =>
-    getEngineModeCapabilities(initialAudioPilotRouting.engineMode)
+    applyAppendableActivationPolicyToCapabilities(
+      initialAudioPilotRouting.engineMode,
+      getEngineModeCapabilities(initialAudioPilotRouting.engineMode),
+      initialAppendablePilotActivation
+    )
   )
   const [recordingEngineV2Enabled, setRecordingEngineV2Enabled] = useState(false)
   const [recordingMode, setRecordingMode] = useState<RecordingMode>("compatibility")
@@ -2605,6 +2651,20 @@ export default function MultiTrackPlayer({
               "2. Keep `appendable queue` and `appendable multistem` enabled.",
               "3. Reload the `/sound/...` route and confirm `audio mode = appendable_queue_worklet`.",
             ]
+        : appendablePilotActivation.activationMode === "safe_rollout"
+        ? uiLang === "ru"
+          ? [
+              "1. Safe rollout path держит tempo locked на `1.0` и pitch выключенным.",
+              "2. Нажми `Воспроизвести` на обычном `/sound/...` route.",
+              "3. Проверь, что `audio mode = appendable_queue_worklet` и `tempo: off / pitch: off`.",
+              "4. Убедись, что runtime probe active и underrun/discontinuity = 0.",
+            ]
+          : [
+              "1. The safe rollout path keeps tempo locked at `1.0` and pitch disabled.",
+              "2. Press `Play` on the normal `/sound/...` route.",
+              "3. Confirm `audio mode = appendable_queue_worklet` and `tempo: off / pitch: off`.",
+              "4. Verify the runtime probe is active and underrun/discontinuity remain 0.",
+            ]
         : uiLang === "ru"
         ? [
             "1. Включи `appendable queue` и `appendable multistem` flags.",
@@ -2628,6 +2688,7 @@ export default function MultiTrackPlayer({
     activeEngineMode,
     appendablePilotActivation.activationAllowed,
     appendablePilotActivation.activationConfigured,
+    appendablePilotActivation.activationMode,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     ringBufferPilotEnabled,
@@ -2667,9 +2728,13 @@ export default function MultiTrackPlayer({
       activation: {
         configured: appendablePilotActivation.activationConfigured,
         allowed: appendablePilotActivation.activationAllowed,
+        mode: appendablePilotActivation.activationMode,
+        tempoControlUnlocked: appendablePilotActivation.tempoControlUnlocked,
         matchedTarget: appendablePilotActivation.matchedTarget,
         currentTargets: appendablePilotActivation.currentTargets.slice(),
         configuredTargets: appendablePilotActivation.configuredTargets.slice(),
+        targetedPilotConfiguredTargets: appendablePilotActivation.targetedPilotConfiguredTargets.slice(),
+        safeRolloutConfiguredTargets: appendablePilotActivation.safeRolloutConfiguredTargets.slice(),
       },
       probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
     }
@@ -2677,9 +2742,13 @@ export default function MultiTrackPlayer({
     activeEngineMode,
     appendablePilotActivation.activationAllowed,
     appendablePilotActivation.activationConfigured,
+    appendablePilotActivation.activationMode,
     appendablePilotActivation.configuredTargets,
     appendablePilotActivation.currentTargets,
     appendablePilotActivation.matchedTarget,
+    appendablePilotActivation.safeRolloutConfiguredTargets,
+    appendablePilotActivation.targetedPilotConfiguredTargets,
+    appendablePilotActivation.tempoControlUnlocked,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     appendableQueueRuntimeProbeSnapshot,
@@ -3600,10 +3669,18 @@ export default function MultiTrackPlayer({
       appendableActivationAllowed: appendablePilotActivation.activationAllowed,
     })
     setActiveEngineMode(nextRouting.engineMode)
-    setActiveEngineCapabilities(getEngineModeCapabilities(nextRouting.engineMode))
+    setActiveEngineCapabilities(
+      applyAppendableActivationPolicyToCapabilities(
+        nextRouting.engineMode,
+        getEngineModeCapabilities(nextRouting.engineMode),
+        appendablePilotActivation
+      )
+    )
   }, [
     appendablePilotActivation.activationAllowed,
     appendablePilotActivation.activationConfigured,
+    appendablePilotActivation.activationMode,
+    appendablePilotActivation.tempoControlUnlocked,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     isReady,
@@ -4606,7 +4683,9 @@ export default function MultiTrackPlayer({
       setIsReady(true)
       readyRef.current = true
       setActiveEngineMode(engineMode)
-      setActiveEngineCapabilities(aggregateCapabilities)
+      setActiveEngineCapabilities(
+        applyAppendableActivationPolicyToCapabilities(engineMode, aggregateCapabilities, appendablePilotActivation)
+      )
       logAudioDebug("audio:init_graph", {
         engines: useStreamingPilot ? trackList.length : buffers.length,
         mode: engineMode,
@@ -4614,6 +4693,8 @@ export default function MultiTrackPlayer({
         startupChunkSplicePilotEnabled: useStartupChunkSplicePilot,
         startupChunkSplicePilotKey: startupChunkSplicePilotKey || null,
         appendableQueuePilotEnabled,
+        appendableActivationMode: appendablePilotActivation.activationMode,
+        appendableTempoUnlocked: appendablePilotActivation.tempoControlUnlocked,
         ringBufferPilotEnabled,
         streamingBufferPilotEnabled,
         soundtouchBufferSize,
@@ -4878,6 +4959,8 @@ export default function MultiTrackPlayer({
   }, [
     appendablePilotActivation.activationAllowed,
     appendablePilotActivation.activationConfigured,
+    appendablePilotActivation.activationMode,
+    appendablePilotActivation.tempoControlUnlocked,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     disposeTrackAudioGraph,
@@ -5367,6 +5450,23 @@ export default function MultiTrackPlayer({
     stopEnginesHard,
     trackList,
     trackScopeId,
+  ])
+
+  useEffect(() => {
+    if (activeEngineMode !== "appendable_queue_worklet") return
+    if (appendablePilotActivation.activationMode !== "safe_rollout") return
+    if (tempoRef.current === DEFAULT_SPEED && pitchSemiRef.current === DEFAULT_PITCH_SEMITONES) return
+    setSpeed(DEFAULT_SPEED)
+    tempoRef.current = DEFAULT_SPEED
+    setPitchSemi(DEFAULT_PITCH_SEMITONES)
+    pitchSemiRef.current = DEFAULT_PITCH_SEMITONES
+    cancelTempoPitchSmoothing()
+    applyTempoPitchToEngines(DEFAULT_SPEED, DEFAULT_PITCH_SEMITONES)
+  }, [
+    activeEngineMode,
+    appendablePilotActivation.activationMode,
+    applyTempoPitchToEngines,
+    cancelTempoPitchSmoothing,
   ])
 
   /** =========================
@@ -9793,7 +9893,13 @@ export default function MultiTrackPlayer({
                             appendable activation scoped: {appendablePilotActivation.activationConfigured ? "on" : "off"}
                           </div>
                           <div>
+                            appendable activation mode: {appendablePilotActivation.activationMode}
+                          </div>
+                          <div>
                             appendable activation allowed: {appendablePilotActivation.activationAllowed ? "on" : "off"}
+                          </div>
+                          <div>
+                            appendable tempo policy: {appendablePilotActivation.tempoControlUnlocked ? "unlocked" : "locked"}
                           </div>
                           <div>
                             appendable activation match: {appendablePilotActivation.matchedTarget ?? "—"}
@@ -10042,6 +10148,11 @@ export default function MultiTrackPlayer({
                               <div>
                                 flags: appendable={appendableRoutePilotReport.snapshot.flags.appendableQueuePilotEnabled ? "on" : "off"} / multistem=
                                 {appendableRoutePilotReport.snapshot.flags.appendableQueueMultistemPilotEnabled ? "on" : "off"}
+                              </div>
+                              <div>
+                                activation: mode={appendableRoutePilotReport.snapshot.activation.mode} / tempo=
+                                {appendableRoutePilotReport.snapshot.activation.tempoControlUnlocked ? "unlocked" : "locked"} / match=
+                                {appendableRoutePilotReport.snapshot.activation.matchedTarget ?? "—"}
                               </div>
                               <div>
                                 probe: {appendableRoutePilotReport.snapshot.probe.active ? "active" : "idle"} / underrun=

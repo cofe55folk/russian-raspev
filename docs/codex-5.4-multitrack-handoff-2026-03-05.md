@@ -2129,3 +2129,42 @@ Suggested opening prompt for the next window:
    - next rollout expansion can use explicit transport/sample-rate telemetry instead of implicit assumptions
    - do not route the next ingest milestone toward `decodeAudioData()` windows or MSE/media-element hybrid
    - if startup-latency work continues after safe rollout widening, prefer independently decodable continuation chunks
+
+## 8.142 Safe appendable rollout widening now has a separate activation tier
+1. `PR #12` was merged into `develop`, so the transport/data-plane qualification layer is already part of mainline.
+2. The next rollout slice did not widen appendable by simply reusing the old targeted-pilot allowlist:
+   - a second activation tier now exists for safe route rollout
+   - targeted pilot and safe rollout are no longer the same policy
+3. New activation model:
+   - `targeted_pilot`
+     - matched through the existing `rr_audio_appendable_queue_activation_targets`
+     - keeps appendable tempo available
+   - `safe_rollout`
+     - matched through the new `rr_audio_appendable_queue_safe_rollout_targets`
+     - activates appendable on the route, but intentionally keeps tempo locked at `1.0`
+   - targeted pilot takes precedence if both tiers match the same route
+4. Why this matters:
+   - rollout can widen beyond narrow engineer-only pilot targets
+   - but it still does not expose the full appendable feature surface to that wider cohort
+   - this matches the agreed order: widen only safe `1.0x` / no-pitch scenarios first
+5. Route behavior after this slice:
+   - targeted pilot still reports `tempo: on / pitch: off`
+   - safe rollout reports `tempo: off / pitch: off`
+   - safe rollout intentionally disables the speed slider while keeping appendable route playback active
+   - if appendable enters safe rollout mode, local tempo/pitch state is forced back to `1.0 / 0`
+6. Diagnostics/reporting changes:
+   - route diagnostics now show:
+     - `appendable activation mode`
+     - `appendable tempo policy`
+   - saved route pilot snapshots now persist:
+     - activation mode
+     - tempo policy
+     - targeted-pilot configured targets
+     - safe-rollout configured targets
+7. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium: `8/8`
+   - `appendable-queue-player-pilot.spec.ts` on WebKit: `8/8`
+8. Practical state after `8.142`:
+   - appendable rollout can now widen in a controlled way without conflating wider exposure with wider feature parity
+   - the next slice after merge should use this `safe_rollout` tier deliberately, not widen by wildcarding the targeted-pilot path

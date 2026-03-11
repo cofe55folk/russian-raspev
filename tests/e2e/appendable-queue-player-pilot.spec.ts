@@ -13,6 +13,7 @@ async function openPlayerWithAppendableFlags(
     ringbuffer?: boolean
     streaming?: boolean
     activationTargets?: string | string[]
+    safeRolloutTargets?: string | string[]
   } = {}
 ) {
   await page.addInitScript((nextFlags) => {
@@ -21,6 +22,7 @@ async function openPlayerWithAppendableFlags(
     localStorage.removeItem("rr_audio_appendable_queue_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_multistem_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_activation_targets")
+    localStorage.removeItem("rr_audio_appendable_queue_safe_rollout_targets")
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith("rr_appendable_route_pilot_report:")) localStorage.removeItem(key)
     }
@@ -31,6 +33,10 @@ async function openPlayerWithAppendableFlags(
     if (nextFlags.activationTargets) {
       const values = Array.isArray(nextFlags.activationTargets) ? nextFlags.activationTargets : [nextFlags.activationTargets]
       localStorage.setItem("rr_audio_appendable_queue_activation_targets", values.join(","))
+    }
+    if (nextFlags.safeRolloutTargets) {
+      const values = Array.isArray(nextFlags.safeRolloutTargets) ? nextFlags.safeRolloutTargets : [nextFlags.safeRolloutTargets]
+      localStorage.setItem("rr_audio_appendable_queue_safe_rollout_targets", values.join(","))
     }
   }, flags)
 
@@ -151,6 +157,27 @@ test("multistem appendable pilot runs on the normal player route when both flags
   await expect(page.getByTestId("appendable-route-debug-run-quick-pilot-save")).toBeVisible()
   await page.getByRole("button", { name: "Пауза", exact: true }).click()
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("safe appendable rollout keeps route on appendable mode while tempo stays locked", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation scoped: on")
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, "appendable activation allowed: on")
+  await waitForPlayerText(page, `appendable activation match: ${SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "tempo: off / pitch: off")
+  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeDisabled()
+  await expect(page.getByRole("slider", { name: "Pitch" })).toBeDisabled()
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
 })
 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {
