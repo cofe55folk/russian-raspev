@@ -14,6 +14,11 @@ type AppendableQueueLabStemState = {
   sourceQueuedSegments: number
   sourceEnded: boolean
   stats: {
+    sampleRate: number
+    dataPlaneMode: string
+    controlPlaneMode: string
+    appendMessageCount: number
+    appendedBytes: number
     underrunFrames: number
     droppedFrames: number
     discontinuityCount: number
@@ -26,6 +31,11 @@ type AppendableQueueLabState = {
   ready: boolean
   playing: boolean
   tempo: number
+  dataPlaneMode: string | null
+  controlPlaneMode: string | null
+  sampleRates: number[]
+  totalAppendMessages: number
+  totalAppendedBytes: number
   trackLabel: string
   stemCount: number
   transportSec: number
@@ -109,6 +119,11 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
           ready: false,
           playing: false,
           tempo: 1,
+          dataPlaneMode: null,
+          controlPlaneMode: null,
+          sampleRates: [],
+          totalAppendMessages: 0,
+          totalAppendedBytes: 0,
           trackLabel: "",
           stemCount: 0,
           transportSec: 0,
@@ -138,6 +153,11 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
         ready: false,
         playing: false,
         tempo: 1,
+        dataPlaneMode: null,
+        controlPlaneMode: null,
+        sampleRates: [],
+        totalAppendMessages: 0,
+        totalAppendedBytes: 0,
         trackLabel: "",
         stemCount: 0,
         transportSec: 0,
@@ -376,6 +396,12 @@ test("tempo-only mode keeps appendable multistem playback aligned", async ({ pag
 
   const initialState = await getHarnessState(page)
   expect(initialState.tempo).toBeCloseTo(1.2, 3)
+  expect(initialState.dataPlaneMode).toBe("postmessage_pcm")
+  expect(initialState.controlPlaneMode).toBe("message_port")
+  expect(initialState.sampleRates.length).toBeGreaterThan(0)
+  expect(initialState.totalAppendMessages).toBeGreaterThan(0)
+  expect(initialState.totalAppendedBytes).toBeGreaterThan(0)
+  expect(initialState.stems.every((stem) => stem.stats?.dataPlaneMode === "postmessage_pcm")).toBe(true)
 
   await page.getByRole("button", { name: "Play", exact: true }).click()
   await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1)

@@ -24,6 +24,9 @@ export type AppendablePcmSource = {
   isEnded?: () => boolean
 }
 
+export type AppendableQueueDataPlaneMode = "postmessage_pcm"
+export type AppendableQueueControlPlaneMode = "message_port"
+
 export type AppendableQueueWorkletStats = {
   availableFrames: number
   minAvailableFrames: number
@@ -38,8 +41,15 @@ export type AppendableQueueWorkletStats = {
 }
 
 export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
+  sampleRate: number
+  channelCount: number
+  dataPlaneMode: AppendableQueueDataPlaneMode
+  controlPlaneMode: AppendableQueueControlPlaneMode
   appendCount: number
+  appendMessageCount: number
   appendedFrames: number
+  appendedSec: number
+  appendedBytes: number
   bufferLeadFrames: number
   bufferLeadSec: number
   targetLeadFrames: number
@@ -83,6 +93,8 @@ type CreateAppendableQueueEngineOpts = {
 }
 
 const WORKLET_MODULE_PATH = "/worklets/rr-appendable-queue-processor.js"
+const APPENDABLE_QUEUE_DATA_PLANE_MODE = "postmessage_pcm" as const
+const APPENDABLE_QUEUE_CONTROL_PLANE_MODE = "message_port" as const
 const moduleLoadPromiseByCtx = new WeakMap<AudioContext, Promise<void>>()
 
 function clamp(n: number, a: number, b: number) {
@@ -379,6 +391,7 @@ export async function createAppendableQueueEngine(
   let bufferedEndFrame = 0
   let appendCount = 0
   let appendedFrames = 0
+  let appendedBytes = 0
   let sourceEnded = false
   let queueFramesEstimate: number | null = null
   const supportsTempo = channelCount <= 2
@@ -402,9 +415,16 @@ export async function createAppendableQueueEngine(
     const bufferLeadFrames = getLeadFrames(transport, bufferedEndFrame, queueFramesEstimate)
     opts.onStats({
       ...lastWorkletStats,
+      sampleRate,
+      channelCount,
+      dataPlaneMode: APPENDABLE_QUEUE_DATA_PLANE_MODE,
+      controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
       generation,
       appendCount,
+      appendMessageCount: appendCount,
       appendedFrames,
+      appendedSec: Number((appendedFrames / sampleRate).toFixed(3)),
+      appendedBytes,
       bufferLeadFrames,
       bufferLeadSec: Number((bufferLeadFrames / sampleRate).toFixed(3)),
       targetLeadFrames: highWaterFrames,
@@ -511,6 +531,7 @@ export async function createAppendableQueueEngine(
       channels: chunk.channels,
       final: safeFinal,
     })
+    const chunkBytes = transferableChunk.channels.reduce((sum, channel) => sum + channel.byteLength, 0)
 
     try {
       node.port.postMessage(
@@ -527,6 +548,7 @@ export async function createAppendableQueueEngine(
       bufferedEndFrame = safeStartFrame + safeFrameCount
       appendCount += 1
       appendedFrames += safeFrameCount
+      appendedBytes += chunkBytes
       const bufferedAfterAppend = source.getBufferedUntilFrame?.()
       const hasSourceAheadAfterAppend =
         typeof bufferedAfterAppend === "number" &&
@@ -567,6 +589,7 @@ export async function createAppendableQueueEngine(
     bufferedEndFrame = safeFrame
     appendCount = 0
     appendedFrames = 0
+    appendedBytes = 0
     sourceEnded = safeFrame >= durationFrames
     queueFramesEstimate = 0
     lastWorkletStats = {
@@ -742,9 +765,16 @@ export async function createAppendableQueueEngine(
       const transport = transportClock.getSnapshot(audioCtx.currentTime)
       const bufferLeadFrames = getLeadFrames(transport, bufferedEndFrame, queueFramesEstimate)
       return {
+        sampleRate,
+        channelCount,
+        dataPlaneMode: APPENDABLE_QUEUE_DATA_PLANE_MODE,
+        controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
         generation,
         appendCount,
+        appendMessageCount: appendCount,
         appendedFrames,
+        appendedSec: Number((appendedFrames / sampleRate).toFixed(3)),
+        appendedBytes,
         bufferLeadFrames,
         bufferLeadSec: Number((bufferLeadFrames / sampleRate).toFixed(3)),
         transportFrame: transport.currentFrame,

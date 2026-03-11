@@ -2095,3 +2095,37 @@ Suggested opening prompt for the next window:
      - merge this tempo slice into `develop`
      - widen rollout only in safe `1.0x` / no-pitch scenarios
      - only after that move to `startup head PCM as first queued data`
+
+## 8.141 Appendable data-plane qualification is now explicit in code and diagnostics
+1. New architectural constraint accepted after the follow-up external review:
+   - current appendable phase one still transports PCM chunks into the worklet through `postMessage`
+   - this is acceptable as the current pilot/runtime bridge
+   - but it must be treated as a `phase-one data plane`, not as the final broad-rollout transport design
+2. The important rule is now explicit:
+   - `MessagePort` should be treated as control plane first
+   - future broad rollout / ingest work should not silently assume `postMessage PCM` is the long-term end state
+   - `SharedArrayBuffer` and `WebCodecs` still remain optional later paths, not immediate prerequisites
+3. Code changes in this slice:
+   - appendable engine now exposes explicit transport metadata:
+     - `dataPlaneMode = postmessage_pcm`
+     - `controlPlaneMode = message_port`
+     - `sampleRate`
+     - append message count
+     - appended PCM byte volume
+   - multistem coordinator now aggregates that telemetry across stems
+   - normal route diagnostics now surface the transport mode/sample-rate/append volume directly
+   - appendable lab snapshot now exposes the same data-plane telemetry
+4. This slice does not claim to migrate the transport away from `postMessage` yet:
+   - it makes the current limitation observable
+   - it gives the next rollout step explicit qualification hooks
+   - it prevents future windows from mistaking the current bridge for the final production data plane
+5. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium: `7/7`
+   - `appendable-queue-lab.spec.ts` on Chromium: `8/8`
+   - `appendable-queue-player-pilot.spec.ts` on WebKit: `7/7`
+   - `appendable-queue-lab.spec.ts` on WebKit: `8/8`
+6. Practical planning consequence after `8.141`:
+   - next rollout expansion can use explicit transport/sample-rate telemetry instead of implicit assumptions
+   - do not route the next ingest milestone toward `decodeAudioData()` windows or MSE/media-element hybrid
+   - if startup-latency work continues after safe rollout widening, prefer independently decodable continuation chunks
