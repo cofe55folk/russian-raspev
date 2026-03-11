@@ -674,6 +674,41 @@ function cloneAppendableRouteStressSnapshot(snapshot: AppendableRouteStressSnaps
   }
 }
 
+function hasAppendableRouteQualificationEvidence(snapshot: AppendableRouteQualificationSnapshot): boolean {
+  return (
+    snapshot.targetSoakSec != null ||
+    snapshot.observedCleanSoakSec != null ||
+    snapshot.passed != null ||
+    snapshot.reason != null
+  )
+}
+
+function hasAppendableRouteStressEvidence(snapshot: AppendableRouteStressSnapshot): boolean {
+  return (
+    snapshot.holdPerSeekSec != null ||
+    snapshot.seekSequenceSec.length > 0 ||
+    snapshot.completedSeeks > 0 ||
+    snapshot.passed != null ||
+    snapshot.reason != null
+  )
+}
+
+function mergeAppendableRoutePilotEvidenceSnapshot(
+  snapshot: AppendableRoutePilotReportSnapshot,
+  previousSnapshot: AppendableRoutePilotReportSnapshot | null
+): AppendableRoutePilotReportSnapshot {
+  if (!previousSnapshot || previousSnapshot.trackScopeId !== snapshot.trackScopeId) return snapshot
+  return {
+    ...snapshot,
+    qualification: hasAppendableRouteQualificationEvidence(snapshot.qualification)
+      ? cloneAppendableRouteQualificationSnapshot(snapshot.qualification)
+      : cloneAppendableRouteQualificationSnapshot(previousSnapshot.qualification),
+    stress: hasAppendableRouteStressEvidence(snapshot.stress)
+      ? cloneAppendableRouteStressSnapshot(snapshot.stress)
+      : cloneAppendableRouteStressSnapshot(previousSnapshot.stress),
+  }
+}
+
 function withAppendableRouteQualificationSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot,
   targetSoakSec: number
@@ -2337,6 +2372,7 @@ export default function MultiTrackPlayer({
   const [appendableRoutePilotReport, setAppendableRoutePilotReport] = useState<AppendableRoutePilotReport>(() =>
     createAppendableRoutePilotReport()
   )
+  const appendableRoutePilotReportRef = useRef<AppendableRoutePilotReport>(appendableRoutePilotReport)
   const [appendableRouteQuickPilotRunning, setAppendableRouteQuickPilotRunning] = useState(false)
   const [appendableRouteSoakPilotRunning, setAppendableRouteSoakPilotRunning] = useState(false)
   const [appendableRouteQualificationPilotRunning, setAppendableRouteQualificationPilotRunning] = useState(false)
@@ -3180,13 +3216,28 @@ export default function MultiTrackPlayer({
     uiLang,
   ])
 
+  const commitAppendableRoutePilotReport = useCallback(
+    (
+      next:
+        | AppendableRoutePilotReport
+        | ((current: AppendableRoutePilotReport) => AppendableRoutePilotReport)
+    ) => {
+      setAppendableRoutePilotReport((current) => {
+        const resolved = typeof next === "function" ? next(current) : next
+        appendableRoutePilotReportRef.current = resolved
+        return resolved
+      })
+    },
+    []
+  )
+
   useEffect(() => {
     if (typeof window === "undefined") return
-    setAppendableRoutePilotReport(
+    commitAppendableRoutePilotReport(
       restoreAppendableRoutePilotReport(window.localStorage.getItem(appendableRoutePilotReportStorageKey)) ??
         createAppendableRoutePilotReport()
     )
-  }, [appendableRoutePilotReportStorageKey])
+  }, [appendableRoutePilotReportStorageKey, commitAppendableRoutePilotReport])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -3254,44 +3305,48 @@ export default function MultiTrackPlayer({
       snapshot: AppendableRoutePilotReportSnapshot,
       options?: { status?: AppendableRoutePilotReportStatus; autoStatus?: boolean }
     ): AppendableRoutePilotReport => {
+      const currentReport = appendableRoutePilotReportRef.current
+      const nextSnapshot = mergeAppendableRoutePilotEvidenceSnapshot(snapshot, currentReport.snapshot)
       const nextStatus =
         options?.status ??
-        (options?.autoStatus ? resolveAppendableRoutePilotAutoStatus(snapshot.gate.status) : appendableRoutePilotReport.status)
+        (options?.autoStatus
+          ? resolveAppendableRoutePilotAutoStatus(nextSnapshot.gate.status)
+          : currentReport.status)
       return {
-        ...appendableRoutePilotReport,
-        updatedAt: snapshot.capturedAt,
+        ...currentReport,
+        updatedAt: nextSnapshot.capturedAt,
         status: nextStatus,
-        snapshot,
+        snapshot: nextSnapshot,
       }
     },
-    [appendableRoutePilotReport]
+    []
   )
 
   const captureAppendableRoutePilotSnapshot = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
-    setAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot))
+    commitAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot))
     return snapshot
-  }, [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot])
+  }, [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot, commitAppendableRoutePilotReport])
 
   const setAppendableRoutePilotNotes = useCallback((notes: string) => {
-    setAppendableRoutePilotReport((current) => ({
+    commitAppendableRoutePilotReport((current) => ({
       ...current,
       notes,
       updatedAt: new Date().toISOString(),
     }))
-  }, [])
+  }, [commitAppendableRoutePilotReport])
 
   const markAppendableRoutePilotReport = useCallback(
     (status: AppendableRoutePilotReportStatus) => {
       const snapshot = buildAppendableRoutePilotSnapshot()
-      setAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot, { status }))
+      commitAppendableRoutePilotReport(buildAppendableRoutePilotReportWithSnapshot(snapshot, { status }))
     },
-    [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot]
+    [buildAppendableRoutePilotReportWithSnapshot, buildAppendableRoutePilotSnapshot, commitAppendableRoutePilotReport]
   )
 
   const resetAppendableRoutePilotReport = useCallback(() => {
-    setAppendableRoutePilotReport(createAppendableRoutePilotReport())
-  }, [])
+    commitAppendableRoutePilotReport(createAppendableRoutePilotReport())
+  }, [commitAppendableRoutePilotReport])
 
   const downloadAppendableRoutePilotReport = useCallback((reportOverride?: AppendableRoutePilotReport) => {
     const now = new Date()
@@ -8039,7 +8094,7 @@ export default function MultiTrackPlayer({
         }
         const settledSnapshot = buildAppendableRoutePilotSnapshotFromDebugState(finalState)
         const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
-        setAppendableRoutePilotReport(nextReport)
+        commitAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
           report: cloneAppendableRoutePilotReport(nextReport),
@@ -8066,6 +8121,7 @@ export default function MultiTrackPlayer({
     [
       buildAppendableRoutePilotReportWithSnapshot,
       buildAppendableRoutePilotSnapshotFromDebugState,
+      commitAppendableRoutePilotReport,
       downloadAppendableRoutePilotPacket,
       getAppendableRoutePilotDebugState,
       play,
@@ -8111,7 +8167,7 @@ export default function MultiTrackPlayer({
         }
         const settledSnapshot = buildAppendableRoutePilotSnapshotFromDebugState(finalState)
         const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
-        setAppendableRoutePilotReport(nextReport)
+        commitAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
           report: cloneAppendableRoutePilotReport(nextReport),
@@ -8138,6 +8194,7 @@ export default function MultiTrackPlayer({
     [
       buildAppendableRoutePilotReportWithSnapshot,
       buildAppendableRoutePilotSnapshotFromDebugState,
+      commitAppendableRoutePilotReport,
       downloadAppendableRoutePilotPacket,
       getAppendableRoutePilotDebugState,
       play,
@@ -8191,7 +8248,7 @@ export default function MultiTrackPlayer({
         const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, {
           status: qualificationPassed ? "pass" : "fail",
         })
-        setAppendableRoutePilotReport(nextReport)
+        commitAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
           report: cloneAppendableRoutePilotReport(nextReport),
@@ -8223,6 +8280,7 @@ export default function MultiTrackPlayer({
     [
       buildAppendableRoutePilotReportWithSnapshot,
       buildAppendableRoutePilotSnapshotFromDebugState,
+      commitAppendableRoutePilotReport,
       downloadAppendableRoutePilotPacket,
       getAppendableRoutePilotDebugState,
       play,
@@ -8284,7 +8342,7 @@ export default function MultiTrackPlayer({
         const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, {
           status: stressPassed ? "pass" : "fail",
         })
-        setAppendableRoutePilotReport(nextReport)
+        commitAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
           report: cloneAppendableRoutePilotReport(nextReport),
@@ -8311,6 +8369,7 @@ export default function MultiTrackPlayer({
     [
       buildAppendableRoutePilotReportWithSnapshot,
       buildAppendableRoutePilotSnapshotFromDebugState,
+      commitAppendableRoutePilotReport,
       downloadAppendableRoutePilotPacket,
       getAppendableRoutePilotDebugState,
       play,
@@ -8322,7 +8381,7 @@ export default function MultiTrackPlayer({
   const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
     const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot, { autoStatus: true })
-    setAppendableRoutePilotReport(nextReport)
+    commitAppendableRoutePilotReport(nextReport)
     downloadAppendableRoutePilotPacket(nextReport)
     setAppendableRouteQuickPilotMessage(
       uiLang === "ru" ? "сохранено текущее diagnostics" : "saved current diagnostics"
@@ -8330,6 +8389,7 @@ export default function MultiTrackPlayer({
   }, [
     buildAppendableRoutePilotReportWithSnapshot,
     buildAppendableRoutePilotSnapshot,
+    commitAppendableRoutePilotReport,
     downloadAppendableRoutePilotPacket,
     uiLang,
   ])

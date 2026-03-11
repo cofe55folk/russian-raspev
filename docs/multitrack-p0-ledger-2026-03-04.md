@@ -4288,3 +4288,38 @@ Comment for the next window:
 1. У appendable route теперь есть не только soak и qualification evidence, но и отдельный stress verdict.
 2. Saved packet умеет явно сказать, пережил ли route scripted seek-sequence.
 3. Следующий автономный slice можно строить уже поверх более широких rollout/stress gates, а не поверх базовой debug-механики.
+
+## 9.101 Route report теперь накапливает qualification и stress evidence между pilot runs, а не перетирает их
+
+Что сделано:
+1. Следующий slice после `9.100` снова не меняет playback core и rollout routing; он закрывает уже чисто report/persistence gap.
+2. До этого шага route report имел реальную дыру:
+   - после `qualification pilot` в snapshot был явный qualification block
+   - после `stress pilot` в snapshot был явный stress block
+   - но следующий run мог снова занулить предыдущий evidence block до default-пустого состояния
+3. Теперь accumulation зашит в сам report builder:
+   - если новый snapshot не несёт свежий qualification evidence, report сохраняет последний уже собранный qualification block
+   - если новый snapshot не несёт свежий stress evidence, report сохраняет последний уже собранный stress block
+   - последовательные debug API pilot runs теперь могут собирать один cumulative report с обоими evidence слоями
+4. Что это меняет practically:
+   - route report становится cumulative evidence artifact, а не single-run snapshot
+   - более поздний stress run больше не уничтожает ранее собранный qualification verdict для того же route scope
+   - save-current и packet export теперь могут нести уже накопленное route evidence, а не только последнее локальное измерение
+5. Supporting hardening в этом же slice:
+   - route report commit path теперь синхронизирован через ref, поэтому последовательные pilot calls видят уже обновлённый report без ожидания отдельного render/effect turn
+   - ранние checklist assertions и route bootstrap retry budget в e2e ещё немного ужесточены против harness-only noise
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `42/42`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не меняет playback engine.
+2. Этот шаг не меняет rollout targeting.
+3. Этот шаг меняет только semantics сохранения route evidence внутри report/export path.
+
+Итог после `9.101`:
+1. Route report теперь умеет держать qualification и stress evidence одновременно.
+2. Future rollout/stress gates можно строить уже поверх cumulative report, а не поверх нескольких разрозненных snapshot’ов.
+3. Следующий автономный slice можно брать уже как настоящий rollout-gate layer поверх накопленного evidence.

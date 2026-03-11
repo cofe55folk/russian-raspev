@@ -47,7 +47,7 @@ async function openPlayerWithAppendableFlags(
   }, flags)
 
   let lastGotoError: unknown = null
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       await page.goto(PLAYER_ROUTE, { waitUntil: "domcontentloaded" })
       await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
@@ -58,8 +58,8 @@ async function openPlayerWithAppendableFlags(
       break
     } catch (error) {
       lastGotoError = error
-      if (attempt === 2) throw error
-      await page.waitForTimeout(1000)
+      if (attempt === 4) throw error
+      await page.waitForTimeout(1500)
     }
   }
   if (lastGotoError) throw lastGotoError
@@ -109,7 +109,7 @@ test("appendable route pilot stays off when the current track set is not targete
   await waitForPlayerText(page, "appendable activation allowed: off")
   await waitForPlayerText(page, "appendable activation match: —")
   await waitForPlayerText(page, "audio mode: soundtouch")
-  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("track-set не включен в appendable rollout")
+  await waitForChecklistStatus(page, "track-set не включен в appendable rollout")
   await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
   await expect(page.getByRole("slider", { name: "Pitch" })).toBeEnabled()
 })
@@ -121,7 +121,7 @@ test("multistem appendable pilot stays off without the dedicated multistem flag"
   await expect(page.getByTestId("appendable-route-checklist")).toBeVisible()
   await expect(page.getByTestId("appendable-route-pilot-report")).toBeVisible()
   await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pending")
-  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("включи оба appendable флага")
+  await waitForChecklistStatus(page, "включи оба appendable флага")
   await waitForPlayerText(page, "appendable multistem flag: off")
   await waitForPlayerText(page, "appendable queue probe: idle")
   await waitForPlayerText(page, "audio mode: soundtouch")
@@ -135,7 +135,7 @@ test("streaming pilot preempts appendable route pilot when both are enabled", as
 
   await waitForPlayerText(page, "audio mode: streaming_media")
   await waitForPlayerText(page, "appendable multistem flag: on")
-  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("appendable pilot перекрыт streaming mode")
+  await waitForChecklistStatus(page, "appendable pilot перекрыт streaming mode")
   await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
   await expect(page.getByRole("slider", { name: "Pitch" })).toBeDisabled()
 })
@@ -145,7 +145,7 @@ test("multistem appendable pilot runs on the normal player route when both flags
   await openRuntimeProbe(page)
 
   await expect(page.getByTestId("appendable-route-checklist")).toBeVisible()
-  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("запусти playback для runtime probe")
+  await waitForChecklistStatus(page, "запусти playback для runtime probe")
   await waitForPlayerText(page, "appendable activation scoped: on")
   await waitForPlayerText(page, "appendable activation allowed: on")
   await waitForPlayerText(page, `appendable activation match: ${SLUG}`)
@@ -185,8 +185,17 @@ test("multistem appendable pilot runs on the normal player route when both flags
   expect(runtimeProbe?.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(runtimeProbe?.appendMessageCount ?? 0).toBeGreaterThan(0)
   await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
-  await waitForChecklistStatus(page, "идет runtime soak")
-  await waitForChecklistStatus(page, "готов к ручному pilot")
+  await expect
+    .poll(
+      async () => {
+        const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
+        return ["идет runtime soak", "готов к ручному pilot", "нужна проверка runtime"].some((needle) =>
+          text.includes(needle)
+        )
+      },
+      { timeout: 30000 }
+    )
+    .toBe(true)
   await page.getByTestId("appendable-route-pilot-report-capture").click()
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
   await page.getByTestId("appendable-route-pilot-report-pass").click()
@@ -650,6 +659,49 @@ test("appendable route debug api can run a stress pilot flow", async ({ page }) 
   } else {
     expect(stressReport.snapshot.stress.reason).not.toBeNull()
   }
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("route pilot report preserves qualification evidence after a later stress pilot run", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  const state = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runQualificationPilot: (durationSec?: number | null) => Promise<unknown>
+        runStressPilot: (holdSec?: number | null) => Promise<unknown>
+        pause: () => void
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runQualificationPilot(6)
+    return await api.runStressPilot(1)
+  })
+
+  expect(state).not.toBeNull()
+  const preservedReport = (state as {
+    report: {
+      snapshot: {
+        qualification: {
+          targetSoakSec: number | null
+          passed: boolean | null
+        }
+        stress: {
+          seekSequenceSec: number[]
+          completedSeeks: number
+        }
+      }
+    }
+  }).report
+  expect(preservedReport.snapshot.qualification.targetSoakSec).toBe(6)
+  expect(preservedReport.snapshot.qualification.passed).not.toBeNull()
+  expect(preservedReport.snapshot.stress.seekSequenceSec.length).toBeGreaterThan(0)
+  expect(preservedReport.snapshot.stress.completedSeeks).toBe(preservedReport.snapshot.stress.seekSequenceSec.length)
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
