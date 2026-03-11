@@ -3915,3 +3915,39 @@ Comment for the next window:
 1. Appendable route теперь имеет не только lab-level, но и normal-route proof point для `startup head PCM as first queued data`.
 2. Этот шаг всё ещё живёт на текущем phase-one `postMessage PCM` transport, то есть не является финальным ingest architecture.
 3. Следующий latency path надо продолжать через controlled manifest/chunk ingest, а не возвращаться к `decodeAudioData()` windows, MSE или engine swap.
+
+## 9.92 Route-level appendable continuation chunks now bridge startup head to full fallback
+
+Что сделано:
+1. Следующий ingest slice после `9.91` не вернул старый splice/runtime handoff и не пошёл в `decodeAudioData()` windows.
+2. Вместо этого для route-level startup-head appendable добавлен второй guarded pilot:
+   - preview flag: `multitrack_appendable_queue_continuation_chunks`
+   - storage flag: `rr_audio_appendable_queue_continuation_chunks_pilot`
+   - он включается только если startup-head pilot уже активен и manifest даёт continuation chunks для каждого stem текущего track-set
+3. Runtime semantics этого шага:
+   - startup WAV по-прежнему append’ится как first queued PCM в тот же long-lived appendable source/controller
+   - затем packaged continuation WAV chunks декодируются и append’ятся в тот же controller на их declared sample boundary
+   - только после этого full decode append’ит оставшийся хвост начиная от текущего `bufferedUntilFrame`
+   - тем самым ingest остаётся непрерывным внутри одного appendable engine и не переигрывает уже buffered участок
+4. Диагностика и debug state теперь явно показывают:
+   - `appendable continuation chunks flag`
+   - startup mode `startup_head_continuation_chunks`
+   - planned/decoded/appended continuation chunk groups
+   - эти continuation counters теперь сохраняются и в route pilot snapshot/debug packet
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npm run build` — pass
+3. targeted Chromium continuation test — `1/1`
+4. `appendable-queue-player-pilot.spec.ts` Chromium — `10/10`
+5. `appendable-queue-player-pilot.spec.ts` WebKit — `10/10`
+
+Что важно не перепутать:
+1. Один первый Chromium full-suite прогон дал старый checklist-panel visibility flake на самом первом route test.
+2. Отдельный rerun именно этого теста сразу стал зелёным.
+3. Следующий полный Chromium + WebKit route pass прошёл без code changes, поэтому это не считалось continuation regression.
+
+Итог после `9.92`:
+1. Appendable route теперь имеет route-level proof point не только для `startup head -> full append`, но и для `startup head -> packaged continuation -> background full fallback`.
+2. Этот путь всё ещё manifest-scoped и живёт на текущем phase-one `postMessage PCM` transport.
+3. Следующий ingest milestone после merge должен расширять controlled continuation packaging/qualification, а не возвращаться к swap-based handoff, MSE или partial `decodeAudioData()`.
