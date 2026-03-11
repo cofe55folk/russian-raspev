@@ -253,6 +253,7 @@ test("appendable continuation chunks pilot appends packaged continuation before 
   await openRuntimeProbe(page)
 
   await waitForPlayerText(page, "appendable continuation chunks flag: on")
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
   await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
 
   await expect
@@ -264,6 +265,7 @@ test("appendable continuation chunks pilot appends packaged continuation before 
               getState: () => {
                 sourceProgress: {
                   mode: string
+                  continuationQualification: string
                   continuationChunkGroupsPlanned: number
                   continuationChunkGroupsDecoded: number
                   continuationChunkGroupsAppended: number
@@ -278,6 +280,7 @@ test("appendable continuation chunks pilot appends packaged continuation before 
           if (!sourceProgress) return null
           return [
             sourceProgress.mode,
+            sourceProgress.continuationQualification,
             sourceProgress.continuationChunkGroupsPlanned,
             sourceProgress.continuationChunkGroupsDecoded,
             sourceProgress.continuationChunkGroupsAppended,
@@ -286,11 +289,12 @@ test("appendable continuation chunks pilot appends packaged continuation before 
             sourceProgress.allFullAppended ? "true" : "false",
           ].join("|")
         }),
-      { timeout: 45000 }
+      { timeout: 60000 }
     )
-    .toBe("startup_head_continuation_chunks|1|1|1|true|true|true")
+    .toBe("startup_head_continuation_chunks|qualified|2|2|2|true|true|true")
 
-  await waitForPlayerText(page, "appendable continuation chunks: 1/1 decoded, 1/1 appended")
+  await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+  await waitForPlayerText(page, "appendable continuation coverage sec: 26.000 / available groups: 2")
 
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
   await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
@@ -302,6 +306,39 @@ test("appendable continuation chunks pilot appends packaged continuation before 
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
   })
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("appendable continuation chunks pilot falls back to startup-head-only mode when manifest qualification fails", async ({ page }) => {
+  await page.route("**/audio-startup/startup-chunks-manifest.json", async (route) => {
+    const response = await route.fetch()
+    const json = (await response.json()) as {
+      tracks?: Array<{
+        slug?: string
+        sources?: Array<{
+          continuationChunks?: Array<{ src: string; startSec: number; durationSec: number; label?: string }>
+        }>
+      }>
+    }
+    const target = json.tracks?.find((track) => track.slug === SLUG)
+    const brokenSource = target?.sources?.[1]
+    if (brokenSource?.continuationChunks?.length) brokenSource.continuationChunks = brokenSource.continuationChunks.slice(0, 1)
+    await route.fulfill({ response, json })
+  })
+
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    startupHead: true,
+    continuationChunks: true,
+    activationTargets: SLUG,
+  })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable continuation chunks flag: on")
+  await waitForPlayerText(page, "appendable continuation qualification: fallback (source_chunk_count_mismatch)")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_manifest")
+  await waitForPlayerText(page, "appendable continuation chunks: 0/0 decoded, 0/0 appended")
+  await waitForPlayerText(page, "appendable continuation coverage sec: — / available groups: 1")
 })
 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {

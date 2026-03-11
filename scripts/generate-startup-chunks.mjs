@@ -1,0 +1,234 @@
+import fs from "node:fs/promises"
+import path from "node:path"
+import { chromium } from "playwright"
+
+const ROOT = process.cwd()
+const OUTPUT_ROOT = path.join(ROOT, "public", "audio-startup")
+const STARTUP_DURATION_SEC = 10
+const TAIL_START_SEC = 7.5
+const TAIL_DURATION_SEC = 8
+const CONTINUATION_CHUNKS = [
+  {
+    startSec: STARTUP_DURATION_SEC,
+    durationSec: 8,
+    label: "continuation-10s-8s",
+  },
+  {
+    startSec: STARTUP_DURATION_SEC + 8,
+    durationSec: 8,
+    label: "continuation-18s-8s",
+  },
+]
+
+const TARGETS = [
+  {
+    slug: "terek-ne-vo-daleche",
+    sources: [
+      {
+        src: "public/audio/terek-ne_vo_daleche/terek-ne_vo_daleche-01.mp3",
+        output: "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/terek-ne_vo_daleche/terek-ne_vo_daleche-02.mp3",
+        output: "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+  {
+    slug: "terek-mne-mladcu-malym-spalos",
+    sources: [
+      {
+        src: "public/audio/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01.mp3",
+        output: "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02.mp3",
+        output: "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+]
+
+function toPosix(value) {
+  return value.split(path.sep).join("/")
+}
+
+function resolveContinuationOutput(outputPath, chunk) {
+  const parsed = path.parse(outputPath)
+  return path.join(parsed.dir, `${parsed.name.replace(/-startup-\d+s$/, "")}-${chunk.label}.wav`)
+}
+
+async function ensureDir(filePath) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+}
+
+async function generateChunk(page, sourcePath, startSec, durationSec) {
+  const sourceBytes = await fs.readFile(sourcePath)
+  const base64 = sourceBytes.toString("base64")
+  return page.evaluate(
+    async ({ base64Audio, chunkStartSec, chunkDurationSec }) => {
+      const decodeBase64 = (value) => {
+        const binary = atob(value)
+        const out = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i)
+        return out.buffer
+      }
+
+      const writeAscii = (view, offset, value) => {
+        for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i))
+      }
+
+      const encodeWav = (audioBuffer, startFrame, frameLength) => {
+        const channelCount = audioBuffer.numberOfChannels
+        const sampleRate = audioBuffer.sampleRate
+        const bytesPerSample = 2
+        const blockAlign = channelCount * bytesPerSample
+        const dataByteLength = frameLength * blockAlign
+        const buffer = new ArrayBuffer(44 + dataByteLength)
+        const view = new DataView(buffer)
+        writeAscii(view, 0, "RIFF")
+        view.setUint32(4, 36 + dataByteLength, true)
+        writeAscii(view, 8, "WAVE")
+        writeAscii(view, 12, "fmt ")
+        view.setUint32(16, 16, true)
+        view.setUint16(20, 1, true)
+        view.setUint16(22, channelCount, true)
+        view.setUint32(24, sampleRate, true)
+        view.setUint32(28, sampleRate * blockAlign, true)
+        view.setUint16(32, blockAlign, true)
+        view.setUint16(34, 16, true)
+        writeAscii(view, 36, "data")
+        view.setUint32(40, dataByteLength, true)
+
+        const channels = Array.from({ length: channelCount }, (_, channelIndex) => audioBuffer.getChannelData(channelIndex))
+        let offset = 44
+        for (let frameIndex = 0; frameIndex < frameLength; frameIndex += 1) {
+          for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
+            const sourceIndex = Math.min(channels[channelIndex].length - 1, startFrame + frameIndex)
+            const sample = Math.max(-1, Math.min(1, channels[channelIndex][sourceIndex] ?? 0))
+            const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+            view.setInt16(offset, Math.round(int16), true)
+            offset += 2
+          }
+        }
+
+        let binary = ""
+        const bytes = new Uint8Array(buffer)
+        const chunkSize = 0x8000
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          const chunk = bytes.subarray(i, i + chunkSize)
+          binary += String.fromCharCode(...chunk)
+        }
+        return btoa(binary)
+      }
+
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext
+      if (!AudioContextCtor) throw new Error("AudioContext_unavailable")
+
+      const ctx = new AudioContextCtor()
+      try {
+        const audioBuffer = await ctx.decodeAudioData(decodeBase64(base64Audio))
+        const startFrame = Math.max(0, Math.min(audioBuffer.length - 1, Math.floor(chunkStartSec * audioBuffer.sampleRate)))
+        const frameLength = Math.max(
+          1,
+          Math.min(audioBuffer.length - startFrame, Math.floor(chunkDurationSec * audioBuffer.sampleRate))
+        )
+        const wavBase64 = encodeWav(audioBuffer, startFrame, frameLength)
+        return {
+          wavBase64,
+          sampleRate: audioBuffer.sampleRate,
+          channels: audioBuffer.numberOfChannels,
+          chunkStartSec: startFrame / audioBuffer.sampleRate,
+          chunkDurationSec: frameLength / audioBuffer.sampleRate,
+          estimatedTotalDurationSec: audioBuffer.duration,
+        }
+      } finally {
+        await ctx.close().catch(() => {})
+      }
+    },
+    { base64Audio: base64, chunkStartSec: startSec, chunkDurationSec: durationSec }
+  )
+}
+
+async function main() {
+  await fs.mkdir(OUTPUT_ROOT, { recursive: true })
+  const browser = await chromium.launch({ headless: true })
+  const page = await browser.newPage()
+  await page.setContent("<!doctype html><html><body></body></html>")
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    startupDurationSec: STARTUP_DURATION_SEC,
+    tailStartSec: TAIL_START_SEC,
+    tailDurationSec: TAIL_DURATION_SEC,
+    continuationChunks: CONTINUATION_CHUNKS.map((chunk) => ({
+      startSec: chunk.startSec,
+      durationSec: chunk.durationSec,
+      label: chunk.label,
+    })),
+    tracks: [],
+  }
+
+  try {
+    for (const target of TARGETS) {
+      const targetEntry = { slug: target.slug, sources: [] }
+      for (const source of target.sources) {
+        const sourcePath = path.join(ROOT, source.src)
+        const outputPath = path.join(ROOT, source.output)
+        const tailOutputPath = path.join(ROOT, source.tailOutput)
+        const startupResult = await generateChunk(page, sourcePath, 0, STARTUP_DURATION_SEC)
+        const tailResult = await generateChunk(page, sourcePath, TAIL_START_SEC, TAIL_DURATION_SEC)
+        const continuationResults = []
+        for (const continuationChunk of CONTINUATION_CHUNKS) {
+          const continuationOutput = resolveContinuationOutput(source.output, continuationChunk)
+          const continuationResult = await generateChunk(
+            page,
+            sourcePath,
+            continuationChunk.startSec,
+            continuationChunk.durationSec
+          )
+          await ensureDir(path.join(ROOT, continuationOutput))
+          await fs.writeFile(path.join(ROOT, continuationOutput), Buffer.from(continuationResult.wavBase64, "base64"))
+          continuationResults.push({
+            src: toPosix(continuationOutput),
+            startSec: Number(continuationResult.chunkStartSec.toFixed(3)),
+            durationSec: Number(continuationResult.chunkDurationSec.toFixed(3)),
+            label: continuationChunk.label,
+          })
+        }
+        await ensureDir(outputPath)
+        await ensureDir(tailOutputPath)
+        await fs.writeFile(outputPath, Buffer.from(startupResult.wavBase64, "base64"))
+        await fs.writeFile(tailOutputPath, Buffer.from(tailResult.wavBase64, "base64"))
+        targetEntry.sources.push({
+          strategy: "splice",
+          src: toPosix(source.src),
+          startupSrc: toPosix(source.output),
+          startupDurationSec: Number(startupResult.chunkDurationSec.toFixed(3)),
+          tailSrc: toPosix(source.tailOutput),
+          tailStartSec: Number(tailResult.chunkStartSec.toFixed(3)),
+          tailDurationSec: Number(tailResult.chunkDurationSec.toFixed(3)),
+          estimatedTotalDurationSec: Number(startupResult.estimatedTotalDurationSec.toFixed(3)),
+          continuationChunks: continuationResults,
+          channels: startupResult.channels,
+          sampleRate: startupResult.sampleRate,
+        })
+      }
+      manifest.tracks.push(targetEntry)
+    }
+  } finally {
+    await browser.close()
+  }
+
+  const manifestPath = path.join(OUTPUT_ROOT, "startup-chunks-manifest.json")
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8")
+  process.stdout.write(`${manifestPath}\n`)
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})
