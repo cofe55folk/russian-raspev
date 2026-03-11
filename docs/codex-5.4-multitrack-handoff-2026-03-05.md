@@ -1921,3 +1921,35 @@ Suggested opening prompt for the next window:
    - `CI=1 PLAYWRIGHT_WEB_SERVER_COMMAND='npm run start' npm run test:e2e:critical`
      - `11 passed, 9 skipped`
 2. The previous single live `validate` blocker is now resolved locally.
+
+## 8.135 Ready-to-merge snapshot for other windows
+1. Branch / PR status:
+   - branch: `codex/feature/appendable-queue-pilot`
+   - PR: `#6` into `develop`
+   - latest branch commit: `a44e6c2`
+   - latest commit identity is already scrubbed to `cofe55folk@users.noreply.github.com`
+2. Appendable forward-path status:
+   - transplanted onto a clean branch from `develop`
+   - route/lab/player pilot stack is included
+   - appendable remains pilot-gated
+   - baseline path remains intact
+3. Explicit exclusions:
+   - `app/lib/soundCatalog.ts`
+   - `data/datasets/teleprompter-dataset.jsonl`
+   - `app/api/dataset/teleprompter/route.ts`
+4. Privacy / secrets status:
+   - no real secrets were found in committed file content
+   - only git metadata leaked earlier
+   - that metadata was rewritten to GitHub `noreply`
+5. CI / verification status:
+   - `admin-analytics-contracts` = green
+   - `validate` = green
+   - green PR run: `22941026957`
+   - green push run after the same fix: `22941025787`
+6. English events contract conclusion:
+   - GitHub CI direct `/en/events/...` entrypoint was flaky and returned `404`
+   - contract was stabilized at the test layer
+   - runtime code was not changed for that fix
+7. Practical next step:
+   - this PR is now merge-ready
+   - next window should not reopen appendable or privacy triage unless CI regresses again

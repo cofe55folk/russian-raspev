@@ -3554,3 +3554,48 @@ Engineering conclusion:
 Рабочий вывод после `9.82`:
 1. Remaining `validate` blocker локально закрыт.
 2. Fix ограничен contract/test layer и не меняет appendable runtime, events runtime или privacy posture ветки.
+
+## 9.83 Update 2026-03-11: Final stage/progress snapshot for cross-window recovery
+Stage summary:
+1. `appendable transplant`
+   - status: done
+   - branch: `codex/feature/appendable-queue-pilot`
+   - PR: `#6` -> `develop`
+2. `quarantine exclusions`
+   - status: done
+   - still out of forward path:
+     - `app/lib/soundCatalog.ts`
+     - `data/datasets/teleprompter-dataset.jsonl`
+     - `app/api/dataset/teleprompter/route.ts`
+3. `admin-analytics CI recovery`
+   - status: done
+   - contract specs restored / tracked
+   - job is green
+4. `privacy / secrets audit`
+   - status: done
+   - no real secrets committed
+   - earlier git metadata leak rewritten to `cofe55folk@users.noreply.github.com`
+5. `english events validate blocker`
+   - status: done
+   - root cause on GitHub CI was direct `/en/events/...` returning `404`
+   - fix was isolated to contract layer only
+6. `merge readiness`
+   - status: done
+   - `validate` green
+   - `admin-analytics-contracts` green
+   - Vercel green
+
+Final factual snapshot:
+1. Current branch head:
+   - `a44e6c2`
+2. Latest green PR run:
+   - `22941026957`
+3. Latest green push run after the same fix:
+   - `22941025787`
+4. Working tree after push:
+   - clean
+
+Comment for the next window:
+1. Не нужно заново расследовать teleprompter noise, `soundCatalog.ts`, privacy leak или admin-analytics CI.
+2. Эти линии уже закрыты и записаны выше.
+3. Текущий appendable PR находится в merge-ready state; если не появится новый red CI, следующая работа должна идти уже после merge или в новом focused slice.
