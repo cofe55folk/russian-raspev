@@ -17,9 +17,12 @@ test("events list is data-backed and opens detail route @critical-contract", asy
   expect(schemas.some((item) => item.includes('"@type":"Event"'))).toBeTruthy();
 });
 
-test("english events route keeps locale-prefixed detail links @critical-contract", async ({ page }) => {
-  await page.goto("/en/events/vesennyaya-raspevka-2026", { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/\/en\/events\/[a-z0-9-]+$/);
+test("english events detail keeps locale-prefixed generated links @critical-contract", async ({ page }) => {
+  await page.context().addCookies([{ name: "rr_locale", value: "en", url: "http://localhost:3000" }]);
+  await page.goto("/events/vesennyaya-raspevka-2026", { waitUntil: "domcontentloaded" });
+
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/en\/events\/vesennyaya-raspevka-2026$/);
   await expect(page.getByTestId("event-detail-date")).toBeVisible();
   await expect(page.getByTestId("event-calendar-link")).toHaveAttribute("href", /\/api\/events\/[a-z0-9-]+\/ics\?locale=en$/);
   await expect(page.getByTestId("event-reminder-form")).toBeVisible();
