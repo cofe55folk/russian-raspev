@@ -7,13 +7,20 @@ test.describe.configure({ mode: "serial" })
 
 async function openPlayerWithAppendableFlags(
   page: Page,
-  flags: { appendable?: boolean; multistem?: boolean; ringbuffer?: boolean; streaming?: boolean } = {}
+  flags: {
+    appendable?: boolean
+    multistem?: boolean
+    ringbuffer?: boolean
+    streaming?: boolean
+    activationTargets?: string | string[]
+  } = {}
 ) {
   await page.addInitScript((nextFlags) => {
     localStorage.removeItem("rr_audio_streaming_pilot")
     localStorage.removeItem("rr_audio_ringbuffer_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_multistem_pilot")
+    localStorage.removeItem("rr_audio_appendable_queue_activation_targets")
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith("rr_appendable_route_pilot_report:")) localStorage.removeItem(key)
     }
@@ -21,6 +28,10 @@ async function openPlayerWithAppendableFlags(
     if (nextFlags.ringbuffer) localStorage.setItem("rr_audio_ringbuffer_pilot", "1")
     if (nextFlags.appendable) localStorage.setItem("rr_audio_appendable_queue_pilot", "1")
     if (nextFlags.multistem) localStorage.setItem("rr_audio_appendable_queue_multistem_pilot", "1")
+    if (nextFlags.activationTargets) {
+      const values = Array.isArray(nextFlags.activationTargets) ? nextFlags.activationTargets : [nextFlags.activationTargets]
+      localStorage.setItem("rr_audio_appendable_queue_activation_targets", values.join(","))
+    }
   }, flags)
 
   await page.goto(PLAYER_ROUTE, { waitUntil: "domcontentloaded" })
@@ -43,6 +54,23 @@ async function openRuntimeProbe(page: Page) {
   await checklistToggle.click()
 }
 
+test("appendable route pilot stays off when the current track set is not targeted for rollout", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: "different-scope",
+  })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation scoped: on")
+  await waitForPlayerText(page, "appendable activation allowed: off")
+  await waitForPlayerText(page, "appendable activation match: —")
+  await waitForPlayerText(page, "audio mode: soundtouch")
+  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("track-set не включен в appendable rollout")
+  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
+  await expect(page.getByRole("slider", { name: "Pitch" })).toBeEnabled()
+})
+
 test("multistem appendable pilot stays off without the dedicated multistem flag", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true })
   await openRuntimeProbe(page)
@@ -59,7 +87,7 @@ test("multistem appendable pilot stays off without the dedicated multistem flag"
 })
 
 test("streaming pilot preempts appendable route pilot when both are enabled", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { streaming: true, appendable: true, multistem: true })
+  await openPlayerWithAppendableFlags(page, { streaming: true, appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
 
   await waitForPlayerText(page, "audio mode: streaming_media")
@@ -70,11 +98,14 @@ test("streaming pilot preempts appendable route pilot when both are enabled", as
 })
 
 test("multistem appendable pilot runs on the normal player route when both flags are enabled", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true })
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
 
   await expect(page.getByTestId("appendable-route-checklist")).toBeVisible()
   await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("запусти playback для runtime probe")
+  await waitForPlayerText(page, "appendable activation scoped: on")
+  await waitForPlayerText(page, "appendable activation allowed: on")
+  await waitForPlayerText(page, `appendable activation match: ${SLUG}`)
   await waitForPlayerText(page, "appendable multistem flag: on")
   await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
   await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeDisabled()
@@ -100,7 +131,7 @@ test("multistem appendable pilot runs on the normal player route when both flags
 })
 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true })
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
 
   const state = await page.evaluate(async () => {
@@ -132,7 +163,7 @@ test("appendable route debug api can run a quick pilot flow with seek", async ({
 })
 
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true })
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
 
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
@@ -154,7 +185,7 @@ test("current appendable diagnostics can be saved from the debug area without qu
 })
 
 test("quick pilot diagnostics can be saved from the debug area", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true })
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
 
   const downloadPromise = page.waitForEvent("download")

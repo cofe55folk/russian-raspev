@@ -8,6 +8,9 @@ export type AudioPilotRouting = {
   useRingBufferPilot: boolean
   appendableFlagsReady: boolean
   appendableBlockedByStreaming: boolean
+  appendableActivationConfigured: boolean
+  appendableActivationAllowed: boolean
+  appendableBlockedByTargeting: boolean
 }
 
 export type AudioPilotRoutingInput = {
@@ -16,6 +19,8 @@ export type AudioPilotRoutingInput = {
   appendableQueuePilotEnabled: boolean
   appendableQueueMultistemPilotEnabled: boolean
   ringBufferPilotEnabled: boolean
+  appendableActivationConfigured?: boolean
+  appendableActivationAllowed?: boolean
 }
 
 export function resolveAudioPilotRouting({
@@ -24,13 +29,19 @@ export function resolveAudioPilotRouting({
   appendableQueuePilotEnabled,
   appendableQueueMultistemPilotEnabled,
   ringBufferPilotEnabled,
+  appendableActivationConfigured = false,
+  appendableActivationAllowed = true,
 }: AudioPilotRoutingInput): AudioPilotRouting {
   const useStreamingPilot = streamingBufferPilotEnabled
   const appendableFlagsReady = appendableQueuePilotEnabled && (trackCount === 1 || appendableQueueMultistemPilotEnabled)
+  const appendableBlockedByTargeting = appendableFlagsReady && appendableActivationConfigured && !appendableActivationAllowed
   const useAppendableQueueMultistemPilot =
-    appendableQueuePilotEnabled && appendableQueueMultistemPilotEnabled && !useStreamingPilot && trackCount > 1
-  const useAppendableQueuePilot =
-    appendableQueuePilotEnabled && !useStreamingPilot && (trackCount === 1 || useAppendableQueueMultistemPilot)
+    appendableQueuePilotEnabled &&
+    appendableQueueMultistemPilotEnabled &&
+    appendableActivationAllowed &&
+    !useStreamingPilot &&
+    trackCount > 1
+  const useAppendableQueuePilot = appendableFlagsReady && appendableActivationAllowed && !useStreamingPilot
   const useRingBufferPilot = ringBufferPilotEnabled && !useStreamingPilot && !useAppendableQueuePilot
 
   return {
@@ -46,6 +57,10 @@ export function resolveAudioPilotRouting({
     useAppendableQueueMultistemPilot,
     useRingBufferPilot,
     appendableFlagsReady,
-    appendableBlockedByStreaming: appendableFlagsReady && useStreamingPilot && !useAppendableQueuePilot,
+    appendableBlockedByStreaming:
+      appendableFlagsReady && appendableActivationAllowed && useStreamingPilot && !useAppendableQueuePilot,
+    appendableActivationConfigured,
+    appendableActivationAllowed,
+    appendableBlockedByTargeting,
   }
 }
