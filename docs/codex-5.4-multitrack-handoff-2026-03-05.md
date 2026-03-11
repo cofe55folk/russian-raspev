@@ -2400,3 +2400,34 @@ Suggested opening prompt for the next window:
    - widened appendable rollout no longer treats a single clean heartbeat as sufficient readiness evidence
    - route diagnostics now distinguish “clean but still soaking” from truly ready
    - the next slice can focus on broader soak/stress coverage rather than basic readiness timing
+
+## 8.150 Route soak pilot now captures longer route evidence and saves a settled packet without manual choreography
+1. The next slice after `8.149` does not touch the playback core again; it extends route-level evidence capture.
+2. Before this step, route diagnostics had two practical capture modes:
+   - save current diagnostics immediately
+   - run the existing quick pilot, which was useful for seek/activation validation but not for a longer steady-state route soak
+3. This slice adds a dedicated route soak pilot path:
+   - debug API now exposes `runSoakPilot(durationSec?)`
+   - guest-panel debug controls now expose `Run soak pilot + save diagnostics`
+   - default soak pilot duration is `8.0s`
+   - accepted duration is clamped to `1s..60s`
+4. Soak pilot behavior after this step:
+   - route playback starts through the same appendable player path
+   - playback is allowed to run for the requested soak window
+   - debug state is re-read until checklist settles into a terminal gate:
+     - `ready_for_manual_pilot`
+     - `blocked_by_targeting`
+     - `attention_required`
+   - saved report/packet is then rebuilt from the settled gate and auto-classified to `pass` / `fail`
+5. Observable route/debug changes:
+   - diagnostics status now explicitly reports `soak pilot: ...`
+   - packet export can capture longer route evidence without requiring manual “play / wait / save” choreography
+   - debug API and UI now share the same settled soak-report flow
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `32/32`
+   - `npm run build`
+7. Practical consequence after `8.150`:
+   - widened appendable rollout now has a longer route-evidence tool, not only a quick pilot and instantaneous snapshot
+   - saved route packets can represent a sustained clean/attention outcome instead of a purely immediate sample
+   - the next slice can build on soak/stress qualification rather than inventing another capture path
