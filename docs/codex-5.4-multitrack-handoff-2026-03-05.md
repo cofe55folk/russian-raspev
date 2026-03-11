@@ -2431,3 +2431,39 @@ Suggested opening prompt for the next window:
    - widened appendable rollout now has a longer route-evidence tool, not only a quick pilot and instantaneous snapshot
    - saved route packets can represent a sustained clean/attention outcome instead of a purely immediate sample
    - the next slice can build on soak/stress qualification rather than inventing another capture path
+
+## 8.151 Route diagnostics now have a dedicated qualification pilot with an explicit longer-soak verdict
+1. The next slice after `8.150` still does not touch the playback core or rollout routing; it hardens the route diagnostics contract.
+2. Before this step, route diagnostics had:
+   - quick pilot
+   - soak pilot
+   - saved packets with gate/probe/source data
+   - but no explicit route-qualification verdict beyond the basic checklist gate
+3. This slice adds a dedicated qualification layer:
+   - debug API now exposes `runQualificationPilot(durationSec?)`
+   - guest-panel debug controls now expose `Run qualification pilot + save diagnostics`
+   - saved report snapshots now persist a `qualification` block with:
+     - `targetSoakSec`
+     - `observedCleanSoakSec`
+     - `passed`
+     - `reason`
+4. Current qualification semantics in this slice:
+   - default qualification target is `6.0s`
+   - route must still reach a settled terminal gate first
+   - qualification becomes `pass` only when:
+     - gate is `ready_for_manual_pilot`
+     - runtime remains clean
+     - observed clean-soak reaches the qualification target (with the configured grace allowance)
+   - otherwise the report is stored as `fail` with an explicit reason
+5. Practical debug/reporting effect:
+   - route diagnostics can now distinguish “basic route became ready” from “route survived a longer qualification window”
+   - saved packets now carry an explicit longer-soak verdict instead of requiring manual interpretation from raw probe values
+   - the direct route e2e pack was also hardened to retry transient route bootstrap hiccups instead of failing on one-off server/bootstrap timing noise
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `36/36`
+   - `npm run build`
+7. Practical consequence after `8.151`:
+   - widened appendable rollout now has a stricter qualification artifact, not only raw soak evidence
+   - future route soak/stress slices can build on an explicit qualification verdict instead of inventing a separate pass/fail layer
+   - the route e2e pack is less sensitive to transient page/bootstrap hiccups while still exercising the same appendable path

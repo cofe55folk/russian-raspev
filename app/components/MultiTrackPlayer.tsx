@@ -129,6 +129,12 @@ type AppendableRoutePilotChecklistStatus =
   | "ready_for_manual_pilot"
   | "attention_required"
 type AppendableRoutePilotReportStatus = "pending" | "pass" | "fail"
+type AppendableRouteQualificationSnapshot = {
+  targetSoakSec: number | null
+  observedCleanSoakSec: number | null
+  passed: boolean | null
+  reason: string | null
+}
 type AppendableRoutePilotReportSnapshot = {
   capturedAt: string
   trackScopeId: string
@@ -156,6 +162,7 @@ type AppendableRoutePilotReportSnapshot = {
   }
   probe: AppendableQueueRuntimeProbeSnapshot
   sourceProgress: AppendableQueueSourceProgressSnapshot
+  qualification: AppendableRouteQualificationSnapshot
 }
 type AppendableRoutePilotReport = {
   version: 1
@@ -191,6 +198,7 @@ type AppendableRoutePilotDebugApi = {
   getState: () => AppendableRoutePilotDebugState
   runQuickPilot: (seekSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runSoakPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
+  runQualificationPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
 }
 type NavHandoffState = {
   trackScopeId: string
@@ -437,6 +445,8 @@ const APPENDABLE_QUEUE_RUNTIME_PROBE_LOG_INTERVAL_MS = 8000
 const APPENDABLE_QUEUE_RUNTIME_PROBE_DROP_DELTA_SEC = 0.22
 const APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC = 3
 const APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC = 8
+const APPENDABLE_ROUTE_QUALIFICATION_PILOT_DURATION_SEC = 6
+const APPENDABLE_ROUTE_QUALIFICATION_GRACE_SEC = 0.5
 const SEEK_SMOOTH_DEBOUNCE_MS = 28
 const SEEK_SMOOTH_CLOSE_RAMP_SEC = 0.008
 const SEEK_SMOOTH_OPEN_RAMP_SEC = 0.03
@@ -613,6 +623,59 @@ function createAppendableRoutePilotReport(): AppendableRoutePilotReport {
   }
 }
 
+function createAppendableRouteQualificationSnapshot(): AppendableRouteQualificationSnapshot {
+  return {
+    targetSoakSec: null,
+    observedCleanSoakSec: null,
+    passed: null,
+    reason: null,
+  }
+}
+
+function cloneAppendableRouteQualificationSnapshot(
+  snapshot: AppendableRouteQualificationSnapshot
+): AppendableRouteQualificationSnapshot {
+  return {
+    targetSoakSec: snapshot.targetSoakSec,
+    observedCleanSoakSec: snapshot.observedCleanSoakSec,
+    passed: snapshot.passed,
+    reason: snapshot.reason,
+  }
+}
+
+function withAppendableRouteQualificationSnapshot(
+  snapshot: AppendableRoutePilotReportSnapshot,
+  targetSoakSec: number
+): AppendableRoutePilotReportSnapshot {
+  const observedCleanSoakSec = snapshot.probe.cleanSoakSec
+  const safeTargetSoakSec = Math.max(1, Math.min(60, targetSoakSec))
+  const cleanRuntime =
+    snapshot.probe.totalUnderrunFrames === 0 && snapshot.probe.totalDiscontinuityCount === 0
+  const soakFloor = Math.max(0, safeTargetSoakSec - APPENDABLE_ROUTE_QUALIFICATION_GRACE_SEC)
+  let passed = false
+  let reason: string | null = null
+
+  if (snapshot.gate.status !== "ready_for_manual_pilot") {
+    reason = `gate:${snapshot.gate.status}`
+  } else if (!cleanRuntime) {
+    reason = "runtime_not_clean"
+  } else if (observedCleanSoakSec == null || observedCleanSoakSec < soakFloor) {
+    reason = "clean_soak_below_target"
+  } else {
+    passed = true
+  }
+
+  return {
+    ...snapshot,
+    qualification: {
+      targetSoakSec: safeTargetSoakSec,
+      observedCleanSoakSec,
+      passed,
+      reason,
+    },
+  }
+}
+
 function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): AppendableRoutePilotReport {
   return {
     version: 1,
@@ -648,6 +711,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           },
           probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
           sourceProgress: cloneAppendableQueueSourceProgressSnapshot(report.snapshot.sourceProgress),
+          qualification: cloneAppendableRouteQualificationSnapshot(report.snapshot.qualification),
         }
       : null,
   }
@@ -741,6 +805,29 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                 ...createAppendableQueueSourceProgressSnapshot(),
                 ...(parsed.snapshot.sourceProgress ?? {}),
               }),
+              qualification:
+                parsed.snapshot.qualification && typeof parsed.snapshot.qualification === "object"
+                  ? {
+                      targetSoakSec:
+                        typeof parsed.snapshot.qualification.targetSoakSec === "number" &&
+                        Number.isFinite(parsed.snapshot.qualification.targetSoakSec)
+                          ? parsed.snapshot.qualification.targetSoakSec
+                          : null,
+                      observedCleanSoakSec:
+                        typeof parsed.snapshot.qualification.observedCleanSoakSec === "number" &&
+                        Number.isFinite(parsed.snapshot.qualification.observedCleanSoakSec)
+                          ? parsed.snapshot.qualification.observedCleanSoakSec
+                          : null,
+                      passed:
+                        typeof parsed.snapshot.qualification.passed === "boolean"
+                          ? parsed.snapshot.qualification.passed
+                          : null,
+                      reason:
+                        typeof parsed.snapshot.qualification.reason === "string"
+                          ? parsed.snapshot.qualification.reason
+                          : null,
+                    }
+                  : createAppendableRouteQualificationSnapshot(),
             }
           : null,
     }
@@ -2160,6 +2247,7 @@ export default function MultiTrackPlayer({
   )
   const [appendableRouteQuickPilotRunning, setAppendableRouteQuickPilotRunning] = useState(false)
   const [appendableRouteSoakPilotRunning, setAppendableRouteSoakPilotRunning] = useState(false)
+  const [appendableRouteQualificationPilotRunning, setAppendableRouteQualificationPilotRunning] = useState(false)
   const [appendableRouteQuickPilotMessage, setAppendableRouteQuickPilotMessage] = useState<string | null>(null)
   const [ringBufferPilotEnabled, setRingBufferPilotEnabled] = useState(
     () =>
@@ -3043,6 +3131,7 @@ export default function MultiTrackPlayer({
       },
       probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
+      qualification: createAppendableRouteQualificationSnapshot(),
     }
   }, [
     activeEngineMode,
@@ -7806,6 +7895,23 @@ export default function MultiTrackPlayer({
     trackScopeId,
   ])
 
+  const buildAppendableRoutePilotSnapshotFromDebugState = useCallback(
+    (state: AppendableRoutePilotDebugState): AppendableRoutePilotReportSnapshot => {
+      const snapshot = buildAppendableRoutePilotSnapshot()
+      return {
+        ...snapshot,
+        audioMode: state.audioMode,
+        gate: {
+          status: state.checklist.status,
+          statusLabel: state.checklist.statusLabel,
+        },
+        probe: cloneAppendableQueueRuntimeProbeSnapshot(state.runtimeProbe),
+        sourceProgress: cloneAppendableQueueSourceProgressSnapshot(state.sourceProgress),
+      }
+    },
+    [buildAppendableRoutePilotSnapshot]
+  )
+
   const runAppendableRouteQuickPilot = useCallback(
     async (seekSec: number | null = 12, options?: { downloadPacket?: boolean }) => {
       const wait = (ms: number) =>
@@ -7837,17 +7943,8 @@ export default function MultiTrackPlayer({
           }
           await wait(200)
         }
-        const settledSnapshot = buildAppendableRoutePilotSnapshot()
-        const nextReport = buildAppendableRoutePilotReportWithSnapshot(
-          {
-            ...settledSnapshot,
-            gate: {
-              status: finalState.checklist.status,
-              statusLabel: finalState.checklist.statusLabel,
-            },
-          },
-          { autoStatus: true }
-        )
+        const settledSnapshot = buildAppendableRoutePilotSnapshotFromDebugState(finalState)
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
         setAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
@@ -7874,7 +7971,7 @@ export default function MultiTrackPlayer({
     },
     [
       buildAppendableRoutePilotReportWithSnapshot,
-      buildAppendableRoutePilotSnapshot,
+      buildAppendableRoutePilotSnapshotFromDebugState,
       downloadAppendableRoutePilotPacket,
       getAppendableRoutePilotDebugState,
       play,
@@ -7918,17 +8015,8 @@ export default function MultiTrackPlayer({
           }
           await wait(250)
         }
-        const settledSnapshot = buildAppendableRoutePilotSnapshot()
-        const nextReport = buildAppendableRoutePilotReportWithSnapshot(
-          {
-            ...settledSnapshot,
-            gate: {
-              status: finalState.checklist.status,
-              statusLabel: finalState.checklist.statusLabel,
-            },
-          },
-          { autoStatus: true }
-        )
+        const settledSnapshot = buildAppendableRoutePilotSnapshotFromDebugState(finalState)
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
         setAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
@@ -7955,7 +8043,92 @@ export default function MultiTrackPlayer({
     },
     [
       buildAppendableRoutePilotReportWithSnapshot,
-      buildAppendableRoutePilotSnapshot,
+      buildAppendableRoutePilotSnapshotFromDebugState,
+      downloadAppendableRoutePilotPacket,
+      getAppendableRoutePilotDebugState,
+      play,
+      uiLang,
+    ]
+  )
+
+  const runAppendableRouteQualificationPilot = useCallback(
+    async (
+      durationSec: number | null = APPENDABLE_ROUTE_QUALIFICATION_PILOT_DURATION_SEC,
+      options?: { downloadPacket?: boolean }
+    ) => {
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms)
+        })
+      const readState = () =>
+        (typeof window !== "undefined" ? window.__rrAppendableRoutePilotDebug?.getState() : null) ??
+        getAppendableRoutePilotDebugState()
+      const safeDurationSec =
+        typeof durationSec === "number" && Number.isFinite(durationSec)
+          ? Math.max(1, Math.min(60, durationSec))
+          : APPENDABLE_ROUTE_QUALIFICATION_PILOT_DURATION_SEC
+
+      setAppendableRouteQualificationPilotRunning(true)
+      setAppendableRouteQuickPilotMessage(
+        uiLang === "ru"
+          ? `идет qualification pilot (${safeDurationSec.toFixed(1)}s)...`
+          : `qualification pilot running (${safeDurationSec.toFixed(1)}s)...`
+      )
+      try {
+        await play("route_qualification_pilot")
+        await wait(safeDurationSec * 1000)
+        let finalState = readState()
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          finalState = readState()
+          if (
+            finalState.checklist.status === "ready_for_manual_pilot" ||
+            finalState.checklist.status === "blocked_by_targeting" ||
+            finalState.checklist.status === "attention_required"
+          ) {
+            break
+          }
+          await wait(250)
+        }
+        const settledSnapshot = withAppendableRouteQualificationSnapshot(
+          buildAppendableRoutePilotSnapshotFromDebugState(finalState),
+          safeDurationSec
+        )
+        const qualificationPassed = settledSnapshot.qualification.passed === true
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, {
+          status: qualificationPassed ? "pass" : "fail",
+        })
+        setAppendableRoutePilotReport(nextReport)
+        finalState = {
+          ...finalState,
+          report: cloneAppendableRoutePilotReport(nextReport),
+        }
+        if (options?.downloadPacket) {
+          downloadAppendableRoutePilotPacket(nextReport)
+        }
+        const observedLabel =
+          typeof settledSnapshot.qualification.observedCleanSoakSec === "number" &&
+          Number.isFinite(settledSnapshot.qualification.observedCleanSoakSec)
+            ? settledSnapshot.qualification.observedCleanSoakSec.toFixed(1)
+            : "—"
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru"
+            ? `qualification pilot: ${qualificationPassed ? "pass" : "fail"} (${observedLabel} / ${safeDurationSec.toFixed(1)}s)`
+            : `qualification pilot: ${qualificationPassed ? "pass" : "fail"} (${observedLabel} / ${safeDurationSec.toFixed(1)}s)`
+        )
+        return finalState
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "qualification_pilot_failed"
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru" ? `qualification pilot error: ${message}` : `qualification pilot error: ${message}`
+        )
+        throw error
+      } finally {
+        setAppendableRouteQualificationPilotRunning(false)
+      }
+    },
+    [
+      buildAppendableRoutePilotReportWithSnapshot,
+      buildAppendableRoutePilotSnapshotFromDebugState,
       downloadAppendableRoutePilotPacket,
       getAppendableRoutePilotDebugState,
       play,
@@ -7985,6 +8158,12 @@ export default function MultiTrackPlayer({
   const saveAppendableRouteSoakPilotDiagnostics = useCallback(async () => {
     await runAppendableRouteSoakPilot(APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC, { downloadPacket: true })
   }, [runAppendableRouteSoakPilot])
+
+  const saveAppendableRouteQualificationPilotDiagnostics = useCallback(async () => {
+    await runAppendableRouteQualificationPilot(APPENDABLE_ROUTE_QUALIFICATION_PILOT_DURATION_SEC, {
+      downloadPacket: true,
+    })
+  }, [runAppendableRouteQualificationPilot])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -8017,6 +8196,7 @@ export default function MultiTrackPlayer({
       getState: () => getAppendableRoutePilotDebugState(),
       runQuickPilot: (seekSec?: number | null) => runAppendableRouteQuickPilot(seekSec ?? null),
       runSoakPilot: (durationSec?: number | null) => runAppendableRouteSoakPilot(durationSec ?? null),
+      runQualificationPilot: (durationSec?: number | null) => runAppendableRouteQualificationPilot(durationSec ?? null),
     }
     return () => {
       window.__rrAppendableRoutePilotDebug = undefined
@@ -8029,6 +8209,7 @@ export default function MultiTrackPlayer({
     markAppendableRoutePilotReport,
     pause,
     play,
+    runAppendableRouteQualificationPilot,
     resetAppendableRoutePilotReport,
     runAppendableRouteQuickPilot,
     runAppendableRouteSoakPilot,
@@ -11066,6 +11247,19 @@ export default function MultiTrackPlayer({
                                 {formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.readyThresholdSec)}
                               </div>
                               <div>
+                                qualification: {appendableRoutePilotReport.snapshot.qualification.passed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.qualification.passed
+                                    ? "pass"
+                                    : "fail"}{" "}
+                                / observed=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.qualification.observedCleanSoakSec)} / target=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.qualification.targetSoakSec)}
+                                {appendableRoutePilotReport.snapshot.qualification.reason
+                                  ? ` (${appendableRoutePilotReport.snapshot.qualification.reason})`
+                                  : ""}
+                              </div>
+                              <div>
                                 transport: data={appendableRoutePilotReport.snapshot.probe.dataPlaneMode ?? "—"} / control=
                                 {appendableRoutePilotReport.snapshot.probe.controlPlaneMode ?? "—"} / rates=
                                 {appendableRoutePilotReport.snapshot.probe.sampleRates.length
@@ -11140,6 +11334,23 @@ export default function MultiTrackPlayer({
                                 : uiLang === "ru"
                                   ? "Запустить soak pilot + сохранить"
                                   : "Run soak pilot + save diagnostics"}
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-debug-run-qualification-pilot-save"
+                              disabled={appendableRouteQualificationPilotRunning}
+                              onClick={() => {
+                                void saveAppendableRouteQualificationPilotDiagnostics()
+                              }}
+                              className="rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-2 py-1 text-[11px] text-fuchsia-100 hover:bg-fuchsia-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {appendableRouteQualificationPilotRunning
+                                ? uiLang === "ru"
+                                  ? "идет qualification pilot..."
+                                  : "qualification pilot running..."
+                                : uiLang === "ru"
+                                  ? "Запустить qualification pilot + сохранить"
+                                  : "Run qualification pilot + save diagnostics"}
                             </button>
                             <button
                               type="button"

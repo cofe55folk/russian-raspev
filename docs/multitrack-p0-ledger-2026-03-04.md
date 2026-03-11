@@ -4194,3 +4194,49 @@ Comment for the next window:
 1. У appendable route теперь есть не только quick pilot и мгновенный snapshot, но и отдельный longer soak capture.
 2. Saved packet теперь может отражать sustained outcome, а не только моментальный срез.
 3. Следующий автономный slice можно уже строить поверх реального soak/stress qualification, а не поверх ручной диагностики.
+
+## 9.99 Route diagnostics теперь имеют отдельный qualification pilot с явным longer-soak verdict
+
+Что сделано:
+1. Следующий slice после `9.98` снова не меняет playback core и не меняет rollout routing; он усиливает сам diagnostics contract.
+2. До этого шага route diagnostics уже умели:
+   - quick pilot
+   - soak pilot
+   - save current diagnostics
+   - export packet с gate/probe/source state
+   но не умели хранить отдельный qualification verdict поверх longer soak.
+3. Теперь появился dedicated qualification layer:
+   - debug API экспортирует `runQualificationPilot(durationSec?)`
+   - в guest-panel debug controls появилась кнопка `Run qualification pilot + save diagnostics`
+   - saved report snapshot теперь хранит `qualification` блок с полями:
+     - `targetSoakSec`
+     - `observedCleanSoakSec`
+     - `passed`
+     - `reason`
+4. Текущая qualification semantics этого slice:
+   - default qualification target = `6.0s`
+   - route сначала всё равно должен прийти в settled terminal gate
+   - `pass` ставится только если:
+     - gate = `ready_for_manual_pilot`
+     - runtime остаётся clean
+     - observed clean-soak добирается до qualification target с текущим grace allowance
+   - иначе report сохраняется как `fail` с явным `reason`
+5. Что видно после патча:
+   - diagnostics теперь различают “route стал basic-ready” и “route пережил более длинный qualification window”
+   - packet/export теперь несёт longer-soak verdict явно, а не требует ручного чтения raw probe numbers
+   - route e2e helper теперь ретраит transient route bootstrap hiccup целиком, а не падает на единичном server/bootstrap noise
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `36/36`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не меняет playback engine.
+2. Этот шаг не меняет rollout targeting.
+3. Этот шаг добавляет более строгий qualification verdict поверх уже существующего route soak/debug path.
+
+Итог после `9.99`:
+1. У appendable route теперь есть не только soak evidence, но и отдельный qualification verdict.
+2. Saved packet умеет явно сказать, выдержал ли route longer-soak target.
+3. Следующий автономный slice можно строить уже поверх stress/qualification expansion, а не поверх базовой route диагностики.
