@@ -2309,3 +2309,30 @@ Suggested opening prompt for the next window:
    - qualified rollout now behaves like a real activation tier rather than a documentation-only promise
    - continuation ingest can widen safely without becoming a global default
    - the next slice can build on qualified rollout telemetry instead of re-solving manifest eligibility from scratch
+
+## 8.147 Safe rollout checklist/report gating now require qualified continuation ingestion instead of clean full-buffer fallback
+1. The hardening slice after `8.146` closes a real rollout-gap in the route diagnostics layer.
+2. Before this step, a `safe_rollout` route could still end up in checklist status `ready_for_manual_pilot` even when:
+   - continuation qualification had already failed
+   - route appendable had fallen back to `full_buffer`
+   - runtime probe stayed clean only because full-buffer appendable is more forgiving
+3. This slice changes the gate itself, not just the wording:
+   - for `safe_rollout`, checklist readiness now requires both:
+     - `continuationQualification = qualified`
+     - `sourceProgress.mode = startup_head_continuation_chunks`
+   - a clean runtime probe alone is no longer enough if the route never entered qualified continuation ingest
+4. Hardening result when qualification fails:
+   - checklist/report now stay in explicit rollout attention state instead of drifting into a misleading ready state
+   - the fallback reason code remains visible in the checklist label and guidance steps
+   - route can keep using appendable `full_buffer` safely while still being treated as rollout-not-ready
+5. This gives safe rollout a stricter operational meaning:
+   - `safe_rollout` now means “qualified continuation path survived to runtime cleanliness”
+   - not merely “appendable route stayed alive without underrun”
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `26/26`
+   - `npm run build`
+7. Practical consequence after `8.147`:
+   - widened safe rollout can now rely on checklist/report gating as a real readiness signal
+   - fallback manifests remain explicitly triageable instead of being mistaken for rollout success
+   - the next hardening slice can focus on runtime safety thresholds and soak evidence rather than fixing readiness semantics

@@ -2782,6 +2782,18 @@ export default function MultiTrackPlayer({
     const cleanRuntime =
       appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames === 0 &&
       appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount === 0
+    const safeRolloutMode = appendablePilotActivation.activationMode === "safe_rollout"
+    const safeRolloutSourceGateReason = safeRolloutMode
+      ? appendableQueueSourceProgressSnapshot.continuationQualification === "qualified"
+        ? appendableQueueSourceProgressSnapshot.mode === "startup_head_continuation_chunks"
+          ? null
+          : `unexpected_source_mode:${appendableQueueSourceProgressSnapshot.mode}`
+        : appendableQueueSourceProgressSnapshot.continuationQualification === "fallback"
+          ? appendableQueueSourceProgressSnapshot.continuationQualificationReason ?? "continuation_preflight_failed"
+          : appendableQueueSourceProgressSnapshot.mode === "full_buffer"
+            ? "continuation_qualification_missing"
+            : null
+      : null
 
     let status:
       | "waiting_for_flags"
@@ -2789,11 +2801,13 @@ export default function MultiTrackPlayer({
       | "play_to_activate_probe"
       | "ready_for_manual_pilot"
       | "attention_required" = "waiting_for_flags"
-    if (flagsReady && modeReady && probeActive && cleanRuntime) {
+    if (flagsReady && modeReady && probeActive && cleanRuntime && !safeRolloutSourceGateReason) {
       status = "ready_for_manual_pilot"
     } else if (routing.appendableBlockedByTargeting) {
       status = "blocked_by_targeting"
     } else if (routing.appendableBlockedByStreaming) {
+      status = "attention_required"
+    } else if (safeRolloutSourceGateReason) {
       status = "attention_required"
     } else if (flagsReady && modeReady && probeActive && !cleanRuntime) {
       status = "attention_required"
@@ -2805,10 +2819,12 @@ export default function MultiTrackPlayer({
       uiLang === "ru"
         ? status === "ready_for_manual_pilot"
           ? "готов к ручному pilot"
-          : status === "blocked_by_targeting"
+        : status === "blocked_by_targeting"
             ? "track-set не включен в appendable rollout"
           : routing.appendableBlockedByStreaming
             ? "appendable pilot перекрыт streaming mode"
+          : safeRolloutSourceGateReason
+            ? `safe rollout fallback: ${safeRolloutSourceGateReason}`
           : status === "play_to_activate_probe"
             ? "запусти playback для runtime probe"
             : status === "attention_required"
@@ -2816,10 +2832,12 @@ export default function MultiTrackPlayer({
               : "включи оба appendable флага"
         : status === "ready_for_manual_pilot"
           ? "ready for manual pilot"
-          : status === "blocked_by_targeting"
+        : status === "blocked_by_targeting"
             ? "track set is not targeted for appendable rollout"
           : routing.appendableBlockedByStreaming
             ? "appendable pilot is blocked by streaming mode"
+          : safeRolloutSourceGateReason
+            ? `safe rollout fallback: ${safeRolloutSourceGateReason}`
           : status === "play_to_activate_probe"
             ? "start playback to activate runtime probe"
             : status === "attention_required"
@@ -2850,6 +2868,18 @@ export default function MultiTrackPlayer({
               "1. Disable the `streaming` flag for the route-level appendable pilot.",
               "2. Keep `appendable queue` and `appendable multistem` enabled.",
               "3. Reload the `/sound/...` route and confirm `audio mode = appendable_queue_worklet`.",
+            ]
+        : safeRolloutSourceGateReason
+        ? uiLang === "ru"
+          ? [
+              `1. Проверь reason code safe rollout fallback: ${safeRolloutSourceGateReason}.`,
+              "2. Сверь manifest continuation plan across stems и root-level continuationChunks contract.",
+              "3. Пока qualification не станет `qualified`, route должен оставаться на appendable `full_buffer`.",
+            ]
+          : [
+              `1. Review the safe rollout fallback reason code: ${safeRolloutSourceGateReason}.`,
+              "2. Recheck the manifest continuation plan across stems and the root-level continuationChunks contract.",
+              "3. Until qualification becomes `qualified`, the route should stay on appendable `full_buffer`.",
             ]
         : appendablePilotActivation.activationMode === "safe_rollout"
         ? uiLang === "ru"
@@ -2895,6 +2925,9 @@ export default function MultiTrackPlayer({
     appendableQueueRuntimeProbeSnapshot.active,
     appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount,
     appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames,
+    appendableQueueSourceProgressSnapshot.continuationQualification,
+    appendableQueueSourceProgressSnapshot.continuationQualificationReason,
+    appendableQueueSourceProgressSnapshot.mode,
     streamingBufferPilotEnabled,
     trackList.length,
     uiLang,
