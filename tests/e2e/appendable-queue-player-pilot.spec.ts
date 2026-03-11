@@ -10,6 +10,7 @@ async function openPlayerWithAppendableFlags(
   flags: {
     appendable?: boolean
     multistem?: boolean
+    startupHead?: boolean
     ringbuffer?: boolean
     streaming?: boolean
     activationTargets?: string | string[]
@@ -21,6 +22,7 @@ async function openPlayerWithAppendableFlags(
     localStorage.removeItem("rr_audio_ringbuffer_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_multistem_pilot")
+    localStorage.removeItem("rr_audio_appendable_queue_startup_head_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_activation_targets")
     localStorage.removeItem("rr_audio_appendable_queue_safe_rollout_targets")
     for (const key of Object.keys(localStorage)) {
@@ -30,6 +32,7 @@ async function openPlayerWithAppendableFlags(
     if (nextFlags.ringbuffer) localStorage.setItem("rr_audio_ringbuffer_pilot", "1")
     if (nextFlags.appendable) localStorage.setItem("rr_audio_appendable_queue_pilot", "1")
     if (nextFlags.multistem) localStorage.setItem("rr_audio_appendable_queue_multistem_pilot", "1")
+    if (nextFlags.startupHead) localStorage.setItem("rr_audio_appendable_queue_startup_head_pilot", "1")
     if (nextFlags.activationTargets) {
       const values = Array.isArray(nextFlags.activationTargets) ? nextFlags.activationTargets : [nextFlags.activationTargets]
       localStorage.setItem("rr_audio_appendable_queue_activation_targets", values.join(","))
@@ -178,6 +181,62 @@ test("safe appendable rollout keeps route on appendable mode while tempo stays l
   await waitForPlayerText(page, "appendable queue probe: active")
   await waitForPlayerText(page, "appendable total underrun: 0")
   await waitForPlayerText(page, "appendable total discontinuity: 0")
+})
+
+test("appendable startup head pilot feeds manifest startup audio before background full append", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    startupHead: true,
+    activationTargets: SLUG,
+  })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable startup head flag: on")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_manifest")
+  await waitForPlayerText(page, "appendable source progress: startup=yes")
+
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const state = (window as Window & {
+            __rrAppendableRoutePilotDebug?: {
+              getState: () => {
+                sourceProgress: {
+                  mode: string
+                  manifestSlug: string | null
+                  allStartupAppended: boolean
+                  allFullDecoded: boolean
+                  allFullAppended: boolean
+                }
+              }
+            }
+          }).__rrAppendableRoutePilotDebug?.getState()
+          const sourceProgress = state?.sourceProgress
+          if (!sourceProgress) return null
+          return [
+            sourceProgress.mode,
+            sourceProgress.manifestSlug ?? "—",
+            sourceProgress.allStartupAppended ? "true" : "false",
+            sourceProgress.allFullDecoded ? "true" : "false",
+            sourceProgress.allFullAppended ? "true" : "false",
+          ].join("|")
+        }),
+      { timeout: 45000 }
+    )
+    .toBe(`startup_head_manifest|${SLUG}|true|true|true`)
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {

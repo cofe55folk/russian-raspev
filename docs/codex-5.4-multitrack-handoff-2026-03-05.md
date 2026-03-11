@@ -2168,3 +2168,38 @@ Suggested opening prompt for the next window:
 8. Practical state after `8.142`:
    - appendable rollout can now widen in a controlled way without conflating wider exposure with wider feature parity
    - the next slice after merge should use this `safe_rollout` tier deliberately, not widen by wildcarding the targeted-pilot path
+
+## 8.143 Route-level appendable startup-head pilot now exists behind a separate manifest gate
+1. The next latency-oriented slice did not revive the rejected `startup -> tail -> full` engine-swap path.
+2. Instead, normal `/sound/...` route appendable now has a separate guarded pilot:
+   - preview/storage gate: `multitrack_appendable_queue_startup_head`
+   - local storage key: `rr_audio_appendable_queue_startup_head_pilot`
+   - manifest-backed matching through `/audio-startup/startup-chunks-manifest.json`
+3. Runtime behavior in this slice:
+   - if appendable route is active and the current track-set matches the startup manifest, startup WAV is appended as the first PCM already queued into the same long-lived appendable engine
+   - full-track decode then continues in the background
+   - once full decode is ready, the remainder of each stem is appended into that same source/controller instead of swapping engines
+4. Current scope is intentionally narrow:
+   - no `soundCatalog.ts` startup metadata is revived
+   - only manifest-supported routes can enter this path
+   - no safe-rollout wildcarding was added for startup-head ingest
+5. Diagnostics/reporting changes:
+   - route diagnostics now show:
+     - `appendable startup head flag`
+     - `appendable startup mode`
+     - `appendable source progress`
+     - `appendable source buffered sec`
+     - `appendable queued segments`
+   - route pilot snapshots/debug state now persist `sourceProgress` alongside the runtime probe
+6. Verified routes now distinguish:
+   - regular appendable `full_buffer`
+   - manifest-backed `startup_head_manifest`
+7. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npm run build`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium: `9/9`
+   - `appendable-queue-player-pilot.spec.ts` on WebKit: `9/9`
+8. Practical consequence after `8.143`:
+   - appendable now has a real route-level `startup head -> background full append` proof point
+   - this still uses the current phase-one `postMessage PCM` data plane
+   - the next latency step should continue through controlled manifest/chunk ingest, not through `decodeAudioData()` windows or MSE hybrid

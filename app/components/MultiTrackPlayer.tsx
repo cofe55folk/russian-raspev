@@ -2,13 +2,19 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import Link from "next/link"
-import { createAppendableQueueEngine, createAudioBufferAppendableSource } from "./audio/appendableQueueEngine"
+import {
+  createAppendableQueueEngine,
+  createAudioBufferAppendableSource,
+  createManualAppendablePcmSource,
+  sliceAudioBufferToChunk,
+} from "./audio/appendableQueueEngine"
 import { createAppendableQueueMultitrackCoordinator, type AppendableQueueMultitrackCoordinator } from "./audio/appendableQueueMultitrackCoordinator"
 import {
   resolveClientAppendablePilotActivation,
   type AppendablePilotActivationState,
 } from "./audio/appendablePilotActivation"
 import { resolveAudioPilotRouting, type AudioPilotEngineMode } from "./audio/audioPilotRouting"
+import { resolveAppendableStartupManifestMatch } from "./audio/appendableStartupManifest"
 import { createSoundTouchEngine, type AudioEngineCapabilities, type SoundTouchEngine } from "./audio/soundtouchEngine"
 import { createMediaStreamingEngine } from "./audio/mediaStreamingEngine"
 import { createRingBufferWorkletEngine } from "./audio/ringBufferWorkletEngine"
@@ -88,6 +94,19 @@ type AppendableQueueRuntimeProbeSnapshot = {
   totalUnderrunFrames: number
   totalDiscontinuityCount: number
 }
+type AppendableQueueSourceProgressSnapshot = {
+  mode: "off" | "full_buffer" | "startup_head_manifest"
+  manifestSlug: string | null
+  startupDurationSec: number | null
+  allStartupAppended: boolean
+  allFullDecoded: boolean
+  allFullAppended: boolean
+  minSourceBufferedUntilSec: number | null
+  maxSourceBufferedUntilSec: number | null
+  minQueuedSegments: number | null
+  maxQueuedSegments: number | null
+  allSourceEnded: boolean
+}
 type AppendableRoutePilotReportStatus = "pending" | "pass" | "fail"
 type AppendableRoutePilotReportSnapshot = {
   capturedAt: string
@@ -109,6 +128,7 @@ type AppendableRoutePilotReportSnapshot = {
     safeRolloutConfiguredTargets: string[]
   }
   probe: AppendableQueueRuntimeProbeSnapshot
+  sourceProgress: AppendableQueueSourceProgressSnapshot
 }
 type AppendableRoutePilotReport = {
   version: 1
@@ -132,6 +152,7 @@ type AppendableRoutePilotDebugState = {
     steps: string[]
   }
   runtimeProbe: AppendableQueueRuntimeProbeSnapshot
+  sourceProgress: AppendableQueueSourceProgressSnapshot
   report: AppendableRoutePilotReport
 }
 type AppendableRoutePilotDebugApi = {
@@ -175,6 +196,19 @@ type StartupChunkRuntimeState = {
   tailDecodeReadyAtMs: number | null
   fullDecodeStartedAtMs: number | null
   fullDecodeReadyAtMs: number | null
+}
+type AppendableStartupHeadStemRuntimeState = {
+  sourceController: ReturnType<typeof createManualAppendablePcmSource>
+  startupFrames: number
+  startupAppended: boolean
+  fullDecoded: boolean
+  fullAppended: boolean
+}
+type AppendableStartupHeadRuntimeState = {
+  mode: "full_buffer" | "startup_head_manifest"
+  manifestSlug: string | null
+  startupDurationSec: number | null
+  stems: AppendableStartupHeadStemRuntimeState[]
 }
 type StartupChunkSwapPlan = {
   swapLabel: "tail_handoff" | "full_handoff" | "handoff"
@@ -321,6 +355,7 @@ const STARTUP_CHUNK_SPLICE_PREVIEW_FLAG = "multitrack_startup_splice_pilot"
 const STREAMING_BUFFER_PREVIEW_FLAG = "multitrack_streaming_pilot"
 const APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG = "multitrack_appendable_queue_pilot"
 const APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG = "multitrack_appendable_queue_multistem_pilot"
+const APPENDABLE_QUEUE_STARTUP_HEAD_PREVIEW_FLAG = "multitrack_appendable_queue_startup_head"
 const RINGBUFFER_PILOT_PREVIEW_FLAG = "multitrack_ringbuffer_pilot"
 const RECORDING_ENGINE_V2_PREVIEW_FLAG = "recording_engine_v2"
 const TRACK_DECODE_MAX_ATTEMPTS = 2
@@ -422,6 +457,70 @@ function cloneAppendableQueueRuntimeProbeSnapshot(
   }
 }
 
+function createAppendableQueueSourceProgressSnapshot(): AppendableQueueSourceProgressSnapshot {
+  return {
+    mode: "off",
+    manifestSlug: null,
+    startupDurationSec: null,
+    allStartupAppended: false,
+    allFullDecoded: false,
+    allFullAppended: false,
+    minSourceBufferedUntilSec: null,
+    maxSourceBufferedUntilSec: null,
+    minQueuedSegments: null,
+    maxQueuedSegments: null,
+    allSourceEnded: false,
+  }
+}
+
+function cloneAppendableQueueSourceProgressSnapshot(
+  snapshot: AppendableQueueSourceProgressSnapshot
+): AppendableQueueSourceProgressSnapshot {
+  return {
+    mode: snapshot.mode,
+    manifestSlug: snapshot.manifestSlug,
+    startupDurationSec: snapshot.startupDurationSec,
+    allStartupAppended: snapshot.allStartupAppended,
+    allFullDecoded: snapshot.allFullDecoded,
+    allFullAppended: snapshot.allFullAppended,
+    minSourceBufferedUntilSec: snapshot.minSourceBufferedUntilSec,
+    maxSourceBufferedUntilSec: snapshot.maxSourceBufferedUntilSec,
+    minQueuedSegments: snapshot.minQueuedSegments,
+    maxQueuedSegments: snapshot.maxQueuedSegments,
+    allSourceEnded: snapshot.allSourceEnded,
+  }
+}
+
+function readAppendableQueueSourceProgressSnapshot(
+  coordinator: AppendableQueueMultitrackCoordinator | null,
+  runtime: AppendableStartupHeadRuntimeState | null
+): AppendableQueueSourceProgressSnapshot {
+  if (!coordinator) return createAppendableQueueSourceProgressSnapshot()
+  const snapshot = coordinator.getSnapshot()
+  const sourceBufferedUntilSecs = snapshot.stems
+    .map((stem) => stem.sourceBufferedUntilSec)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+  const queuedSegments = snapshot.stems
+    .map((stem) => stem.sourceQueuedSegments)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+  return {
+    mode: runtime?.mode ?? "full_buffer",
+    manifestSlug: runtime?.manifestSlug ?? null,
+    startupDurationSec:
+      typeof runtime?.startupDurationSec === "number" && Number.isFinite(runtime.startupDurationSec)
+        ? Number(runtime.startupDurationSec.toFixed(3))
+        : null,
+    allStartupAppended: snapshot.allStartupAppended,
+    allFullDecoded: snapshot.allFullDecoded,
+    allFullAppended: snapshot.allFullAppended,
+    minSourceBufferedUntilSec: sourceBufferedUntilSecs.length ? Number(Math.min(...sourceBufferedUntilSecs).toFixed(3)) : null,
+    maxSourceBufferedUntilSec: sourceBufferedUntilSecs.length ? Number(Math.max(...sourceBufferedUntilSecs).toFixed(3)) : null,
+    minQueuedSegments: queuedSegments.length ? Math.min(...queuedSegments) : null,
+    maxQueuedSegments: queuedSegments.length ? Math.max(...queuedSegments) : null,
+    allSourceEnded: snapshot.stems.length ? snapshot.stems.every((stem) => stem.sourceEnded) : false,
+  }
+}
+
 function createAppendableRoutePilotReport(): AppendableRoutePilotReport {
   return {
     version: 1,
@@ -459,6 +558,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
             safeRolloutConfiguredTargets: report.snapshot.activation.safeRolloutConfiguredTargets.slice(),
           },
           probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
+          sourceProgress: cloneAppendableQueueSourceProgressSnapshot(report.snapshot.sourceProgress),
         }
       : null,
   }
@@ -532,6 +632,10 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
               probe: cloneAppendableQueueRuntimeProbeSnapshot({
                 ...createAppendableQueueRuntimeProbeSnapshot(),
                 ...(parsed.snapshot.probe ?? {}),
+              }),
+              sourceProgress: cloneAppendableQueueSourceProgressSnapshot({
+                ...createAppendableQueueSourceProgressSnapshot(),
+                ...(parsed.snapshot.sourceProgress ?? {}),
               }),
             }
           : null,
@@ -1759,9 +1863,11 @@ export default function MultiTrackPlayer({
   const globalControllerIdRef = useRef(`rr-multitrack:${Math.random().toString(36).slice(2)}`)
   const enginesRef = useRef<(SoundTouchEngine | null)[]>(trackList.map(() => null))
   const appendableQueueCoordinatorRef = useRef<AppendableQueueMultitrackCoordinator | null>(null)
+  const appendableStartupHeadRuntimeRef = useRef<AppendableStartupHeadRuntimeState | null>(null)
   const appendableQueueSharedTickTimerRef = useRef<number | null>(null)
   const appendableQueueSharedTickWorkerRef = useRef<Worker | null>(null)
   const appendableQueueRuntimeProbeTimerRef = useRef<number | null>(null)
+  const appendableQueueSourceProgressTimerRef = useRef<number | null>(null)
   const appendableQueueRuntimeProbeLastLogAtMsRef = useRef(0)
   const appendableQueueRuntimeProbeLastMinLeadSecRef = useRef<number | null>(null)
 
@@ -1908,6 +2014,14 @@ export default function MultiTrackPlayer({
         "rr_audio_appendable_queue_multistem_pilot"
       )
   )
+  const [appendableQueueStartupHeadPilotEnabled] = useState(
+    () =>
+      readClientAudioPilotFlag(
+        process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_STARTUP_HEAD_PILOT === "1",
+        APPENDABLE_QUEUE_STARTUP_HEAD_PREVIEW_FLAG,
+        "rr_audio_appendable_queue_startup_head_pilot"
+      )
+  )
   const appendablePilotActivation = resolveClientAppendablePilotActivation({
     trackScopeId,
     activationTargets: appendableActivationTargets,
@@ -1915,6 +2029,8 @@ export default function MultiTrackPlayer({
   const [appendableQueueRuntimeProbeSnapshot, setAppendableQueueRuntimeProbeSnapshot] = useState<AppendableQueueRuntimeProbeSnapshot>(
     () => createAppendableQueueRuntimeProbeSnapshot()
   )
+  const [appendableQueueSourceProgressSnapshot, setAppendableQueueSourceProgressSnapshot] =
+    useState<AppendableQueueSourceProgressSnapshot>(() => createAppendableQueueSourceProgressSnapshot())
   const [appendableRoutePilotReport, setAppendableRoutePilotReport] = useState<AppendableRoutePilotReport>(() =>
     createAppendableRoutePilotReport()
   )
@@ -2737,6 +2853,7 @@ export default function MultiTrackPlayer({
         safeRolloutConfiguredTargets: appendablePilotActivation.safeRolloutConfiguredTargets.slice(),
       },
       probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
+      sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
     }
   }, [
     activeEngineMode,
@@ -2752,6 +2869,7 @@ export default function MultiTrackPlayer({
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     appendableQueueRuntimeProbeSnapshot,
+    appendableQueueSourceProgressSnapshot,
     trackScopeId,
   ])
 
@@ -4010,6 +4128,7 @@ export default function MultiTrackPlayer({
     trackGainRef.current = []
     panRef.current = []
     appendableQueueCoordinatorRef.current = null
+    appendableStartupHeadRuntimeRef.current = null
   }, [])
 
   /** =========================
@@ -4038,6 +4157,7 @@ export default function MultiTrackPlayer({
     const init = async () => {
       readyRef.current = false
       setIsReady(false)
+      appendableStartupHeadRuntimeRef.current = null
       disposeTrackAudioGraph()
       let ctx = ctxRef.current
       if (!ctx || ctx.state === "closed") {
@@ -4107,6 +4227,15 @@ export default function MultiTrackPlayer({
       const useAppendableQueueMultistemPilot = audioPilotRouting.useAppendableQueueMultistemPilot
       const useAppendableQueuePilot = audioPilotRouting.useAppendableQueuePilot
       const useRingBufferPilot = audioPilotRouting.useRingBufferPilot
+      const appendableStartupManifestMatch =
+        useAppendableQueuePilot && appendableQueueStartupHeadPilotEnabled
+          ? await resolveAppendableStartupManifestMatch(trackList)
+          : null
+      const useAppendableStartupHeadPilot =
+        !!appendableStartupManifestMatch &&
+        useAppendableQueuePilot &&
+        !useStreamingPilot &&
+        !useRingBufferPilot
       const useStartupChunkPilot =
         startupChunkPilotEnabled &&
         !useAppendableQueuePilot &&
@@ -4224,9 +4353,102 @@ export default function MultiTrackPlayer({
         decodeTrackBufferFromSrc(trackIndex, trackList[trackIndex].src, "full")
 
       let buffers: AudioBuffer[] = []
+      let appendableStartupHeadInit:
+        | {
+            manifestSlug: string | null
+            startupDurationSec: number
+            estimatedTotalDurationSec: number
+            durationFrames: number
+            sampleRate: number
+            stems: Array<
+              AppendableStartupHeadStemRuntimeState & {
+                startupBuffer: AudioBuffer
+              }
+            >
+          }
+        | null = null
       waveformSourceBuffersRef.current = []
       if (!useStreamingPilot && trackList.length > 0) {
-        if (useStartupChunkPilot || useStartupChunkSplicePilot) {
+        if (useAppendableStartupHeadPilot && appendableStartupManifestMatch) {
+          const startupDecoded = await Promise.all(
+            appendableStartupManifestMatch.sources.map((source, trackIndex) =>
+              decodeTrackBufferFromSrc(trackIndex, source.startupSrc, "startup")
+            )
+          )
+          buffers = startupDecoded.map((decoded) => decoded.buffer)
+          waveformSourceBuffersRef.current = buffers
+          const sampleRate = buffers[0]?.sampleRate ?? ctx.sampleRate
+          if (buffers.some((buffer) => buffer.sampleRate !== sampleRate)) {
+            throw new Error("appendable startup head pilot requires matching sample rates across startup stems")
+          }
+          const startupDurationCandidates = appendableStartupManifestMatch.sources
+            .map((source, index) => source.startupDurationSec ?? buffers[index]?.duration ?? 0)
+            .filter((value): value is number => Number.isFinite(value) && value > 0)
+          const estimatedDurationCandidates = appendableStartupManifestMatch.sources
+            .map((source) => source.estimatedTotalDurationSec ?? 0)
+            .filter((value): value is number => Number.isFinite(value) && value > 0)
+          const startupDurationSec = startupDurationCandidates.length
+            ? Math.min(...startupDurationCandidates)
+            : buffers[0]?.duration ?? 0
+          const estimatedTotalDurationSec = estimatedDurationCandidates.length
+            ? Math.max(...estimatedDurationCandidates)
+            : buffers[0]?.duration ?? 0
+          const durationFrames = Math.max(
+            ...buffers.map((buffer, index) => {
+              const estimatedFrames = Math.floor(
+                Math.max(
+                  buffer.length,
+                  (appendableStartupManifestMatch.sources[index]?.estimatedTotalDurationSec ?? 0) * sampleRate
+                )
+              )
+              return Math.max(buffer.length, estimatedFrames)
+            })
+          )
+          const stems = buffers.map((startupBuffer) => {
+            const sourceController = createManualAppendablePcmSource({
+              sampleRate: startupBuffer.sampleRate,
+              channelCount: startupBuffer.numberOfChannels,
+              durationFrames,
+            })
+            const startupFrames = Math.max(1, startupBuffer.length)
+            const startupChunk = sliceAudioBufferToChunk(startupBuffer, 0, startupFrames, { final: false })
+            if (!startupChunk) {
+              throw new Error("appendable startup head pilot could not build startup chunk")
+            }
+            sourceController.appendChunk(startupChunk)
+            return {
+              sourceController,
+              startupBuffer,
+              startupFrames,
+              startupAppended: true,
+              fullDecoded: false,
+              fullAppended: false,
+            }
+          })
+          appendableStartupHeadInit = {
+            manifestSlug: appendableStartupManifestMatch.slug || null,
+            startupDurationSec,
+            estimatedTotalDurationSec,
+            durationFrames,
+            sampleRate,
+            stems,
+          }
+          appendableStartupHeadRuntimeRef.current = {
+            mode: "startup_head_manifest",
+            manifestSlug: appendableStartupManifestMatch.slug || null,
+            startupDurationSec,
+            stems,
+          }
+          if (!cancelled) {
+            setDuration(estimatedTotalDurationSec || buffers[0]?.duration || 0)
+          }
+          logAudioDebug("appendable_queue:startup_head_pilot_enabled", {
+            manifestSlug: appendableStartupManifestMatch.slug || null,
+            tracks: trackList.length,
+            startupDurationSec: Number(startupDurationSec.toFixed(3)),
+            estimatedTotalDurationSec: Number(estimatedTotalDurationSec.toFixed(3)),
+          })
+        } else if (useStartupChunkPilot || useStartupChunkSplicePilot) {
           const startupDecoded = await Promise.all(
             trackList.map((track, trackIndex) =>
               decodeTrackBufferFromSrc(trackIndex, track.startupChunk?.startupSrc ?? track.src, "startup")
@@ -4429,6 +4651,8 @@ export default function MultiTrackPlayer({
       setDuration(
         useStreamingPilot
           ? 0
+          : useAppendableStartupHeadPilot
+            ? appendableStartupHeadInit?.estimatedTotalDurationSec ?? buffers[0]?.duration ?? 0
           : (useStartupChunkPilot || useStartupChunkSplicePilot)
             ? startupChunkRuntimeRef.current?.estimatedTotalDurationSec ?? buffers[0]?.duration ?? 0
             : (buffers[0]?.duration ?? 0)
@@ -4521,12 +4745,26 @@ export default function MultiTrackPlayer({
         engineMode = "appendable_queue_worklet"
         const createdAppendableEngines: SoundTouchEngine[] = []
         try {
+          if (!appendableStartupHeadInit) {
+            appendableStartupHeadRuntimeRef.current = {
+              mode: "full_buffer",
+              manifestSlug: null,
+              startupDurationSec: null,
+              stems: [],
+            }
+          }
           if (buffers.length === 1) {
-            const source = createAudioBufferAppendableSource(buffers[0])
+            const source = appendableStartupHeadInit
+              ? appendableStartupHeadInit.stems[0]?.sourceController.source
+              : createAudioBufferAppendableSource(buffers[0])
+            if (!source) {
+              throw new Error("appendable startup head pilot missing source controller")
+            }
             const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
             logAudioDebug("audio:appendable_queue_engine_begin", {
               trackIndex: 0,
               durationSec: Number((buffers[0]?.duration ?? 0).toFixed(3)),
+              startupHeadMode: appendableStartupHeadInit ? "startup_head_manifest" : "full_buffer",
             })
             const engine = await promiseWithTimeout(
               createAppendableQueueEngine(ctx, source),
@@ -4540,15 +4778,23 @@ export default function MultiTrackPlayer({
             })
             registerEngine(engine, 0)
           } else {
-            const sampleRate = buffers[0]?.sampleRate ?? ctx.sampleRate
-            const durationFrames = buffers.reduce((maxFrames, buffer) => Math.max(maxFrames, buffer.length), 0)
+            const sampleRate = appendableStartupHeadInit?.sampleRate ?? buffers[0]?.sampleRate ?? ctx.sampleRate
+            const durationFrames =
+              appendableStartupHeadInit?.durationFrames ??
+              buffers.reduce((maxFrames, buffer) => Math.max(maxFrames, buffer.length), 0)
             for (let i = 0; i < buffers.length; i += 1) {
-              const source = createAudioBufferAppendableSource(buffers[i])
+              const source = appendableStartupHeadInit
+                ? appendableStartupHeadInit.stems[i]?.sourceController.source
+                : createAudioBufferAppendableSource(buffers[i])
+              if (!source) {
+                throw new Error(`appendable startup head pilot missing source controller for track #${i}`)
+              }
               const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
               logAudioDebug("audio:appendable_queue_engine_begin", {
                 trackIndex: i,
                 durationSec: Number((buffers[i]?.duration ?? 0).toFixed(3)),
                 multitrack: true,
+                startupHeadMode: appendableStartupHeadInit ? "startup_head_manifest" : "full_buffer",
               })
               const engine = await promiseWithTimeout(
                 createAppendableQueueEngine(ctx, source, { externalTick: true }),
@@ -4570,22 +4816,99 @@ export default function MultiTrackPlayer({
               ctx,
               sampleRate,
               durationFrames,
-              stems: createdAppendableEngines.map((engine, index) => ({
-                stemIndex: index,
-                label: trackList[index]?.name ?? `Track ${index + 1}`,
-                engine,
-                getSourceBufferedUntilSec: () => buffers[index]?.duration ?? 0,
-                getSourceQueuedSegments: () => 1,
-                isSourceEnded: () => true,
-                isStartupAppended: () => true,
-                isFullAppended: () => true,
-                isFullDecoded: () => true,
-              })),
+              stems: createdAppendableEngines.map((engine, index) => {
+                const startupStem = appendableStartupHeadInit?.stems[index] ?? null
+                return {
+                  stemIndex: index,
+                  label: trackList[index]?.name ?? `Track ${index + 1}`,
+                  engine,
+                  getSourceBufferedUntilSec: startupStem
+                    ? () => startupStem.sourceController.getState().bufferedUntilFrame / sampleRate
+                    : () => buffers[index]?.duration ?? 0,
+                  getSourceQueuedSegments: startupStem
+                    ? () => startupStem.sourceController.getState().queuedSegments
+                    : () => 1,
+                  isSourceEnded: startupStem ? () => startupStem.sourceController.getState().ended : () => true,
+                  isStartupAppended: startupStem ? () => startupStem.startupAppended : () => true,
+                  isFullAppended: startupStem ? () => startupStem.fullAppended : () => true,
+                  isFullDecoded: startupStem ? () => startupStem.fullDecoded : () => true,
+                }
+              }),
             })
             logAudioDebug("audio:appendable_queue_multitrack_ready", {
               trackCount: createdAppendableEngines.length,
               durationSec: Number(((durationFrames || 0) / sampleRate).toFixed(3)),
+              startupHeadMode: appendableStartupHeadInit ? "startup_head_manifest" : "full_buffer",
             })
+            appendableQueueCoordinatorRef.current.tick({ force: true })
+            setAppendableQueueSourceProgressSnapshot(
+              readAppendableQueueSourceProgressSnapshot(
+                appendableQueueCoordinatorRef.current,
+                appendableStartupHeadRuntimeRef.current
+              )
+            )
+          }
+
+          if (appendableStartupHeadInit) {
+            startBackgroundStartupChunkDecode = () => {
+              void (async () => {
+              try {
+                logAudioDebug("appendable_queue:startup_head_full_decode_begin", {
+                  manifestSlug: appendableStartupHeadInit.manifestSlug,
+                  tracks: trackList.length,
+                })
+                const decodedFull = await Promise.all(trackList.map((_, trackIndex) => decodeTrackBuffer(trackIndex)))
+                if (cancelled) return
+                const fullBuffers = decodedFull.map((item) => item.buffer)
+                waveformSourceBuffersRef.current = fullBuffers
+                const fullDurationSec = Math.max(
+                  appendableStartupHeadInit.estimatedTotalDurationSec,
+                  ...fullBuffers.map((buffer) => buffer.duration || 0)
+                )
+                if (fullDurationSec > 0) {
+                  setDuration(fullDurationSec)
+                }
+                appendableStartupHeadInit.stems.forEach((stem, index) => {
+                  stem.fullDecoded = true
+                  const fullBuffer = fullBuffers[index]
+                  if (!fullBuffer) return
+                  const fullChunk = sliceAudioBufferToChunk(
+                    fullBuffer,
+                    stem.startupFrames,
+                    Math.max(1, fullBuffer.length - stem.startupFrames),
+                    { final: true }
+                  )
+                  if (fullChunk) {
+                    stem.sourceController.appendChunk(fullChunk)
+                  }
+                  stem.sourceController.markEnded()
+                  stem.fullAppended = true
+                })
+                appendableQueueCoordinatorRef.current?.tick({ force: true })
+                setAppendableQueueSourceProgressSnapshot(
+                  readAppendableQueueSourceProgressSnapshot(
+                    appendableQueueCoordinatorRef.current,
+                    appendableStartupHeadRuntimeRef.current
+                  )
+                )
+                schedulePreviewPeaks(isPlayingRef.current ? WAVEFORM_PREVIEW_WHILE_PLAYING_DELAY_MS : WAVEFORM_PREVIEW_IDLE_DELAY_MS)
+                if (!isPlayingRef.current) {
+                  scheduleDeferredPeaks(DEFERRED_PEAKS_IDLE_DELAY_MS)
+                }
+                logAudioDebug("appendable_queue:startup_head_full_decode_ready", {
+                  manifestSlug: appendableStartupHeadInit.manifestSlug,
+                  tracks: fullBuffers.length,
+                  durationSec: Number(fullDurationSec.toFixed(3)),
+                })
+              } catch (error) {
+                if (cancelled) return
+                logAudioDebug("appendable_queue:startup_head_full_decode_failed", {
+                  manifestSlug: appendableStartupHeadInit.manifestSlug,
+                  reason: error instanceof Error ? error.message : "unknown startup head full decode error",
+                })
+              }
+              })()
+            }
           }
         } catch (error) {
           createdAppendableEngines.forEach((engine) => {
@@ -4963,6 +5286,7 @@ export default function MultiTrackPlayer({
     appendablePilotActivation.tempoControlUnlocked,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
+    appendableQueueStartupHeadPilotEnabled,
     disposeTrackAudioGraph,
     persistOnUnmount,
     ringBufferPilotEnabled,
@@ -6119,6 +6443,37 @@ export default function MultiTrackPlayer({
   }, [activeEngineMode, isPlaying])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    const coordinator = appendableQueueCoordinatorRef.current
+    if (activeEngineMode !== "appendable_queue_worklet" || !coordinator) {
+      if (appendableQueueSourceProgressTimerRef.current != null) {
+        window.clearInterval(appendableQueueSourceProgressTimerRef.current)
+        appendableQueueSourceProgressTimerRef.current = null
+      }
+      setAppendableQueueSourceProgressSnapshot((current) =>
+        current.mode !== "off" ? createAppendableQueueSourceProgressSnapshot() : current
+      )
+      return
+    }
+
+    const sample = () => {
+      setAppendableQueueSourceProgressSnapshot(
+        readAppendableQueueSourceProgressSnapshot(coordinator, appendableStartupHeadRuntimeRef.current)
+      )
+    }
+
+    sample()
+    appendableQueueSourceProgressTimerRef.current = window.setInterval(sample, 350)
+
+    return () => {
+      if (appendableQueueSourceProgressTimerRef.current != null) {
+        window.clearInterval(appendableQueueSourceProgressTimerRef.current)
+        appendableQueueSourceProgressTimerRef.current = null
+      }
+    }
+  }, [activeEngineMode, trackScopeId])
+
+  useEffect(() => {
     if (!showDetailedSections) return
     if (typeof window === "undefined") return
     const rafId = window.requestAnimationFrame(() => {
@@ -7046,6 +7401,7 @@ export default function MultiTrackPlayer({
         steps: appendablePilotChecklistState.steps.slice(),
       },
       runtimeProbe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
+      sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
       report: cloneAppendableRoutePilotReport(appendableRoutePilotReport),
     }
   }, [
@@ -7054,6 +7410,7 @@ export default function MultiTrackPlayer({
     appendablePilotChecklistState.statusLabel,
     appendablePilotChecklistState.steps,
     appendableQueueRuntimeProbeSnapshot,
+    appendableQueueSourceProgressSnapshot,
     appendableRoutePilotReport,
     trackScopeId,
   ])
@@ -9890,6 +10247,9 @@ export default function MultiTrackPlayer({
                             appendable multistem flag: {appendableQueueMultistemPilotEnabled ? "on" : "off"}
                           </div>
                           <div>
+                            appendable startup head flag: {appendableQueueStartupHeadPilotEnabled ? "on" : "off"}
+                          </div>
+                          <div>
                             appendable activation scoped: {appendablePilotActivation.activationConfigured ? "on" : "off"}
                           </div>
                           <div>
@@ -9912,6 +10272,23 @@ export default function MultiTrackPlayer({
                           </div>
                           <div>
                             appendable control plane: {appendableQueueRuntimeProbeSnapshot.controlPlaneMode ?? "—"}
+                          </div>
+                          <div>
+                            appendable startup mode: {appendableQueueSourceProgressSnapshot.mode}
+                            {appendableQueueSourceProgressSnapshot.manifestSlug
+                              ? ` (${appendableQueueSourceProgressSnapshot.manifestSlug})`
+                              : ""}
+                          </div>
+                          <div>
+                            appendable source progress: startup=
+                            {appendableQueueSourceProgressSnapshot.allStartupAppended ? "yes" : "no"} / fullDecoded=
+                            {appendableQueueSourceProgressSnapshot.allFullDecoded ? "yes" : "no"} / fullAppended=
+                            {appendableQueueSourceProgressSnapshot.allFullAppended ? "yes" : "no"}
+                          </div>
+                          <div>
+                            appendable source buffered sec: {formatOptionalFixed(appendableQueueSourceProgressSnapshot.minSourceBufferedUntilSec)}
+                            {" .. "}
+                            {formatOptionalFixed(appendableQueueSourceProgressSnapshot.maxSourceBufferedUntilSec)}
                           </div>
                           <div>
                             appendable sample rates:{" "}
@@ -9945,6 +10322,11 @@ export default function MultiTrackPlayer({
                           </div>
                           <div>
                             appendable total discontinuity: {appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount}
+                          </div>
+                          <div>
+                            appendable queued segments: {formatOptionalFixed(appendableQueueSourceProgressSnapshot.minQueuedSegments, 0)}
+                            {" .. "}
+                            {formatOptionalFixed(appendableQueueSourceProgressSnapshot.maxQueuedSegments, 0)}
                           </div>
                           <div>
                             {t.ringBufferFlag}: {ringBufferPilotEnabled ? "on" : "off"}
@@ -10165,6 +10547,12 @@ export default function MultiTrackPlayer({
                                 {appendableRoutePilotReport.snapshot.probe.sampleRates.length
                                   ? appendableRoutePilotReport.snapshot.probe.sampleRates.join(", ")
                                   : "—"}
+                              </div>
+                              <div>
+                                source: mode={appendableRoutePilotReport.snapshot.sourceProgress.mode} / startup=
+                                {appendableRoutePilotReport.snapshot.sourceProgress.allStartupAppended ? "yes" : "no"} / fullDecoded=
+                                {appendableRoutePilotReport.snapshot.sourceProgress.allFullDecoded ? "yes" : "no"} / fullAppended=
+                                {appendableRoutePilotReport.snapshot.sourceProgress.allFullAppended ? "yes" : "no"}
                               </div>
                             </div>
                           ) : null}
