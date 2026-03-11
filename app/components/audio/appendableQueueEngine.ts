@@ -34,6 +34,7 @@ export type AppendableQueueWorkletStats = {
   bufferedEndFrame: number
   discontinuityCount: number
   generation: number
+  tempo: number
 }
 
 export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
@@ -53,6 +54,8 @@ export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
   transportFrame: number
   transportSec: number
   anchorFrame: number
+  transportRate: number
+  tempo: number
 }
 
 export type ManualAppendablePcmSourceState = {
@@ -378,6 +381,8 @@ export async function createAppendableQueueEngine(
   let appendedFrames = 0
   let sourceEnded = false
   let queueFramesEstimate: number | null = null
+  const supportsTempo = channelCount <= 2
+  let tempo = 1
   let lastWorkletStats: AppendableQueueWorkletStats = {
     availableFrames: 0,
     minAvailableFrames: 0,
@@ -388,6 +393,7 @@ export async function createAppendableQueueEngine(
     bufferedEndFrame: 0,
     discontinuityCount: 0,
     generation: 0,
+    tempo,
   }
 
   const emitStats = () => {
@@ -412,6 +418,8 @@ export async function createAppendableQueueEngine(
       transportFrame: transport.currentFrame,
       transportSec: Number(transport.currentSec.toFixed(3)),
       anchorFrame: transport.anchorFrame,
+      transportRate: transport.playbackRate,
+      tempo,
     })
   }
 
@@ -435,7 +443,9 @@ export async function createAppendableQueueEngine(
       bufferedEndFrame: Math.max(0, Number(data.bufferedEndFrame) || 0),
       discontinuityCount: Math.max(0, Number(data.discontinuityCount) || 0),
       generation,
+      tempo: Math.min(4, Math.max(0.25, Number(data.tempo) || tempo)),
     }
+    tempo = lastWorkletStats.tempo
     queueFramesEstimate = lastWorkletStats.availableFrames
     emitStats()
     if (startRequested && !isRunning && lastWorkletStats.availableFrames > 0) {
@@ -569,6 +579,7 @@ export async function createAppendableQueueEngine(
       bufferedEndFrame: safeFrame,
       discontinuityCount: 0,
       generation,
+      tempo,
     }
     try {
       node.port.postMessage({
@@ -652,7 +663,7 @@ export async function createAppendableQueueEngine(
   return {
     getCapabilities() {
       return {
-        supportsTempo: false,
+        supportsTempo,
         supportsIndependentPitch: false,
       }
     },
@@ -739,6 +750,8 @@ export async function createAppendableQueueEngine(
         transportFrame: transport.currentFrame,
         transportSec: Number(transport.currentSec.toFixed(3)),
         anchorFrame: transport.anchorFrame,
+        transportRate: transport.playbackRate,
+        tempo,
         sourceEnded: sourceEnded ? 1 : 0,
         lowWaterFrames,
         highWaterFrames,
@@ -758,7 +771,13 @@ export async function createAppendableQueueEngine(
     },
 
     setTempo(_tempo: number) {
-      // Phase-one appendable queue prototype intentionally skips time-stretch.
+      if (!supportsTempo) return
+      tempo = clamp(_tempo, 0.25, 4)
+      transportClock.setRate(tempo, audioCtx.currentTime)
+      try {
+        node.port.postMessage({ type: "setTempo", generation, tempo })
+      } catch {}
+      emitStats()
     },
 
     setPitchSemitones(_semitones: number) {

@@ -48,6 +48,7 @@ type AppendableQueueLabSyncSnapshot = {
 type AppendableQueueLabSnapshot = {
   ready: boolean
   playing: boolean
+  tempo: number
   trackLabel: string
   stemCount: number
   transportSec: number
@@ -108,6 +109,7 @@ type BoundaryAbPreviewState = {
 type AppendableQueueDebugApi = {
   play: () => Promise<void>
   pause: () => void
+  setTempo: (tempo: number) => number
   seek: (sec: number) => number
   rebase: (sec: number) => number
   reset: () => void
@@ -238,6 +240,7 @@ function createUnavailableSnapshot(error: string | null = null): AppendableQueue
   return {
     ready: false,
     playing: false,
+    tempo: 1,
     trackLabel: "loading...",
     stemCount: 0,
     transportSec: 0,
@@ -472,6 +475,7 @@ export default function AppendableQueueLabPage() {
     setSnapshot({
       ready: true,
       playing: coordinatorSnapshot.playing,
+      tempo: coordinatorSnapshot.tempo,
       trackLabel: harness.trackLabel,
       stemCount: coordinatorSnapshot.stemCount,
       transportSec: coordinatorSnapshot.transportSec,
@@ -778,6 +782,14 @@ export default function AppendableQueueLabPage() {
           syncSnapshot()
         }
 
+        const setTempo = (nextTempo: number) => {
+          const current = harnessRef.current
+          if (!current) return 1
+          const appliedTempo = current.coordinator.setTempo(nextTempo)
+          syncSnapshot()
+          return appliedTempo
+        }
+
         const seekCommon = (sec: number, mode: "seek" | "rebase") => {
           const current = harnessRef.current
           if (!current) return 0
@@ -818,6 +830,7 @@ export default function AppendableQueueLabPage() {
           if (!current) return
           stopBoundaryAbPreview()
           current.coordinator.pause()
+          current.coordinator.setTempo(1)
           resetAudioDebugCaptureStore()
           setOutputCaptureArtifact(null)
           setOutputCaptureStatus("armed")
@@ -1004,6 +1017,7 @@ export default function AppendableQueueLabPage() {
         window.__rrAppendableQueueDebug = {
           play,
           pause,
+          setTempo,
           seek: (sec) => seekCommon(sec, "seek"),
           rebase: (sec) => seekCommon(sec, "rebase"),
           reset,
@@ -1041,6 +1055,7 @@ export default function AppendableQueueLabPage() {
             return {
               ready: true,
               playing: coordinatorSnapshot.playing,
+              tempo: coordinatorSnapshot.tempo,
               trackLabel: current.trackLabel,
               stemCount: coordinatorSnapshot.stemCount,
               transportSec: coordinatorSnapshot.transportSec,
@@ -1116,6 +1131,7 @@ export default function AppendableQueueLabPage() {
       ["ready", snapshot.ready ? "yes" : "no"],
       ["context", snapshot.contextState],
       ["playing", snapshot.playing ? "yes" : "no"],
+      ["tempo", formatNumber(snapshot.tempo)],
       ["track", snapshot.trackLabel],
       ["stems", String(snapshot.stemCount)],
       ["harnessInstanceId", snapshot.harnessInstanceId == null ? "-" : String(snapshot.harnessInstanceId)],
