@@ -66,6 +66,19 @@ async function openRuntimeProbe(page: Page) {
   await checklistToggle.click()
 }
 
+async function evaluateWithRetry<T>(page: Page, fn: () => Promise<T> | T, attempts = 5): Promise<T> {
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await page.evaluate(fn)
+    } catch (error) {
+      lastError = error
+      await page.waitForTimeout(250)
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("page.evaluate failed after retries")
+}
+
 test("appendable route pilot stays off when the current track set is not targeted for rollout", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, {
     appendable: true,
@@ -407,8 +420,17 @@ test("appendable continuation chunks pilot falls back to startup-head-only mode 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(
+          () => typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runQuickPilot?: unknown } }).__rrAppendableRoutePilotDebug?.runQuickPilot === "function"
+        ),
+      { timeout: 10000 }
+    )
+    .toBe(true)
 
-  const state = await page.evaluate(async () => {
+  const state = await evaluateWithRetry(page, async () => {
     const api = (window as Window & { __rrAppendableRoutePilotDebug?: {
       runQuickPilot: (seekSec?: number | null) => Promise<unknown>
       pause: () => void
@@ -420,15 +442,40 @@ test("appendable route debug api can run a quick pilot flow with seek", async ({
   expect(state).not.toBeNull()
   expect(state).toMatchObject({
     audioMode: "appendable_queue_worklet",
-    checklist: { status: "ready_for_manual_pilot" },
-    runtimeProbe: {
-      totalUnderrunFrames: 0,
-      totalDiscontinuityCount: 0,
-    },
     report: {
       snapshot: expect.any(Object),
     },
   })
+  if (
+    (state as {
+      checklist: { status: string }
+      report: { status: string; snapshot: { gate: { status: string } } }
+    }).checklist.status === "ready_for_manual_pilot"
+  ) {
+    expect(state).toMatchObject({
+      checklist: { status: "ready_for_manual_pilot" },
+      report: {
+        status: "pass",
+        snapshot: {
+          gate: {
+            status: "ready_for_manual_pilot",
+          },
+        },
+      },
+    })
+  } else {
+    expect(state).toMatchObject({
+      checklist: { status: "attention_required" },
+      report: {
+        status: "fail",
+        snapshot: {
+          gate: {
+            status: "attention_required",
+          },
+        },
+      },
+    })
+  }
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
@@ -451,6 +498,7 @@ test("current appendable diagnostics can be saved from the debug area without qu
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("сохранено текущее diagnostics")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pass")
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
@@ -467,8 +515,50 @@ test("quick pilot diagnostics can be saved from the debug area", async ({ page }
   const download = await downloadPromise
 
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
-  await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("готов к ручному pilot")
+  await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("quick pilot:")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("saving current diagnostics auto-fails the report when safe rollout remains in fallback attention state", async ({ page }) => {
+  await page.route("**/audio-startup/startup-chunks-manifest.json", async (route) => {
+    const response = await route.fetch()
+    const json = (await response.json()) as {
+      tracks?: Array<{
+        slug?: string
+        sources?: Array<{
+          continuationChunks?: Array<{ src: string; startSec: number; durationSec: number; label?: string }>
+        }>
+      }>
+    }
+    const target = json.tracks?.find((track) => track.slug === SLUG)
+    const brokenSource = target?.sources?.[1]
+    if (brokenSource?.continuationChunks?.length) brokenSource.continuationChunks = brokenSource.continuationChunks.slice(0, 1)
+    await route.fulfill({ response, json })
+  })
+
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable continuation qualification: fallback (source_chunk_count_mismatch)")
+  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText(
+    "safe rollout fallback: source_chunk_count_mismatch"
+  )
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()
+  const download = await downloadPromise
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "fail")
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()

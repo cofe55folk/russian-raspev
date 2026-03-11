@@ -119,11 +119,21 @@ type AppendableQueueSourceProgressSnapshot = {
   maxQueuedSegments: number | null
   allSourceEnded: boolean
 }
+type AppendableRoutePilotChecklistStatus =
+  | "waiting_for_flags"
+  | "blocked_by_targeting"
+  | "play_to_activate_probe"
+  | "ready_for_manual_pilot"
+  | "attention_required"
 type AppendableRoutePilotReportStatus = "pending" | "pass" | "fail"
 type AppendableRoutePilotReportSnapshot = {
   capturedAt: string
   trackScopeId: string
   audioMode: EngineMode
+  gate: {
+    status: AppendableRoutePilotChecklistStatus
+    statusLabel: string
+  }
   flags: {
     appendableQueuePilotEnabled: boolean
     appendableQueueMultistemPilotEnabled: boolean
@@ -156,12 +166,7 @@ type AppendableRoutePilotDebugState = {
   playing: boolean
   audioMode: EngineMode
   checklist: {
-    status:
-      | "waiting_for_flags"
-      | "blocked_by_targeting"
-      | "play_to_activate_probe"
-      | "ready_for_manual_pilot"
-      | "attention_required"
+    status: AppendableRoutePilotChecklistStatus
     statusLabel: string
     steps: string[]
   }
@@ -604,11 +609,15 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
     updatedAt: report.updatedAt,
     status: report.status,
     notes: report.notes,
-      snapshot: report.snapshot
+        snapshot: report.snapshot
       ? {
           capturedAt: report.snapshot.capturedAt,
           trackScopeId: report.snapshot.trackScopeId,
           audioMode: report.snapshot.audioMode,
+          gate: {
+            status: report.snapshot.gate.status,
+            statusLabel: report.snapshot.gate.statusLabel,
+          },
           flags: {
             appendableQueuePilotEnabled: report.snapshot.flags.appendableQueuePilotEnabled,
             appendableQueueMultistemPilotEnabled: report.snapshot.flags.appendableQueueMultistemPilotEnabled,
@@ -658,6 +667,17 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                 parsed.snapshot.audioMode === "streaming_media"
                   ? parsed.snapshot.audioMode
                   : "soundtouch",
+              gate: {
+                status:
+                  parsed.snapshot.gate?.status === "blocked_by_targeting" ||
+                  parsed.snapshot.gate?.status === "play_to_activate_probe" ||
+                  parsed.snapshot.gate?.status === "ready_for_manual_pilot" ||
+                  parsed.snapshot.gate?.status === "attention_required"
+                    ? parsed.snapshot.gate.status
+                    : "waiting_for_flags",
+                statusLabel:
+                  typeof parsed.snapshot.gate?.statusLabel === "string" ? parsed.snapshot.gate.statusLabel : "unknown",
+              },
               flags: {
                 appendableQueuePilotEnabled: !!parsed.snapshot.flags?.appendableQueuePilotEnabled,
                 appendableQueueMultistemPilotEnabled: !!parsed.snapshot.flags?.appendableQueueMultistemPilotEnabled,
@@ -720,6 +740,14 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
 
 function formatOptionalFixed(value: number | null | undefined, digits = 3) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—"
+}
+
+function resolveAppendableRoutePilotAutoStatus(
+  checklistStatus: AppendableRoutePilotChecklistStatus
+): AppendableRoutePilotReportStatus {
+  if (checklistStatus === "ready_for_manual_pilot") return "pass"
+  if (checklistStatus === "attention_required") return "fail"
+  return "pending"
 }
 
 function getStartupChunkHandoffAtSec(runtime: StartupChunkRuntimeState): number {
@@ -2954,6 +2982,10 @@ export default function MultiTrackPlayer({
       capturedAt,
       trackScopeId,
       audioMode: activeEngineMode,
+      gate: {
+        status: appendablePilotChecklistState.status,
+        statusLabel: appendablePilotChecklistState.statusLabel,
+      },
       flags: {
         appendableQueuePilotEnabled,
         appendableQueueMultistemPilotEnabled,
@@ -2985,6 +3017,8 @@ export default function MultiTrackPlayer({
     appendablePilotActivation.safeRolloutConfiguredTargets,
     appendablePilotActivation.targetedPilotConfiguredTargets,
     appendablePilotActivation.tempoControlUnlocked,
+    appendablePilotChecklistState.status,
+    appendablePilotChecklistState.statusLabel,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     appendableQueueStartupHeadPilotEnabled,
@@ -2997,12 +3031,15 @@ export default function MultiTrackPlayer({
   const buildAppendableRoutePilotReportWithSnapshot = useCallback(
     (
       snapshot: AppendableRoutePilotReportSnapshot,
-      options?: { status?: AppendableRoutePilotReportStatus }
+      options?: { status?: AppendableRoutePilotReportStatus; autoStatus?: boolean }
     ): AppendableRoutePilotReport => {
+      const nextStatus =
+        options?.status ??
+        (options?.autoStatus ? resolveAppendableRoutePilotAutoStatus(snapshot.gate.status) : appendableRoutePilotReport.status)
       return {
         ...appendableRoutePilotReport,
         updatedAt: snapshot.capturedAt,
-        status: options?.status ?? appendableRoutePilotReport.status,
+        status: nextStatus,
         snapshot,
       }
     },
@@ -7731,10 +7768,6 @@ export default function MultiTrackPlayer({
           seekTo(seekSec)
           await wait(2800)
         }
-        const snapshot = buildAppendableRoutePilotSnapshot()
-        const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot)
-        setAppendableRoutePilotReport(nextReport)
-
         let finalState = readState()
         for (let attempt = 0; attempt < 12; attempt += 1) {
           finalState = readState()
@@ -7746,6 +7779,22 @@ export default function MultiTrackPlayer({
             break
           }
           await wait(200)
+        }
+        const settledSnapshot = buildAppendableRoutePilotSnapshot()
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(
+          {
+            ...settledSnapshot,
+            gate: {
+              status: finalState.checklist.status,
+              statusLabel: finalState.checklist.statusLabel,
+            },
+          },
+          { autoStatus: true }
+        )
+        setAppendableRoutePilotReport(nextReport)
+        finalState = {
+          ...finalState,
+          report: cloneAppendableRoutePilotReport(nextReport),
         }
         if (options?.downloadPacket) {
           downloadAppendableRoutePilotPacket(nextReport)
@@ -7779,7 +7828,7 @@ export default function MultiTrackPlayer({
 
   const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
-    const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot)
+    const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot, { autoStatus: true })
     setAppendableRoutePilotReport(nextReport)
     downloadAppendableRoutePilotPacket(nextReport)
     setAppendableRouteQuickPilotMessage(
@@ -10843,6 +10892,10 @@ export default function MultiTrackPlayer({
                           {appendableRoutePilotReport.snapshot ? (
                             <div className="mt-2 space-y-1 text-[11px] text-white/50">
                               <div>audio mode: {appendableRoutePilotReport.snapshot.audioMode}</div>
+                              <div>
+                                gate: {appendableRoutePilotReport.snapshot.gate.status} /{" "}
+                                {appendableRoutePilotReport.snapshot.gate.statusLabel}
+                              </div>
                               <div>
                                 flags: appendable={appendableRoutePilotReport.snapshot.flags.appendableQueuePilotEnabled ? "on" : "off"} / multistem=
                                 {appendableRoutePilotReport.snapshot.flags.appendableQueueMultistemPilotEnabled ? "on" : "off"} / startup=
