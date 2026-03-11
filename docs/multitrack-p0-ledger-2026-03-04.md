@@ -4517,3 +4517,32 @@ Comment for the next window:
 Итог после `9.109`:
 1. Оператору больше не нужно вручную лезть в `localStorage`, чтобы опробовать уже qualified safe-rollout candidate прямо на route.
 2. Следующий rollout slice можно строить уже поверх route-level actions и lived diagnostics, а не поверх ручных локальных манипуляций.
+
+## 9.110 `safe_rollout` теперь сам поднимает appendable route для matched targets без ручных appendable флагов
+
+Что сделано:
+1. Следующий slice после `9.109` уже не про diagnostics action, а про сам route gating.
+2. До этого момента matched `safe_rollout` target всё ещё не был самостоятельным rollout path:
+   - route по-прежнему требовал локально включить `appendable queue`
+   - и отдельно включить `appendable multistem`
+   - без этих manual flags `safe_rollout` оставался фактически operator-only режимом
+3. В этом slice route переведён на effective appendable flags:
+   - matched `safe_rollout` теперь считается implicit appendable request
+   - initial client routing умеет сразу войти в appendable path по одному лишь `rr_audio_appendable_queue_safe_rollout_targets`
+   - checklist, diagnostics и saved snapshot теперь показывают effective appendable flags, а не только raw local toggles
+4. Route contract обновлён соответственно:
+   - safe-rollout сценарии в e2e теперь стартуют только с `rr_audio_appendable_queue_safe_rollout_targets`
+   - manual `appendable queue` и `appendable multistem` для этих тестов больше не выставляются
+   - при этом сохраняются проверки на:
+     - `tempo locked`
+     - qualified continuation auto-ingest
+     - fallback attention contract при намеренно сломанном manifest continuation plan
+
+Проверка:
+1. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `52/52`
+2. `npx tsc --noEmit` — pass
+3. `npm run build` — pass
+
+Итог после `9.110`:
+1. `safe_rollout` перестал быть вторым слоем поверх ручных pilot flags и стал реальным route-level rollout gate для matched targets.
+2. Следующее controlled widening теперь можно делать уже через rollout targeting, а не через комбинацию rollout targeting + локальные appendable toggle-флаги.
