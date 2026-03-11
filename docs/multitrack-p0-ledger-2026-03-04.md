@@ -3999,3 +3999,42 @@ Comment for the next window:
 1. Continuation ingest теперь явно qualified/fallback-driven, а не implicit.
 2. Packaging path больше не зависит от локального ignored asset слоя.
 3. Следующий rollout step можно уже строить вокруг qualified continuation track-sets, а не вокруг ad-hoc manifest entries.
+
+## 9.94 Qualified safe rollout now auto-enables continuation ingest only for manifest-qualified track-sets
+
+Что сделано:
+1. Следующий rollout slice после `9.93` перестал требовать ручного дублирования pilot flags для safe rollout target’ов.
+2. Route appendable теперь умеет сам запросить startup-head continuation ingest, если одновременно выполняется всё ниже:
+   - activation mode = `safe_rollout`
+   - appendable queue pilot уже разрешён для route
+   - manifest preflight проходит continuation qualification
+3. Это значит, что:
+   - `appendable startup head flag` может оставаться `off`
+   - `appendable continuation chunks flag` может оставаться `off`
+   - но qualified safe-rollout route всё равно пойдёт в `startup_head_continuation_chunks`
+4. В этом же шаге закрыта важная диагностическая дырка:
+   - если safe rollout preflight не проходит qualification, route остаётся на appendable `full_buffer`
+   - но diagnostics больше не показывают ложное `continuation qualification: off`
+   - вместо этого сохраняются:
+     - `fallback`
+     - конкретный reason code
+     - available/planned group counts
+     - continuation coverage end sec, если она была вычислена на preflight
+5. Практический смысл:
+   - widening теперь можно делать по qualified track-set’ам, а не по ручному флаг-комбинированию
+   - unqualified manifests не “маскируются”, а остаются явно видимыми для pilot triage
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `26/26`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не делает continuation ingest глобальным default.
+2. Этот шаг не отменяет targeted/manual pilot activation.
+3. Этот шаг не возвращает `engine swap`, `MSE` или partial `decodeAudioData()` windows.
+
+Итог после `9.94`:
+1. Safe rollout теперь реально включает qualified startup-head continuation ingest без ручных route flags.
+2. Fallback state при failed qualification стал явно наблюдаемым, а не скрытым за `off`.
+3. Следующий rollout/hardening slice можно строить вокруг реальных diagnostics и qualified target-sets.

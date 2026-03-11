@@ -232,6 +232,13 @@ type AppendableStartupHeadRuntimeState = {
   continuationCoverageEndSec: number | null
   stems: AppendableStartupHeadStemRuntimeState[]
 }
+type AppendableContinuationPreflightState = {
+  qualification: AppendableContinuationQualificationStatus
+  qualificationReason: AppendableContinuationQualificationReason | null
+  availableGroupCount: number
+  plannedGroupCount: number
+  coverageEndSec: number | null
+}
 type StartupChunkSwapPlan = {
   swapLabel: "tail_handoff" | "full_handoff" | "handoff"
   sourceOffsetSec: number
@@ -528,9 +535,20 @@ function cloneAppendableQueueSourceProgressSnapshot(
   }
 }
 
+function createAppendableContinuationPreflightState(): AppendableContinuationPreflightState {
+  return {
+    qualification: "off",
+    qualificationReason: null,
+    availableGroupCount: 0,
+    plannedGroupCount: 0,
+    coverageEndSec: null,
+  }
+}
+
 function readAppendableQueueSourceProgressSnapshot(
   coordinator: AppendableQueueMultitrackCoordinator | null,
-  runtime: AppendableStartupHeadRuntimeState | null
+  runtime: AppendableStartupHeadRuntimeState | null,
+  preflight?: AppendableContinuationPreflightState | null
 ): AppendableQueueSourceProgressSnapshot {
   if (!coordinator) return createAppendableQueueSourceProgressSnapshot()
   const snapshot = coordinator.getSnapshot()
@@ -550,15 +568,17 @@ function readAppendableQueueSourceProgressSnapshot(
     allStartupAppended: snapshot.allStartupAppended,
     allFullDecoded: snapshot.allFullDecoded,
     allFullAppended: snapshot.allFullAppended,
-    continuationQualification: runtime?.continuationQualification ?? "off",
-    continuationQualificationReason: runtime?.continuationQualificationReason ?? null,
-    continuationChunkGroupsAvailable: runtime?.continuationChunkGroupsAvailable ?? 0,
-    continuationChunkGroupsPlanned: runtime?.continuationChunkGroupsPlanned ?? 0,
+    continuationQualification: runtime?.continuationQualification ?? preflight?.qualification ?? "off",
+    continuationQualificationReason: runtime?.continuationQualificationReason ?? preflight?.qualificationReason ?? null,
+    continuationChunkGroupsAvailable: runtime?.continuationChunkGroupsAvailable ?? preflight?.availableGroupCount ?? 0,
+    continuationChunkGroupsPlanned: runtime?.continuationChunkGroupsPlanned ?? preflight?.plannedGroupCount ?? 0,
     continuationChunkGroupsDecoded: runtime?.continuationChunkGroupsDecoded ?? 0,
     continuationChunkGroupsAppended: runtime?.continuationChunkGroupsAppended ?? 0,
     continuationCoverageEndSec:
       typeof runtime?.continuationCoverageEndSec === "number" && Number.isFinite(runtime.continuationCoverageEndSec)
         ? Number(runtime.continuationCoverageEndSec.toFixed(3))
+        : typeof preflight?.coverageEndSec === "number" && Number.isFinite(preflight.coverageEndSec)
+          ? Number(preflight.coverageEndSec.toFixed(3))
         : null,
     minSourceBufferedUntilSec: sourceBufferedUntilSecs.length ? Number(Math.min(...sourceBufferedUntilSecs).toFixed(3)) : null,
     maxSourceBufferedUntilSec: sourceBufferedUntilSecs.length ? Number(Math.max(...sourceBufferedUntilSecs).toFixed(3)) : null,
@@ -1917,6 +1937,9 @@ export default function MultiTrackPlayer({
   const enginesRef = useRef<(SoundTouchEngine | null)[]>(trackList.map(() => null))
   const appendableQueueCoordinatorRef = useRef<AppendableQueueMultitrackCoordinator | null>(null)
   const appendableStartupHeadRuntimeRef = useRef<AppendableStartupHeadRuntimeState | null>(null)
+  const appendableContinuationPreflightRef = useRef<AppendableContinuationPreflightState>(
+    createAppendableContinuationPreflightState()
+  )
   const appendableQueueSharedTickTimerRef = useRef<number | null>(null)
   const appendableQueueSharedTickWorkerRef = useRef<Worker | null>(null)
   const appendableQueueRuntimeProbeTimerRef = useRef<number | null>(null)
@@ -4194,6 +4217,7 @@ export default function MultiTrackPlayer({
     panRef.current = []
     appendableQueueCoordinatorRef.current = null
     appendableStartupHeadRuntimeRef.current = null
+    appendableContinuationPreflightRef.current = createAppendableContinuationPreflightState()
   }, [])
 
   /** =========================
@@ -4223,6 +4247,7 @@ export default function MultiTrackPlayer({
       readyRef.current = false
       setIsReady(false)
       appendableStartupHeadRuntimeRef.current = null
+      appendableContinuationPreflightRef.current = createAppendableContinuationPreflightState()
       disposeTrackAudioGraph()
       let ctx = ctxRef.current
       if (!ctx || ctx.state === "closed") {
@@ -4292,15 +4317,48 @@ export default function MultiTrackPlayer({
       const useAppendableQueueMultistemPilot = audioPilotRouting.useAppendableQueueMultistemPilot
       const useAppendableQueuePilot = audioPilotRouting.useAppendableQueuePilot
       const useRingBufferPilot = audioPilotRouting.useRingBufferPilot
+      const useAppendableQualifiedRolloutAutoIngest = appendablePilotActivation.activationMode === "safe_rollout"
+      const appendableStartupHeadRequested =
+        appendableQueueStartupHeadPilotEnabled || useAppendableQualifiedRolloutAutoIngest
       const appendableStartupManifestMatch =
-        useAppendableQueuePilot && appendableQueueStartupHeadPilotEnabled
+        useAppendableQueuePilot && appendableStartupHeadRequested
           ? await resolveAppendableStartupManifestMatch(trackList)
           : null
+      const manifestStartupDurationCandidates = appendableStartupManifestMatch?.sources
+        .map((source) => source.startupDurationSec ?? 0)
+        .filter((value): value is number => Number.isFinite(value) && value > 0)
+      const manifestStartupDurationSec =
+        manifestStartupDurationCandidates && manifestStartupDurationCandidates.length
+          ? Math.min(...manifestStartupDurationCandidates)
+          : null
+      const appendableQualifiedRolloutContinuationQualification =
+        useAppendableQualifiedRolloutAutoIngest &&
+        appendableStartupManifestMatch &&
+        typeof manifestStartupDurationSec === "number" &&
+        Number.isFinite(manifestStartupDurationSec)
+          ? qualifyAppendableContinuationChunks({
+              enabled: true,
+              startupDurationSec: manifestStartupDurationSec,
+              manifestMatch: appendableStartupManifestMatch,
+            })
+          : null
+      appendableContinuationPreflightRef.current = appendableQualifiedRolloutContinuationQualification
+        ? {
+            qualification: appendableQualifiedRolloutContinuationQualification.status,
+            qualificationReason: appendableQualifiedRolloutContinuationQualification.reason,
+            availableGroupCount: appendableQualifiedRolloutContinuationQualification.availableGroupCount,
+            plannedGroupCount: appendableQualifiedRolloutContinuationQualification.plannedGroupCount,
+            coverageEndSec: appendableQualifiedRolloutContinuationQualification.coverageEndSec,
+          }
+        : createAppendableContinuationPreflightState()
+      const useAppendableQualifiedRolloutStartupHead =
+        appendableQualifiedRolloutContinuationQualification?.status === "qualified"
       const useAppendableStartupHeadPilot =
         !!appendableStartupManifestMatch &&
         useAppendableQueuePilot &&
         !useStreamingPilot &&
-        !useRingBufferPilot
+        !useRingBufferPilot &&
+        (appendableQueueStartupHeadPilotEnabled || useAppendableQualifiedRolloutStartupHead)
       const useStartupChunkPilot =
         startupChunkPilotEnabled &&
         !useAppendableQueuePilot &&
@@ -4469,11 +4527,20 @@ export default function MultiTrackPlayer({
           const estimatedTotalDurationSec = estimatedDurationCandidates.length
             ? Math.max(...estimatedDurationCandidates)
             : buffers[0]?.duration ?? 0
+          const appendableContinuationChunksRequested =
+            appendableQueueContinuationChunksPilotEnabled || useAppendableQualifiedRolloutStartupHead
           const continuationQualification = qualifyAppendableContinuationChunks({
-            enabled: appendableQueueContinuationChunksPilotEnabled,
+            enabled: appendableContinuationChunksRequested,
             startupDurationSec,
             manifestMatch: appendableStartupManifestMatch,
           })
+          appendableContinuationPreflightRef.current = {
+            qualification: continuationQualification.status,
+            qualificationReason: continuationQualification.reason,
+            availableGroupCount: continuationQualification.availableGroupCount,
+            plannedGroupCount: continuationQualification.plannedGroupCount,
+            coverageEndSec: continuationQualification.coverageEndSec,
+          }
           const continuationChunkGroupsPlanned =
             continuationQualification.status === "qualified" ? continuationQualification.plannedGroupCount : 0
           const durationFrames = Math.max(
@@ -4862,17 +4929,18 @@ export default function MultiTrackPlayer({
         const createdAppendableEngines: SoundTouchEngine[] = []
         try {
           if (!appendableStartupHeadInit) {
+            const continuationPreflight = appendableContinuationPreflightRef.current
             appendableStartupHeadRuntimeRef.current = {
               mode: "full_buffer",
               manifestSlug: null,
               startupDurationSec: null,
-              continuationQualification: "off",
-              continuationQualificationReason: null,
-              continuationChunkGroupsAvailable: 0,
-              continuationChunkGroupsPlanned: 0,
+              continuationQualification: continuationPreflight.qualification,
+              continuationQualificationReason: continuationPreflight.qualificationReason,
+              continuationChunkGroupsAvailable: continuationPreflight.availableGroupCount,
+              continuationChunkGroupsPlanned: continuationPreflight.plannedGroupCount,
               continuationChunkGroupsDecoded: 0,
               continuationChunkGroupsAppended: 0,
-              continuationCoverageEndSec: null,
+              continuationCoverageEndSec: continuationPreflight.coverageEndSec,
               stems: [],
             }
           }
@@ -4964,12 +5032,13 @@ export default function MultiTrackPlayer({
               startupHeadMode: appendableStartupHeadRuntimeRef.current?.mode ?? "full_buffer",
             })
             appendableQueueCoordinatorRef.current.tick({ force: true })
-            setAppendableQueueSourceProgressSnapshot(
-              readAppendableQueueSourceProgressSnapshot(
-                appendableQueueCoordinatorRef.current,
-                appendableStartupHeadRuntimeRef.current
+              setAppendableQueueSourceProgressSnapshot(
+                readAppendableQueueSourceProgressSnapshot(
+                  appendableQueueCoordinatorRef.current,
+                  appendableStartupHeadRuntimeRef.current,
+                  appendableContinuationPreflightRef.current
+                )
               )
-            )
           }
 
           if (appendableStartupHeadInit) {
@@ -5022,7 +5091,8 @@ export default function MultiTrackPlayer({
                       setAppendableQueueSourceProgressSnapshot(
                         readAppendableQueueSourceProgressSnapshot(
                           appendableQueueCoordinatorRef.current,
-                          appendableStartupHeadRuntimeRef.current
+                          appendableStartupHeadRuntimeRef.current,
+                          appendableContinuationPreflightRef.current
                         )
                       )
                       logAudioDebug("appendable_queue:continuation_chunk_group_ready", {
@@ -5076,7 +5146,8 @@ export default function MultiTrackPlayer({
                 setAppendableQueueSourceProgressSnapshot(
                   readAppendableQueueSourceProgressSnapshot(
                     appendableQueueCoordinatorRef.current,
-                    appendableStartupHeadRuntimeRef.current
+                    appendableStartupHeadRuntimeRef.current,
+                    appendableContinuationPreflightRef.current
                   )
                 )
                 schedulePreviewPeaks(isPlayingRef.current ? WAVEFORM_PREVIEW_WHILE_PLAYING_DELAY_MS : WAVEFORM_PREVIEW_IDLE_DELAY_MS)
@@ -6646,9 +6717,13 @@ export default function MultiTrackPlayer({
     }
 
     const sample = () => {
-      setAppendableQueueSourceProgressSnapshot(
-        readAppendableQueueSourceProgressSnapshot(coordinator, appendableStartupHeadRuntimeRef.current)
+    setAppendableQueueSourceProgressSnapshot(
+      readAppendableQueueSourceProgressSnapshot(
+        coordinator,
+        appendableStartupHeadRuntimeRef.current,
+        appendableContinuationPreflightRef.current
       )
+    )
     }
 
     sample()
