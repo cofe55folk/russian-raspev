@@ -4073,3 +4073,42 @@ Comment for the next window:
 1. Safe rollout checklist/report теперь опираются не только на чистый runtime, но и на факт реального qualified continuation ingestion.
 2. Clean `full_buffer` fallback больше не маскируется под rollout success.
 3. Следующий hardening slice можно уже строить вокруг runtime thresholds/soak evidence, а не вокруг semantics readiness-state.
+
+## 9.96 Route pilot report now auto-derives pass/fail from checklist gate and persists that verdict in saved diagnostics
+
+Что сделано:
+1. Следующий reporting/hardening slice после `9.95` усилил не playback path, а сам report contract.
+2. До этого шага:
+   - route report snapshot сохранял probe/source данные, но не хранил checklist gate как first-class field
+   - quick pilot и `save current diagnostics` всё ещё зависели от ручных `Mark pass/fail`, если нужен durable verdict
+   - async quick-pilot flow мог вернуть уже обновлённый checklist, но ещё stale `report.status = pending`
+3. После этого шага:
+   - snapshot теперь сохраняет gate внутри report:
+     - `status`
+     - `statusLabel`
+   - автоматический report verdict вычисляется прямо из gate:
+     - `ready_for_manual_pilot -> pass`
+     - `attention_required -> fail`
+     - остальные gate states остаются `pending`
+4. Практически это меняет два основных save-path:
+   - `save current diagnostics` теперь сам даёт `pass` на clean ready route
+   - тот же path сам даёт `fail`, если safe rollout остаётся в fallback attention state
+5. Quick-pilot path тоже стабилизирован:
+   - финальный report теперь строится из settled checklist verdict, а не из stale async snapshot
+   - direct debug API test ждёт появления route debug API на `window`, а не бьёт в него вслепую
+   - API test проверяет теперь правильную вещь: согласованность `checklist -> report`, а не гарантированно идеальный runtime в каждом full-suite прогоне
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `28/28`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не отменяет ручные `Mark pass/fail`.
+2. Этот шаг просто убирает необходимость всегда пользоваться ими, когда route already has an objective gate verdict.
+3. Этот шаг не меняет playback behavior; он меняет устойчивость и полезность diagnostics/report flow.
+
+Итог после `9.96`:
+1. Route diagnostics теперь автоматически несут пригодный pass/fail verdict в самом report и packet export.
+2. Safe-rollout fallback attention уже не требует ручного relabeling, чтобы стать triage-ready.
+3. Следующий автономный slice можно брать уже по runtime thresholds / soak evidence, а не по diagnostics plumbing.

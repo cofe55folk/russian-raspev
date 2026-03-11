@@ -2336,3 +2336,31 @@ Suggested opening prompt for the next window:
    - widened safe rollout can now rely on checklist/report gating as a real readiness signal
    - fallback manifests remain explicitly triageable instead of being mistaken for rollout success
    - the next hardening slice can focus on runtime safety thresholds and soak evidence rather than fixing readiness semantics
+
+## 8.148 Route pilot reports now auto-classify pass/fail from the checklist gate and persist that verdict in saved diagnostics
+1. The next slice after `8.147` hardens the reporting path rather than the playback path itself.
+2. Before this step:
+   - route report snapshots stored raw probe/source state
+   - quick pilot and current diagnostics capture still depended on manual pass/fail buttons for a durable verdict
+   - async quick-pilot flows could return a stale report state even when checklist verdict had already changed
+3. This slice makes the report layer self-classifying:
+   - every saved route report snapshot now persists the checklist gate inside the snapshot itself
+   - automated report status is derived from that gate:
+     - `ready_for_manual_pilot -> pass`
+     - `attention_required -> fail`
+     - all other gate states stay `pending`
+4. Operational consequences:
+   - `save current diagnostics` now auto-marks a clean ready route as `pass`
+   - the same flow auto-marks safe-rollout fallback attention as `fail`
+   - quick pilot reports now return a settled gate/report pair instead of a stale pending report
+5. Test hardening included in this slice:
+   - direct quick-pilot API access now waits for the route debug API to exist before invoking it
+   - the quick-pilot API test now verifies verdict consistency (`checklist -> report`) instead of assuming every full-suite run stays discontinuity-free
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `28/28`
+   - `npm run build`
+7. Practical consequence after `8.148`:
+   - saved route diagnostics are now immediately triageable without manual report relabeling
+   - pass/fail semantics survive export/download paths, not just the live UI
+   - the next slice can move into runtime thresholds / soak evidence with a better diagnostics contract already in place
