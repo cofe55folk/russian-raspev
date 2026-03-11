@@ -2026,3 +2026,37 @@ Suggested opening prompt for the next window:
 6. Practical consequence:
    - future no-op auto-collect recomputes should no longer append semantic duplicates
    - the historical docs are now aligned with the real mainline code again
+
+## 8.139 External Web Pro review confirmed the next production-phase order
+1. Post-merge state recap:
+   - `appendable queue + AudioWorklet` remains the correct forward path
+   - old `startup -> tail -> full` engine-swap path stays closed
+   - `SharedArrayBuffer` and `WebCodecs` should remain optional, not mandatory phase-one dependencies
+2. Platform constraints re-confirmed by the external review:
+   - `AudioWorklet` is the right production primitive, but all worklets inside one `BaseAudioContext` still share the same audio rendering thread
+   - `decodeAudioData()` still requires complete file data and is not a fragment/window streaming API
+   - Safari/WebKit can support later `SharedArrayBuffer` and `WebCodecs` paths, but they should not become rollout prerequisites
+3. Updated milestone order:
+   - first: restore `tempo` parity inside the appendable architecture
+   - second: widen appendable rollout only for safe `1.0x` / no-pitch scenarios
+   - third: use `startup head PCM as first queued data` and append the rest after background full decode
+   - later: independently decodable packaged chunks
+   - later: optional `WebCodecs` decode path
+   - later: optional `SharedArrayBuffer` fast path
+4. Important architecture constraint:
+   - do not move the stretcher/DSP back outside the worklet
+   - the long-lived render-time DSP state must live inside the appendable worklet per stem
+   - `independent pitch` should be a later milestone, not bundled into the first tempo-parity release
+5. Practical rollout stance after this review:
+   - appendable can expand beyond the narrow pilot before it becomes global default
+   - but only on feature-scoped routes/modes where `tempo=1.0` and independent pitch are not required
+   - global-default discussion should wait for tempo parity plus Safari/iOS performance qualification
+6. Objective gates to keep in mind for the next phase:
+   - no audible seams at start/seek/append boundary/pause-resume/end
+   - no persistent queue underrun during long `2/3/5` stem soak tests
+   - deterministic fallback to baseline plus remote kill switch
+   - Safari/iOS perf headroom under multistem load
+7. What not to do next:
+   - no partial `decodeAudioData()` window plan
+   - no mandatory `WebCodecs` or `SharedArrayBuffer`
+   - no attempt to ship tempo parity, independent pitch, progressive decode, and wide rollout in one milestone

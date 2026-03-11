@@ -3719,3 +3719,47 @@ Comment for the next window:
 1. Проблема “телепромптер постоянно меняется без реальных изменений” в старой ветке была исправлена правильно, но не была доведена до current mainline.
 2. В этой ветке fix наконец переносится в актуальный forward path.
 3. После merge текущего teleprompter slice dataset должен снова меняться только при реальном semantic изменении snapshot.
+
+## 9.87 Update 2026-03-11: External Web Pro review refined the next appendable production phase
+Что подтвердил внешний review:
+1. Мы уже на правильном forward path:
+   - `appendable queue`
+   - `AudioWorklet`
+   - long-lived per-stem runtime вместо engine swap
+2. Старый `startup -> tail -> full` splice/handoff path не нужно оживлять.
+3. `SharedArrayBuffer` и `WebCodecs` не должны становиться обязательной базой для следующего ship.
+4. `decodeAudioData()` по-прежнему не является fragment/window streaming API, так что partial-window plan не нужен.
+
+Что review уточнил лучше нашего прежнего порядка:
+1. Следующий milestone должен быть не про ingest/decode, а про runtime parity.
+2. Первый приоритет:
+   - вернуть `tempo-only` parity внутри appendable architecture
+   - именно как long-lived DSP state внутри worklet на каждый stem
+3. `independent pitch` надо вынести в отдельный более поздний milestone.
+4. Rollout можно расширять раньше global default, но только там, где:
+   - `tempo=1.0`
+   - independent pitch не требуется
+
+Новый практический order после review:
+1. `tempo-only` inside worklet.
+2. Wider appendable rollout only for safe `1.0x` / no-pitch scenarios.
+3. `startup head PCM` как first queued data + background full decode append в тот же engine.
+4. Далее offline/packaged independently decodable chunks.
+5. Только потом optional `WebCodecs`.
+6. Только потом optional `SharedArrayBuffer`.
+
+Что отдельно важно не делать:
+1. Не выносить stretcher/DSP обратно за пределы worklet.
+2. Не пытаться одновременно в одном milestone закрыть:
+   - tempo parity
+   - independent pitch
+   - progressive decode
+   - wide rollout
+3. Не строить следующий шаг вокруг partial `decodeAudioData()` windows.
+
+Рабочий вывод после `9.87`:
+1. Appendable architecture после merge подтверждена не только нашими тестами, но и внешним production-oriented review.
+2. Следующая инженерная цель теперь сформулирована точнее:
+   - не `progressive decode next`,
+   - а `tempo parity inside worklet next`.
+3. После этого уже можно controlled way расширять rollout и только затем снижать ingest latency further.
