@@ -2505,3 +2505,29 @@ Suggested opening prompt for the next window:
    - widened appendable rollout now has explicit stress evidence in addition to soak and qualification evidence
    - future route hardening can build on scripted-seek verdicts instead of inventing another manual stress checklist
    - this still does not introduce a new playback path; it only strengthens route-level verification
+
+## 8.153 Route reports now preserve qualification and stress evidence across later pilot runs instead of overwriting it
+1. The next slice after `8.152` still stays in the route diagnostics layer.
+2. Before this step, route reports had a real workflow gap:
+   - running `qualification` produced an explicit qualification block
+   - running `stress` produced an explicit stress block
+   - but the next saved report could overwrite the previous block back to its empty default shape
+3. This slice closes that gap by moving evidence accumulation into the report builder itself:
+   - when a new snapshot does not carry fresh qualification evidence, the report keeps the latest previously captured qualification block
+   - when a new snapshot does not carry fresh stress evidence, the report keeps the latest previously captured stress block
+   - direct pilot sequences can now build a single report that contains both qualification and stress evidence
+4. Practical effect after this step:
+   - route reports become cumulative evidence artifacts instead of single-run throwaways
+   - a later stress run no longer discards an earlier qualification verdict for the same route scope
+   - save-current / later packet export can carry the accumulated route evidence that was already collected
+5. Supporting hardening in the same slice:
+   - route e2e uses a synchronized report-commit path so sequential debug API pilot calls see the already-updated report
+   - early checklist assertions were aligned with the existing `waitForChecklistStatus` helper and route bootstrap retry budget to reduce harness-only noise
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `42/42`
+   - `npm run build`
+7. Practical consequence after `8.153`:
+   - route diagnostics now preserve multi-step evidence in one report rather than making operators export separate disjoint packets
+   - future rollout-gate work can rely on cumulative report evidence instead of reconstructing it from multiple snapshots
+   - this still does not change the playback path; it only strengthens report persistence semantics
