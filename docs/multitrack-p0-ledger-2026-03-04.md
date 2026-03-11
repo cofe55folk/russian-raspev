@@ -4323,3 +4323,25 @@ Comment for the next window:
 1. Route report теперь умеет держать qualification и stress evidence одновременно.
 2. Future rollout/stress gates можно строить уже поверх cumulative report, а не поверх нескольких разрозненных snapshot’ов.
 3. Следующий автономный slice можно брать уже как настоящий rollout-gate layer поверх накопленного evidence.
+
+## 9.102 Локальный checkpoint по rollout-gate slice сохранён и переживёт закрытие Codex Desktop
+
+Что сделано:
+1. Следующий slice после `9.101` уже начат на ветке `codex/feature/appendable-route-rollout-gate`.
+2. Код сохранён локальным commit `0848552` (`p1: add appendable route rollout gate`).
+3. Внутри slice уже добавлено:
+   - производное поле `rollout` в route report snapshot
+   - новый auto-status, который опирается на cumulative route evidence, а не только на checklist-ready
+   - UI-строка в route report с явным verdict `pass / pending / fail`
+   - e2e-ожидания, согласованные с этой новой семантикой
+
+Что важно не перепутать:
+1. Это сохранено локально и не потеряется при закрытии приложения.
+2. Это ещё не pushed / merged.
+3. Оставшийся хвост — verification, а не новая архитектурная развилка.
+
+Следующий шаг после открытия:
+1. `npm run build`
+2. `npx tsc --noEmit`
+3. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit
+4. если зелёно — push, PR, CI, merge
