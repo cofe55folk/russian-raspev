@@ -4546,3 +4546,26 @@ Comment for the next window:
 Итог после `9.110`:
 1. `safe_rollout` перестал быть вторым слоем поверх ручных pilot flags и стал реальным route-level rollout gate для matched targets.
 2. Следующее controlled widening теперь можно делать уже через rollout targeting, а не через комбинацию rollout targeting + локальные appendable toggle-флаги.
+
+## 9.111 Continuation packaging расширен до четырёх qualified track-set’ов, а route coverage вышел за пределы Terek-пары
+
+Что сделано:
+1. Следующий slice расширяет не runtime, а offline packaging layer.
+2. В `scripts/generate-startup-chunks.mjs` добавлены ещё два реальных three-stem route:
+   - `tomsk-bogoslovka-po-moryam`
+   - `balman-vechor-devku`
+3. После регенерации `startup-chunks-manifest.json` и startup/continuation WAV assets manifest-backed qualified surface вырос с `2` до `4` slug’ов.
+4. Contract layer тоже расширен:
+   - route helper в e2e теперь умеет открывать не только default `terek-ne-vo-daleche`, но и явный второй route slug
+   - новый route contract доказывает, что `tomsk-bogoslovka-po-moryam` тоже входит в `safe_rollout` без ручных appendable flags
+   - и так же доходит до `startup_head_continuation_chunks` c locked tempo и clean runtime probe
+
+Проверка:
+1. targeted `tomsk` safe-rollout route test Chromium + WebKit — `2/2`
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `54/54`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.111`:
+1. Continuation packaging больше не привязан только к исходной Terek-паре.
+2. Следующее widening можно строить уже на более широком и codec-diverse manifest-qualified наборе route, не меняя appendable architecture.

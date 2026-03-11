@@ -2700,3 +2700,23 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.162`:
    - `safe_rollout` now behaves like a real route-level rollout gate for matched targets instead of a second layer on top of manual pilot flags
    - widening appendable beyond operator-only testing no longer depends on editing both rollout targets and appendable flags in the same browser profile
+
+## 8.163 Continuation packaging now covers four qualified track-sets, and route coverage extends beyond the original Terek pair
+1. The next slice expands the offline packaging layer rather than the runtime primitive.
+2. `scripts/generate-startup-chunks.mjs` now generates startup/tail/continuation assets for two additional three-stem routes:
+   - `tomsk-bogoslovka-po-moryam`
+   - `balman-vechor-devku`
+3. Practical packaging consequence:
+   - `startup-chunks-manifest.json` now carries four qualified route slugs instead of only the original Terek pair
+   - the appendable continuation pilot therefore has a larger manifest-backed rollout surface without changing the queue architecture
+4. Route contract coverage also widened in the same slice:
+   - the player-route helper can now open a non-default `/sound/...` slug explicitly
+   - route e2e now proves that `tomsk-bogoslovka-po-moryam` reaches the same `safe_rollout -> startup_head_continuation_chunks` path with `tempo locked` and a clean runtime probe
+5. Verification completed locally:
+   - targeted `tomsk` safe-rollout route test on Chromium + WebKit: `2/2`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `54/54`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.163`:
+   - appendable continuation packaging is no longer tied only to the original Terek routes
+   - the next rollout step can widen over a broader, codec-diverse set of manifest-qualified multistem tracks

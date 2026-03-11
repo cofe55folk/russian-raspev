@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-11T12:53:42.327Z",
+  "generatedAt": "2026-03-11T20:56:36.821Z",
   "startupDurationSec": 10,
   "tailStartSec": 7.5,
   "tailDurationSec": 8,
@@ -120,6 +120,172 @@
             },
             {
               "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "tomsk-bogoslovka-po-moryam",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01.m4a",
+          "startupSrc": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 204.308,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02.m4a",
+          "startupSrc": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 204.351,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03.m4a",
+          "startupSrc": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 204.351,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "balman-vechor-devku",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/balman-vechor_devku/balman-vechor_devku-01.mp3",
+          "startupSrc": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 230.4,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/balman-vechor_devku/balman-vechor_devku-02.mp3",
+          "startupSrc": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 230.4,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/balman-vechor_devku/balman-vechor_devku-03.mp3",
+          "startupSrc": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 230.4,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
               "label": "continuation-18s-8s"
