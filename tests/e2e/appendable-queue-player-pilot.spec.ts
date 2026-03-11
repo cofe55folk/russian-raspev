@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test"
+import { readFile } from "node:fs/promises"
+import { expect, test, type Download, type Page } from "@playwright/test"
 
 const SLUG = "terek-ne-vo-daleche"
 const PLAYER_ROUTE = `/sound/${SLUG}`
@@ -95,6 +96,12 @@ async function evaluateWithRetry<T>(page: Page, fn: () => Promise<T> | T, attemp
     }
   }
   throw lastError instanceof Error ? lastError : new Error("page.evaluate failed after retries")
+}
+
+async function readJsonDownload<T>(download: Download): Promise<T> {
+  const filePath = await download.path()
+  expect(filePath).not.toBeNull()
+  return JSON.parse(await readFile(filePath as string, "utf8")) as T
 }
 
 test("appendable route pilot stays off when the current track set is not targeted for rollout", async ({ page }) => {
@@ -809,6 +816,65 @@ test("route pilot report preserves qualification evidence after a later stress p
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
+test("saved appendable packet preserves cumulative rollout evidence after qualification then stress", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runQualificationPilot: (durationSec?: number | null) => Promise<unknown>
+        runStressPilot: (holdSec?: number | null) => Promise<unknown>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runQualificationPilot(6)
+    return await api.runStressPilot(1)
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()
+  const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot: {
+        gate: { status: string }
+        qualification: { targetSoakSec: number | null; passed: boolean | null }
+        stress: { seekSequenceSec: number[]; completedSeeks: number; passed: boolean | null }
+        rollout: { status: string; reason: string | null }
+      } | null
+    }
+  }>(download)
+
+  expect(packet.report.snapshot).not.toBeNull()
+  expect(packet.checklist.status).toBe(packet.report.snapshot?.gate.status)
+  expect(packet.report.snapshot?.qualification.targetSoakSec).toBe(6)
+  expect(packet.report.snapshot?.qualification.passed).not.toBeNull()
+  expect(packet.report.snapshot?.stress.seekSequenceSec.length ?? 0).toBeGreaterThan(0)
+  expect(packet.report.snapshot?.stress.completedSeeks).toBe(packet.report.snapshot?.stress.seekSequenceSec.length)
+  const expectedRolloutStatus =
+    packet.report.snapshot?.gate.status === "ready_for_manual_pilot" &&
+    packet.report.snapshot.qualification.passed === true &&
+    packet.report.snapshot.stress.passed === true
+      ? "pass"
+      : "fail"
+  expect(packet.report.snapshot?.rollout.status).toBe(expectedRolloutStatus)
+  if (expectedRolloutStatus === "pass") {
+    expect(packet.report.snapshot?.rollout.reason).toBeNull()
+    expect(packet.report.status).toBe("pass")
+  } else {
+    expect(packet.report.snapshot?.rollout.reason).not.toBeNull()
+    expect(packet.report.status).toBe("fail")
+  }
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
@@ -830,16 +896,34 @@ test("current appendable diagnostics can be saved from the debug area without qu
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()
   const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot: {
+        gate: { status: string }
+        rollout: { status: string; reason: string | null }
+      } | null
+    }
+  }>(download)
 
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("сохранено текущее diagnostics")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
+  expect(packet.report.snapshot).not.toBeNull()
+  expect(packet.checklist.status).toBe(packet.report.snapshot?.gate.status)
   if (checklistStatusText.includes("готов к ручному pilot")) {
     await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pending")
     await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("qualification:missing")
+    expect(packet.report.status).toBe("pending")
+    expect(packet.report.snapshot?.rollout.status).toBe("pending")
+    expect(packet.report.snapshot?.rollout.reason).toBe("qualification:missing")
   } else {
     await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "fail")
     await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("gate:attention_required")
+    expect(packet.report.status).toBe("fail")
+    expect(packet.report.snapshot?.rollout.status).toBe("fail")
+    expect(packet.report.snapshot?.rollout.reason).toBe("gate:attention_required")
   }
 
   await page.evaluate(() => {

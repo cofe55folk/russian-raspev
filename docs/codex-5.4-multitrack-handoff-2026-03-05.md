@@ -2568,3 +2568,20 @@ Suggested opening prompt for the next window:
 5. Practical consequence after `8.155`:
    - there is no longer a split between “report saved to state/export” and “snapshot returned directly by the debug API”
    - future tooling can trust `captureReport()` as a faithful read of the same rollout semantics shown in the route UI
+
+## 8.156 Packet export is now verified against the same rollout semantics as the live route report
+1. After `8.155`, the next remaining confidence gap was in the export path rather than the runtime path.
+2. The route UI and direct debug capture already exposed the derived rollout verdict, but packet downloads were still validated only by filename/UI smoke and not by the JSON payload itself.
+3. This slice hardens that gap at the test/export layer:
+   - route e2e now reads the downloaded packet JSON directly
+   - current-diagnostics export is asserted to preserve the same rollout status/reason shown in the live route report
+   - a new cumulative export test now verifies that packet JSON preserves:
+     - `qualification`
+     - `stress`
+     - the derived `rollout` verdict after sequential qualification + stress pilot runs
+4. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `46/46`
+5. Practical consequence after `8.156`:
+   - the downloaded packet is now covered as a real contract, not just as a UI side-effect
+   - future automation/report consumers can rely on packet JSON carrying the same rollout semantics as the on-route diagnostics

@@ -4364,3 +4364,23 @@ Comment for the next window:
 Итог после `9.103`:
 1. Direct debug snapshot и сохранённый route report больше не расходятся по rollout semantics.
 2. Raw capture path теперь можно использовать как trustworthy источник для последующего tooling/reporting.
+
+## 9.104 Packet JSON теперь проверяется как реальный rollout/report contract, а не только как download side-effect
+
+Что сделано:
+1. После `9.103` оставался ещё один confidence gap в export path:
+   - UI/report уже были синхронизированы
+   - direct debug capture тоже был синхронизирован
+   - но packet download всё ещё проверялся в e2e в основном по filename и видимому UI status
+2. Теперь route e2e читает и валидирует сам скачанный JSON packet.
+3. Новые проверки покрывают два случая:
+   - `save current diagnostics` должен экспортировать тот же `rollout.status` / `rollout.reason`, что и live route report
+   - после последовательных `qualification + stress` runs packet должен сохранить cumulative `qualification`, `stress` и производный `rollout` verdict
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `46/46`
+
+Итог после `9.104`:
+1. Packet export теперь тоже покрыт как контрактный слой.
+2. Saved JSON packet и live route report больше не могут тихо разойтись по rollout semantics без красного e2e.
