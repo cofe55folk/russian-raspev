@@ -4487,3 +4487,33 @@ Comment for the next window:
 Итог после `9.108`:
 1. Следующий rollout-widening slice теперь можно делать по live diagnostics/report recommendations, а не по памяти о manifest-qualified track-set’ах.
 2. Оператору больше не нужно включать startup-head path вручную только ради того, чтобы понять, подходит ли текущий route для `safe_rollout`.
+
+## 9.109 Route diagnostics теперь умеют сразу добавлять или убирать текущий safe-rollout candidate
+
+Что сделано:
+1. Следующий slice после `9.108` снова не меняет playback engine и не включает rollout автоматически.
+2. Вместо этого он закрывает операторский action gap:
+   - если route уже surfaced как `safe_rollout` candidate
+   - и appendable blocked только targeting-слоем
+   - diagnostics теперь умеют сразу добавить или убрать текущий slug в `rr_audio_appendable_queue_safe_rollout_targets`
+3. Для этого в client activation layer вынесены явные storage helpers:
+   - read/write для списка `safe_rollout` targets
+   - add/remove для одного target
+   - `MultiTrackPlayer` теперь переоценивает activation state сразу после локального изменения storage
+4. Route UI тоже усилен:
+   - в diagnostics toolbar появилась отдельная кнопка add/remove только для текущего surfaced candidate
+   - после клика route может перейти из `blocked by targeting` в `safe_rollout` без ручного редактирования `localStorage`
+5. Contract layer дополнен новым blocked-route-to-safe-rollout сценарием:
+   - e2e кликает новый toggle
+   - ждёт появления текущего slug в `rr_audio_appendable_queue_safe_rollout_targets`
+   - заново открывает runtime probe после route re-init
+   - и проверяет, что route уже реально вошёл в `appendable activation mode: safe_rollout` с `tempo policy: locked`
+
+Проверка:
+1. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `52/52`
+2. `npx tsc --noEmit` — pass
+3. `npm run build` — pass
+
+Итог после `9.109`:
+1. Оператору больше не нужно вручную лезть в `localStorage`, чтобы опробовать уже qualified safe-rollout candidate прямо на route.
+2. Следующий rollout slice можно строить уже поверх route-level actions и lived diagnostics, а не поверх ручных локальных манипуляций.

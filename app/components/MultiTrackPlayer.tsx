@@ -10,6 +10,8 @@ import {
 } from "./audio/appendableQueueEngine"
 import { createAppendableQueueMultitrackCoordinator, type AppendableQueueMultitrackCoordinator } from "./audio/appendableQueueMultitrackCoordinator"
 import {
+  addClientAppendableSafeRolloutTarget,
+  removeClientAppendableSafeRolloutTarget,
   resolveClientAppendablePilotActivation,
   type AppendablePilotActivationState,
 } from "./audio/appendablePilotActivation"
@@ -2481,10 +2483,15 @@ export default function MultiTrackPlayer({
         "rr_audio_appendable_queue_continuation_chunks_pilot"
       )
   )
-  const appendablePilotActivation = resolveClientAppendablePilotActivation({
-    trackScopeId,
-    activationTargets: appendableActivationTargets,
-  })
+  const [appendableActivationStorageRevision, setAppendableActivationStorageRevision] = useState(0)
+  const appendablePilotActivation = useMemo(
+    () =>
+      resolveClientAppendablePilotActivation({
+        trackScopeId,
+        activationTargets: appendableActivationTargets,
+      }),
+    [appendableActivationStorageRevision, appendableActivationTargets, trackScopeId]
+  )
   const [appendableQueueRuntimeProbeSnapshot, setAppendableQueueRuntimeProbeSnapshot] = useState<AppendableQueueRuntimeProbeSnapshot>(
     () => createAppendableQueueRuntimeProbeSnapshot()
   )
@@ -3354,6 +3361,33 @@ export default function MultiTrackPlayer({
     appendableQueueSourceProgressSnapshot.mode,
     streamingBufferPilotEnabled,
     trackList.length,
+    uiLang,
+  ])
+
+  const appendableSafeRolloutCandidateTarget = appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget
+  const appendableSafeRolloutCandidateConfigured =
+    !!appendableSafeRolloutCandidateTarget &&
+    appendablePilotActivation.safeRolloutConfiguredTargets.includes(appendableSafeRolloutCandidateTarget)
+
+  const toggleCurrentRouteSafeRolloutTarget = useCallback(() => {
+    const target = appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget
+    if (!target) return
+    const nextTargets = appendablePilotActivation.safeRolloutConfiguredTargets.includes(target)
+      ? removeClientAppendableSafeRolloutTarget(target)
+      : addClientAppendableSafeRolloutTarget(target)
+    setAppendableActivationStorageRevision((current) => current + 1)
+    setAppendableRouteQuickPilotMessage(
+      uiLang === "ru"
+        ? nextTargets.includes(target)
+          ? `safe rollout target добавлен: ${target}`
+          : `safe rollout target удален: ${target}`
+        : nextTargets.includes(target)
+          ? `safe rollout target added: ${target}`
+          : `safe rollout target removed: ${target}`
+    )
+  }, [
+    appendablePilotActivation.safeRolloutConfiguredTargets,
+    appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget,
     uiLang,
   ])
 
@@ -11838,6 +11872,22 @@ export default function MultiTrackPlayer({
                                   ? "Запустить stress pilot + сохранить"
                                   : "Run stress pilot + save diagnostics"}
                             </button>
+                            {appendableSafeRolloutCandidateTarget ? (
+                              <button
+                                type="button"
+                                data-testid="appendable-route-safe-rollout-target-toggle"
+                                onClick={toggleCurrentRouteSafeRolloutTarget}
+                                className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[11px] text-cyan-100 hover:bg-cyan-500/15"
+                              >
+                                {appendableSafeRolloutCandidateConfigured
+                                  ? uiLang === "ru"
+                                    ? "Убрать current route из safe rollout"
+                                    : "Remove current route from safe rollout"
+                                  : uiLang === "ru"
+                                    ? "Добавить current route в safe rollout"
+                                    : "Add current route to safe rollout"}
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => void copyAudioDebugLog()}
