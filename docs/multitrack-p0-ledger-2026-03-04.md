@@ -3876,3 +3876,42 @@ Comment for the next window:
 1. Wider rollout больше не равен “тот же pilot, но на большем количестве route targets”.
 2. Теперь есть отдельный safe-rollout tier, который расширяет appendable exposure без расширения feature surface.
 3. После merge этого slice можно уже controlled way расширять allowlist именно через `safe_rollout`, а не через pilot-target wildcard.
+
+## 9.91 Route-level appendable startup-head pilot now uses manifest-backed first queued PCM
+
+Что сделано:
+1. Следующий latency slice после `9.90` не вернул старый splice/runtime handoff.
+2. Вместо этого normal `/sound/...` appendable route получил отдельный guarded pilot:
+   - preview flag: `multitrack_appendable_queue_startup_head`
+   - storage flag: `rr_audio_appendable_queue_startup_head_pilot`
+   - manifest source: `/audio-startup/startup-chunks-manifest.json`
+3. Если текущий track-set матчит manifest:
+   - route сначала декодирует startup WAV для каждого stem
+   - startup PCM append’ится как first queued data в тот же long-lived appendable source/controller
+   - потом full decode идёт в background
+   - remainder append’ится в тот же engine без engine swap
+4. Важные границы этого шага:
+   - не возрождает `soundCatalog.ts` startup metadata
+   - не меняет safe-rollout policy автоматически
+   - не расширяет broad rollout beyond explicit appendable route activation
+5. Route diagnostics/reporting теперь дополнительно показывают:
+   - `appendable startup head flag`
+   - `appendable startup mode`
+   - `appendable source progress`
+   - `appendable source buffered sec`
+   - `appendable queued segments`
+6. Route pilot packet/debug state теперь сохраняют `sourceProgress`, так что следующее окно видит:
+   - `full_buffer`
+   - или `startup_head_manifest`
+   - плюс состояние `startup/fullDecoded/fullAppended`
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npm run build` — pass
+3. `appendable-queue-player-pilot.spec.ts` Chromium — `9/9`
+4. `appendable-queue-player-pilot.spec.ts` WebKit — `9/9`
+
+Итог после `9.91`:
+1. Appendable route теперь имеет не только lab-level, но и normal-route proof point для `startup head PCM as first queued data`.
+2. Этот шаг всё ещё живёт на текущем phase-one `postMessage PCM` transport, то есть не является финальным ingest architecture.
+3. Следующий latency path надо продолжать через controlled manifest/chunk ingest, а не возвращаться к `decodeAudioData()` windows, MSE или engine swap.
