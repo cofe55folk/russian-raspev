@@ -2280,3 +2280,32 @@ Suggested opening prompt for the next window:
    - appendable continuation ingest is now explicitly qualified instead of implicitly assumed
    - continuation packaging is now a real tracked asset layer rather than a local-only artifact
    - the next rollout step can target qualified continuation track-sets without guessing which manifest entries are actually safe
+
+## 8.146 Qualified safe rollout now auto-enables startup-head continuation ingest and preserves explicit fallback state
+1. The rollout slice after `8.145` does not widen appendable continuation ingest blindly.
+2. Safe rollout is now allowed to auto-request startup-head ingest even when manual startup flags stay off, but only inside the appendable route and only when:
+   - appendable activation mode is `safe_rollout`
+   - the track-set is already eligible for appendable queue pilot
+   - continuation packaging preflight resolves a qualified manifest match
+3. Important behavioral change in this slice:
+   - a safe-rollout target no longer needs the separate manual `startup head` or `continuation chunks` flags to enter `startup_head_continuation_chunks`
+   - qualified track-sets can now promote themselves into manifest-backed startup-head continuation ingest automatically
+4. Important safety correction in this slice:
+   - when safe rollout requests startup-head ingest but continuation qualification fails, route appendable does **not** pretend the feature is simply off
+   - it stays on the normal appendable `full_buffer` path
+   - diagnostics and saved pilot state now preserve the explicit preflight fallback state:
+     - `appendable continuation qualification: fallback`
+     - the exact qualification reason
+     - available/planned continuation group counts
+     - continuation coverage end sec when available
+5. Operational meaning of this change:
+   - safe rollout can now be widened to qualified continuation track-sets without forcing operators to mirror that decision in separate manual pilot flags
+   - unqualified manifests still fall back deterministically and remain debuggable from route diagnostics instead of silently degrading into `off`
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `26/26`
+   - `npm run build`
+7. Practical consequence after `8.146`:
+   - qualified rollout now behaves like a real activation tier rather than a documentation-only promise
+   - continuation ingest can widen safely without becoming a global default
+   - the next slice can build on qualified rollout telemetry instead of re-solving manifest eligibility from scratch

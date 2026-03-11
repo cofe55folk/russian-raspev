@@ -186,6 +186,49 @@ test("safe appendable rollout keeps route on appendable mode while tempo stays l
   await waitForPlayerText(page, "appendable total discontinuity: 0")
 })
 
+test("safe appendable rollout auto-enables qualified continuation ingest without manual startup flags", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, "appendable startup head flag: off")
+  await waitForPlayerText(page, "appendable continuation chunks flag: off")
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
+  await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+  await waitForPlayerText(page, "appendable continuation coverage sec: 26.000 / available groups: 2")
+  await waitForPlayerText(page, "tempo: off / pitch: off")
+})
+
+test("safe appendable rollout keeps qualified ingest off when manifest continuation qualification fails", async ({ page }) => {
+  await page.route("**/audio-startup/startup-chunks-manifest.json", async (route) => {
+    const response = await route.fetch()
+    const json = (await response.json()) as {
+      tracks?: Array<{
+        slug?: string
+        sources?: Array<{
+          continuationChunks?: Array<{ src: string; startSec: number; durationSec: number; label?: string }>
+        }>
+      }>
+    }
+    const target = json.tracks?.find((track) => track.slug === SLUG)
+    const brokenSource = target?.sources?.[1]
+    if (brokenSource?.continuationChunks?.length) brokenSource.continuationChunks = brokenSource.continuationChunks.slice(0, 1)
+    await route.fulfill({ response, json })
+  })
+
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, "appendable startup head flag: off")
+  await waitForPlayerText(page, "appendable continuation chunks flag: off")
+  await waitForPlayerText(page, "appendable continuation qualification: fallback (source_chunk_count_mismatch)")
+  await waitForPlayerText(page, "appendable startup mode: full_buffer")
+  await waitForPlayerText(page, "appendable continuation chunks: 0/0 decoded, 0/0 appended")
+  await waitForPlayerText(page, "appendable continuation coverage sec: — / available groups: 1")
+})
+
 test("appendable startup head pilot feeds manifest startup audio before background full append", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, {
     appendable: true,
