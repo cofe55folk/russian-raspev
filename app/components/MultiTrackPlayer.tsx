@@ -147,9 +147,18 @@ type AppendableRouteStressSnapshot = {
   passed: boolean | null
   reason: string | null
 }
+type AppendableRouteTransportSnapshot = {
+  dataPlaneMode: string | null
+  controlPlaneMode: string | null
+  sampleRates: number[]
+  appendMessageCount: number
+  passed: boolean | null
+  reason: string | null
+}
 type AppendableRouteRolloutSnapshot = {
   status: AppendableRoutePilotReportStatus
   gateReady: boolean
+  transportPassed: boolean | null
   qualificationPassed: boolean | null
   stressPassed: boolean | null
   reason: string | null
@@ -181,6 +190,7 @@ type AppendableRoutePilotReportSnapshot = {
   }
   probe: AppendableQueueRuntimeProbeSnapshot
   sourceProgress: AppendableQueueSourceProgressSnapshot
+  transport: AppendableRouteTransportSnapshot
   qualification: AppendableRouteQualificationSnapshot
   stress: AppendableRouteStressSnapshot
   rollout: AppendableRouteRolloutSnapshot
@@ -709,10 +719,22 @@ function createAppendableRouteStressSnapshot(): AppendableRouteStressSnapshot {
   }
 }
 
+function createAppendableRouteTransportSnapshot(): AppendableRouteTransportSnapshot {
+  return {
+    dataPlaneMode: null,
+    controlPlaneMode: null,
+    sampleRates: [],
+    appendMessageCount: 0,
+    passed: null,
+    reason: null,
+  }
+}
+
 function createAppendableRouteRolloutSnapshot(): AppendableRouteRolloutSnapshot {
   return {
     status: "pending",
     gateReady: false,
+    transportPassed: null,
     qualificationPassed: null,
     stressPassed: null,
     reason: null,
@@ -748,10 +770,35 @@ function hasAppendableRouteStressEvidence(snapshot: AppendableRouteStressSnapsho
   )
 }
 
+function cloneAppendableRouteTransportSnapshot(
+  snapshot: AppendableRouteTransportSnapshot
+): AppendableRouteTransportSnapshot {
+  return {
+    dataPlaneMode: snapshot.dataPlaneMode,
+    controlPlaneMode: snapshot.controlPlaneMode,
+    sampleRates: snapshot.sampleRates.slice(),
+    appendMessageCount: snapshot.appendMessageCount,
+    passed: snapshot.passed,
+    reason: snapshot.reason,
+  }
+}
+
+function hasAppendableRouteTransportEvidence(snapshot: AppendableRouteTransportSnapshot): boolean {
+  return (
+    snapshot.dataPlaneMode != null ||
+    snapshot.controlPlaneMode != null ||
+    snapshot.sampleRates.length > 0 ||
+    snapshot.appendMessageCount > 0 ||
+    snapshot.passed != null ||
+    snapshot.reason != null
+  )
+}
+
 function cloneAppendableRouteRolloutSnapshot(snapshot: AppendableRouteRolloutSnapshot): AppendableRouteRolloutSnapshot {
   return {
     status: snapshot.status,
     gateReady: snapshot.gateReady,
+    transportPassed: snapshot.transportPassed,
     qualificationPassed: snapshot.qualificationPassed,
     stressPassed: snapshot.stressPassed,
     reason: snapshot.reason,
@@ -765,6 +812,9 @@ function mergeAppendableRoutePilotEvidenceSnapshot(
   if (!previousSnapshot || previousSnapshot.trackScopeId !== snapshot.trackScopeId) return snapshot
   return {
     ...snapshot,
+    transport: hasAppendableRouteTransportEvidence(snapshot.transport)
+      ? cloneAppendableRouteTransportSnapshot(snapshot.transport)
+      : cloneAppendableRouteTransportSnapshot(previousSnapshot.transport),
     qualification: hasAppendableRouteQualificationEvidence(snapshot.qualification)
       ? cloneAppendableRouteQualificationSnapshot(snapshot.qualification)
       : cloneAppendableRouteQualificationSnapshot(previousSnapshot.qualification),
@@ -774,10 +824,57 @@ function mergeAppendableRoutePilotEvidenceSnapshot(
   }
 }
 
+function withAppendableRouteTransportSnapshot(
+  snapshot: AppendableRoutePilotReportSnapshot
+): AppendableRoutePilotReportSnapshot {
+  const probe = snapshot.probe
+  const transport = cloneAppendableRouteTransportSnapshot({
+    dataPlaneMode: probe.dataPlaneMode,
+    controlPlaneMode: probe.controlPlaneMode,
+    sampleRates: probe.sampleRates.slice(),
+    appendMessageCount: probe.appendMessageCount,
+    passed: null,
+    reason: null,
+  })
+
+  if (!probe.active) {
+    return {
+      ...snapshot,
+      transport,
+    }
+  }
+
+  if (probe.dataPlaneMode !== "postmessage_pcm") {
+    transport.passed = false
+    transport.reason = `data_plane:${probe.dataPlaneMode ?? "missing"}`
+  } else if (probe.controlPlaneMode !== "message_port") {
+    transport.passed = false
+    transport.reason = `control_plane:${probe.controlPlaneMode ?? "missing"}`
+  } else if (probe.sampleRates.length === 0) {
+    transport.passed = false
+    transport.reason = "sample_rates:missing"
+  } else if (probe.sampleRates.length !== 1) {
+    transport.passed = false
+    transport.reason = "sample_rates:mixed"
+  } else if (probe.appendMessageCount <= 0) {
+    transport.passed = false
+    transport.reason = "append_messages:missing"
+  } else {
+    transport.passed = true
+    transport.reason = null
+  }
+
+  return {
+    ...snapshot,
+    transport,
+  }
+}
+
 function withAppendableRouteRolloutSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot
 ): AppendableRoutePilotReportSnapshot {
   const gateReady = snapshot.gate.status === "ready_for_manual_pilot"
+  const transportPassed = snapshot.transport.passed
   const qualificationPassed = snapshot.qualification.passed
   const stressPassed = snapshot.stress.passed
   let status: AppendableRoutePilotReportStatus = "pending"
@@ -788,6 +885,11 @@ function withAppendableRouteRolloutSnapshot(
     reason = `gate:${snapshot.gate.status}`
   } else if (!gateReady) {
     reason = `gate:${snapshot.gate.status}`
+  } else if (transportPassed == null) {
+    reason = snapshot.transport.reason ? `transport:${snapshot.transport.reason}` : "transport:missing"
+  } else if (!transportPassed) {
+    status = "fail"
+    reason = snapshot.transport.reason ? `transport:${snapshot.transport.reason}` : "transport:failed"
   } else if (qualificationPassed == null) {
     reason = "qualification:missing"
   } else if (!qualificationPassed) {
@@ -807,6 +909,7 @@ function withAppendableRouteRolloutSnapshot(
     rollout: {
       status,
       gateReady,
+      transportPassed,
       qualificationPassed,
       stressPassed,
       reason,
@@ -918,6 +1021,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           },
           probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
           sourceProgress: cloneAppendableQueueSourceProgressSnapshot(report.snapshot.sourceProgress),
+          transport: cloneAppendableRouteTransportSnapshot(report.snapshot.transport),
           qualification: cloneAppendableRouteQualificationSnapshot(report.snapshot.qualification),
           stress: cloneAppendableRouteStressSnapshot(report.snapshot.stress),
           rollout: cloneAppendableRouteRolloutSnapshot(report.snapshot.rollout),
@@ -1014,6 +1118,37 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                 ...createAppendableQueueSourceProgressSnapshot(),
                 ...(parsed.snapshot.sourceProgress ?? {}),
               }),
+              transport:
+                parsed.snapshot.transport && typeof parsed.snapshot.transport === "object"
+                  ? {
+                      dataPlaneMode:
+                        typeof parsed.snapshot.transport.dataPlaneMode === "string"
+                          ? parsed.snapshot.transport.dataPlaneMode
+                          : null,
+                      controlPlaneMode:
+                        typeof parsed.snapshot.transport.controlPlaneMode === "string"
+                          ? parsed.snapshot.transport.controlPlaneMode
+                          : null,
+                      sampleRates: Array.isArray(parsed.snapshot.transport.sampleRates)
+                        ? parsed.snapshot.transport.sampleRates.filter(
+                            (value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0
+                          )
+                        : [],
+                      appendMessageCount:
+                        typeof parsed.snapshot.transport.appendMessageCount === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.appendMessageCount)
+                          ? parsed.snapshot.transport.appendMessageCount
+                          : 0,
+                      passed:
+                        typeof parsed.snapshot.transport.passed === "boolean"
+                          ? parsed.snapshot.transport.passed
+                          : null,
+                      reason:
+                        typeof parsed.snapshot.transport.reason === "string"
+                          ? parsed.snapshot.transport.reason
+                          : null,
+                    }
+                  : createAppendableRouteTransportSnapshot(),
               qualification:
                 parsed.snapshot.qualification && typeof parsed.snapshot.qualification === "object"
                   ? {
@@ -1069,6 +1204,10 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                           ? parsed.snapshot.rollout.status
                           : "pending",
                       gateReady: !!parsed.snapshot.rollout.gateReady,
+                      transportPassed:
+                        typeof parsed.snapshot.rollout.transportPassed === "boolean"
+                          ? parsed.snapshot.rollout.transportPassed
+                          : null,
                       qualificationPassed:
                         typeof parsed.snapshot.rollout.qualificationPassed === "boolean"
                           ? parsed.snapshot.rollout.qualificationPassed
@@ -3491,6 +3630,7 @@ export default function MultiTrackPlayer({
       },
       probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
+      transport: createAppendableRouteTransportSnapshot(),
       qualification: createAppendableRouteQualificationSnapshot(),
       stress: createAppendableRouteStressSnapshot(),
       rollout: createAppendableRouteRolloutSnapshot(),
@@ -3524,7 +3664,7 @@ export default function MultiTrackPlayer({
     ): AppendableRoutePilotReport => {
       const currentReport = appendableRoutePilotReportRef.current
       const nextSnapshot = withAppendableRouteRolloutSnapshot(
-        mergeAppendableRoutePilotEvidenceSnapshot(snapshot, currentReport.snapshot)
+        mergeAppendableRoutePilotEvidenceSnapshot(withAppendableRouteTransportSnapshot(snapshot), currentReport.snapshot)
       )
       const nextStatus =
         options?.status ??
@@ -11787,7 +11927,12 @@ export default function MultiTrackPlayer({
                               </div>
                               <div data-testid="appendable-route-pilot-report-rollout">
                                 rollout: {appendableRoutePilotReport.snapshot.rollout.status} / gate=
-                                {appendableRoutePilotReport.snapshot.rollout.gateReady ? "ready" : "not_ready"} / qualification=
+                                {appendableRoutePilotReport.snapshot.rollout.gateReady ? "ready" : "not_ready"} / transport=
+                                {appendableRoutePilotReport.snapshot.rollout.transportPassed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.rollout.transportPassed
+                                    ? "pass"
+                                    : "fail"} / qualification=
                                 {appendableRoutePilotReport.snapshot.rollout.qualificationPassed == null
                                   ? "—"
                                   : appendableRoutePilotReport.snapshot.rollout.qualificationPassed
@@ -11808,6 +11953,22 @@ export default function MultiTrackPlayer({
                                 {appendableRoutePilotReport.snapshot.probe.sampleRates.length
                                   ? appendableRoutePilotReport.snapshot.probe.sampleRates.join(", ")
                                   : "—"}
+                              </div>
+                              <div>
+                                transport qualification: {appendableRoutePilotReport.snapshot.transport.passed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.transport.passed
+                                    ? "pass"
+                                    : "fail"}{" "}
+                                / data={appendableRoutePilotReport.snapshot.transport.dataPlaneMode ?? "—"} / control=
+                                {appendableRoutePilotReport.snapshot.transport.controlPlaneMode ?? "—"} / rates=
+                                {appendableRoutePilotReport.snapshot.transport.sampleRates.length
+                                  ? appendableRoutePilotReport.snapshot.transport.sampleRates.join(", ")
+                                  : "—"} / append=
+                                {appendableRoutePilotReport.snapshot.transport.appendMessageCount}
+                                {appendableRoutePilotReport.snapshot.transport.reason
+                                  ? ` (${appendableRoutePilotReport.snapshot.transport.reason})`
+                                  : ""}
                               </div>
                               <div>
                                 source: mode={appendableRoutePilotReport.snapshot.sourceProgress.mode} / startup=

@@ -2746,3 +2746,34 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.164`:
    - route diagnostics can now widen safe rollout over the entire manifest-qualified cohort without manual per-slug storage editing
    - the next widening step can be exercised as one operator action while still remaining explicit and reversible
+
+## 8.165 Route rollout reports now persist explicit transport qualification and require it before final rollout pass
+1. The next slice still does not change the appendable playback primitive and still does not widen rollout by itself.
+2. Instead, it turns the already-surfaced transport telemetry into a real qualification artifact:
+   - route snapshots already carried `probe.dataPlaneMode`, `probe.controlPlaneMode`, `probe.sampleRates`, and append counts
+   - but the saved report/packet/download path did not persist a dedicated transport verdict
+   - and the derived `rollout` status still ignored transport completely
+3. This slice adds a dedicated transport evidence block to the route report snapshot:
+   - snapshots now persist `transport.dataPlaneMode`, `transport.controlPlaneMode`, `transport.sampleRates`, `transport.appendMessageCount`, `transport.passed`, and `transport.reason`
+   - current transport qualification passes only when the runtime probe is active and confirms:
+     - `dataPlaneMode = postmessage_pcm`
+     - `controlPlaneMode = message_port`
+     - a single sample-rate family
+     - positive append-message activity
+   - saved reports, packets, reload rehydration, and `captureReport()` now all carry that same transport evidence
+4. The derived rollout verdict is also stricter now:
+   - `rollout` still prioritizes gate failures first
+   - but once the route is gate-ready, transport must pass before `qualification` and `stress` can produce a final rollout pass
+   - transport therefore becomes a persisted rollout prerequisite rather than an informal diagnostics hint
+5. Route e2e was extended accordingly:
+   - `captureReport()` now proves transport evidence is present on a live appendable route
+   - packet export, report download, and reload rehydration all verify that the same transport verdict survives serialization
+   - the cumulative rollout pass expectation now also depends on `transport.passed === true`
+6. Verification completed locally:
+   - targeted report/rehydration transport pack on Chromium + WebKit: `8/8`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `56/56`
+   - `npx tsc --noEmit`
+   - `npm run build`
+7. Practical consequence after `8.165`:
+   - route rollout evidence now encodes not only runtime cleanliness, but also whether the current appendable transport shape matches the intended qualification envelope
+   - future widening can key off an explicit persisted transport verdict instead of reading raw probe fields by hand
