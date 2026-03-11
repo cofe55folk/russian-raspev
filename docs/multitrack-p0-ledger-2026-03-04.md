@@ -4384,3 +4384,27 @@ Comment for the next window:
 Итог после `9.104`:
 1. Packet export теперь тоже покрыт как контрактный слой.
 2. Saved JSON packet и live route report больше не могут тихо разойтись по rollout semantics без красного e2e.
+
+## 9.105 Report JSON теперь тоже проверяется как контрактный export path, а route harness ждёт реальной appendable readiness
+
+Что сделано:
+1. После `9.104` неснятым оставался только plain report download path:
+   - packet wrapper уже проверялся как контракт
+   - live route report и direct capture уже были согласованы
+   - но `download report` всё ещё не проверялся как самостоятельный JSON contract
+2. Теперь route e2e читает и валидирует сам скачанный report JSON:
+   - проверяется согласованность `status`, `trackScopeId`, `checklistStatus`
+   - после последовательных `qualification + stress` runs report обязан сохранить cumulative evidence и тот же производный `rollout` verdict
+3. Заодно ужесточён сам route harness против transient noise:
+   - helper сначала ждёт, что `/sound/...` снова доступен, и только потом делает `page.goto`
+   - после загрузки helper проверяет, что pilot flags действительно защёлкнулись в `localStorage`
+   - appendable debug tests теперь ждут не только наличие debug API, но и фактический вход route в `audio mode: appendable_queue_worklet`
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `48/48`
+
+Итог после `9.105`:
+1. Contract-покрытие export path теперь симметрично: и `packet`, и plain `report` проверяются по реальному JSON payload.
+2. Harness-only `ERR_CONNECTION_REFUSED`/bootstrap races больше не должны маскироваться под appendable route regression в этом pack.
+3. Appendable debug API в route e2e теперь вызывается только после фактического входа в appendable runtime.

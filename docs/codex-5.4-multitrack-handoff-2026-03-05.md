@@ -2585,3 +2585,21 @@ Suggested opening prompt for the next window:
 5. Practical consequence after `8.156`:
    - the downloaded packet is now covered as a real contract, not just as a UI side-effect
    - future automation/report consumers can rely on packet JSON carrying the same rollout semantics as the on-route diagnostics
+
+## 8.157 Report export is now verified as a contract, and route e2e waits for real appendable readiness before pilot calls
+1. After `8.156`, the remaining export hole was the plain report download path rather than the packet wrapper.
+2. Route e2e now closes that gap directly:
+   - the downloaded report JSON is parsed and asserted as a contract
+   - cumulative `qualification + stress` evidence is verified in the report payload itself
+   - top-level `status`, `trackScopeId`, `checklistStatus`, and nested `snapshot.rollout` must stay internally consistent
+3. The same slice also hardens route bootstrap against harness-only flakes:
+   - `openPlayerWithAppendableFlags()` now waits for the player route to be reachable before `page.goto`
+   - after load, the helper verifies that requested pilot flags were actually latched into `localStorage`
+   - appendable debug/pilot tests now wait for real `audio mode: appendable_queue_worklet` plus the expected debug method before invoking the route debug API
+4. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `48/48`
+5. Practical consequence after `8.157`:
+   - report download is now covered as a first-class contract, not just packet export
+   - transient dev-server/bootstrap hiccups no longer masquerade as appendable runtime regressions in this route pack
+   - appendable debug API tests now prove behavior after the route has actually entered appendable mode

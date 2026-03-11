@@ -6,6 +6,22 @@ const PLAYER_ROUTE = `/sound/${SLUG}`
 
 test.describe.configure({ mode: "serial" })
 
+async function waitForPlayerRouteReachable(page: Page, timeout = 30000) {
+  await expect
+    .poll(
+      async () => {
+        try {
+          const response = await page.request.get(PLAYER_ROUTE)
+          return response.ok() ? "ok" : `status:${response.status()}`
+        } catch (error) {
+          return error instanceof Error ? error.message : "request_failed"
+        }
+      },
+      { timeout }
+    )
+    .toBe("ok")
+}
+
 async function openPlayerWithAppendableFlags(
   page: Page,
   flags: {
@@ -50,16 +66,50 @@ async function openPlayerWithAppendableFlags(
   let lastGotoError: unknown = null
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
+      await waitForPlayerRouteReachable(page, attempt === 0 ? 30000 : 10000)
       await page.goto(PLAYER_ROUTE, { waitUntil: "domcontentloaded" })
       await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
       await expect
         .poll(async () => await page.locator("canvas[aria-label^='Waveform ']").count(), { timeout: 30000 })
         .toBeGreaterThanOrEqual(2)
+      const localStorageFlagsReady = await page.evaluate((nextFlags) => {
+        const expectedActivationTargets = nextFlags.activationTargets
+          ? (Array.isArray(nextFlags.activationTargets) ? nextFlags.activationTargets : [nextFlags.activationTargets]).join(",")
+          : null
+        const expectedSafeRolloutTargets = nextFlags.safeRolloutTargets
+          ? (Array.isArray(nextFlags.safeRolloutTargets) ? nextFlags.safeRolloutTargets : [nextFlags.safeRolloutTargets]).join(",")
+          : null
+        if (nextFlags.streaming && localStorage.getItem("rr_audio_streaming_pilot") !== "1") return false
+        if (nextFlags.ringbuffer && localStorage.getItem("rr_audio_ringbuffer_pilot") !== "1") return false
+        if (nextFlags.appendable && localStorage.getItem("rr_audio_appendable_queue_pilot") !== "1") return false
+        if (nextFlags.multistem && localStorage.getItem("rr_audio_appendable_queue_multistem_pilot") !== "1") return false
+        if (nextFlags.startupHead && localStorage.getItem("rr_audio_appendable_queue_startup_head_pilot") !== "1") return false
+        if (nextFlags.continuationChunks && localStorage.getItem("rr_audio_appendable_queue_continuation_chunks_pilot") !== "1") {
+          return false
+        }
+        if (
+          expectedActivationTargets !== null &&
+          localStorage.getItem("rr_audio_appendable_queue_activation_targets") !== expectedActivationTargets
+        ) {
+          return false
+        }
+        if (
+          expectedSafeRolloutTargets !== null &&
+          localStorage.getItem("rr_audio_appendable_queue_safe_rollout_targets") !== expectedSafeRolloutTargets
+        ) {
+          return false
+        }
+        return true
+      }, flags)
+      if (!localStorageFlagsReady) {
+        throw new Error("appendable_flag_init_mismatch")
+      }
       lastGotoError = null
       break
     } catch (error) {
       lastGotoError = error
       if (attempt === 4) throw error
+      await waitForPlayerRouteReachable(page, 10000)
       await page.waitForTimeout(1500)
     }
   }
@@ -83,6 +133,21 @@ async function openRuntimeProbe(page: Page) {
   const checklistToggle = page.getByTestId("recording-checklist-toggle")
   await expect(checklistToggle).toBeVisible({ timeout: 15000 })
   await checklistToggle.click()
+}
+
+async function waitForAppendablePilotDebugMethod(page: Page, methodName: string) {
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate((nextMethodName) => {
+          const api = (window as Window & { __rrAppendableRoutePilotDebug?: Record<string, unknown> })
+            .__rrAppendableRoutePilotDebug
+          return typeof api?.[nextMethodName] === "function"
+        }, methodName),
+      { timeout: 10000 }
+    )
+    .toBe(true)
 }
 
 async function evaluateWithRetry<T>(page: Page, fn: () => Promise<T> | T, attempts = 5): Promise<T> {
@@ -519,15 +584,7 @@ test("appendable continuation chunks pilot falls back to startup-head-only mode 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
-  await expect
-    .poll(
-      async () =>
-        await page.evaluate(
-          () => typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runQuickPilot?: unknown } }).__rrAppendableRoutePilotDebug?.runQuickPilot === "function"
-        ),
-      { timeout: 10000 }
-    )
-    .toBe(true)
+  await waitForAppendablePilotDebugMethod(page, "runQuickPilot")
 
   const state = await evaluateWithRetry(page, async () => {
     const api = (window as Window & { __rrAppendableRoutePilotDebug?: {
@@ -585,15 +642,7 @@ test("appendable route debug api can run a quick pilot flow with seek", async ({
 test("appendable route debug api can run a soak pilot flow", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
-  await expect
-    .poll(
-      async () =>
-        await page.evaluate(
-          () => typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runSoakPilot?: unknown } }).__rrAppendableRoutePilotDebug?.runSoakPilot === "function"
-        ),
-      { timeout: 10000 }
-    )
-    .toBe(true)
+  await waitForAppendablePilotDebugMethod(page, "runSoakPilot")
 
   const state = await evaluateWithRetry(page, async () => {
     const api = (window as Window & { __rrAppendableRoutePilotDebug?: {
@@ -624,17 +673,7 @@ test("appendable route debug api can run a soak pilot flow", async ({ page }) =>
 test("appendable route debug api can run a qualification pilot flow", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
-  await expect
-    .poll(
-      async () =>
-        await page.evaluate(
-          () =>
-            typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runQualificationPilot?: unknown } })
-              .__rrAppendableRoutePilotDebug?.runQualificationPilot === "function"
-        ),
-      { timeout: 10000 }
-    )
-    .toBe(true)
+  await waitForAppendablePilotDebugMethod(page, "runQualificationPilot")
 
   const state = await evaluateWithRetry(page, async () => {
     const api = (window as Window & {
@@ -686,17 +725,7 @@ test("appendable route debug api can run a qualification pilot flow", async ({ p
 test("appendable route debug api can run a stress pilot flow", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
-  await expect
-    .poll(
-      async () =>
-        await page.evaluate(
-          () =>
-            typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runStressPilot?: unknown } })
-              .__rrAppendableRoutePilotDebug?.runStressPilot === "function"
-        ),
-      { timeout: 10000 }
-    )
-    .toBe(true)
+  await waitForAppendablePilotDebugMethod(page, "runStressPilot")
 
   const state = await evaluateWithRetry(page, async () => {
     const api = (window as Window & {
@@ -752,6 +781,7 @@ test("appendable route debug api can run a stress pilot flow", async ({ page }) 
 test("route pilot report preserves qualification evidence after a later stress pilot run", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runQualificationPilot")
 
   const state = await evaluateWithRetry(page, async () => {
     const api = (window as Window & {
@@ -819,6 +849,7 @@ test("route pilot report preserves qualification evidence after a later stress p
 test("saved appendable packet preserves cumulative rollout evidence after qualification then stress", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runQualificationPilot")
 
   await evaluateWithRetry(page, async () => {
     const api = (window as Window & {
@@ -833,7 +864,11 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
   })
 
   const downloadPromise = page.waitForEvent("download")
-  await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()
+  await waitForAppendablePilotDebugMethod(page, "saveCurrentDiagnostics")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { saveCurrentDiagnostics: () => void } })
+      .__rrAppendableRoutePilotDebug?.saveCurrentDiagnostics()
+  })
   const download = await downloadPromise
   const packet = await readJsonDownload<{
     checklist: { status: string }
@@ -875,9 +910,76 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
+test("downloaded appendable report preserves cumulative rollout evidence after qualification then stress", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runQualificationPilot")
+
+  await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runQualificationPilot: (durationSec?: number | null) => Promise<unknown>
+        runStressPilot: (holdSec?: number | null) => Promise<unknown>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runQualificationPilot(6)
+    return await api.runStressPilot(1)
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadReport")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadReport: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadReport()
+  })
+  const download = await downloadPromise
+  const report = await readJsonDownload<{
+    status: string
+    trackScopeId: string
+    checklistStatus: string
+    snapshot: {
+      trackScopeId: string
+      gate: { status: string }
+      qualification: { targetSoakSec: number | null; passed: boolean | null }
+      stress: { seekSequenceSec: number[]; completedSeeks: number; passed: boolean | null }
+      rollout: { status: string; reason: string | null }
+    } | null
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-")
+  expect(report.snapshot).not.toBeNull()
+  expect(report.trackScopeId.length).toBeGreaterThan(0)
+  expect(report.trackScopeId).toBe(report.snapshot?.trackScopeId)
+  expect(report.checklistStatus).toBe(report.snapshot?.gate.status)
+  expect(report.snapshot?.qualification.targetSoakSec).toBe(6)
+  expect(report.snapshot?.qualification.passed).not.toBeNull()
+  expect(report.snapshot?.stress.seekSequenceSec.length ?? 0).toBeGreaterThan(0)
+  expect(report.snapshot?.stress.completedSeeks).toBe(report.snapshot?.stress.seekSequenceSec.length)
+  const expectedRolloutStatus =
+    report.snapshot?.gate.status === "ready_for_manual_pilot" &&
+    report.snapshot.qualification.passed === true &&
+    report.snapshot.stress.passed === true
+      ? "pass"
+      : "fail"
+  expect(report.snapshot?.rollout.status).toBe(expectedRolloutStatus)
+  expect(report.status).toBe(expectedRolloutStatus)
+  if (expectedRolloutStatus === "pass") {
+    expect(report.snapshot?.rollout.reason).toBeNull()
+  } else {
+    expect(report.snapshot?.rollout.reason).not.toBeNull()
+  }
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "saveCurrentDiagnostics")
 
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
   await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
@@ -935,6 +1037,7 @@ test("current appendable diagnostics can be saved from the debug area without qu
 test("soak pilot diagnostics can be saved from the debug area", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runSoakPilot")
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-run-soak-pilot-save").click()
@@ -954,6 +1057,7 @@ test("soak pilot diagnostics can be saved from the debug area", async ({ page })
 test("qualification pilot diagnostics can be saved from the debug area", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runQualificationPilot")
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-run-qualification-pilot-save").click()
@@ -973,6 +1077,7 @@ test("qualification pilot diagnostics can be saved from the debug area", async (
 test("stress pilot diagnostics can be saved from the debug area", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runStressPilot")
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-run-stress-pilot-save").click()
@@ -992,6 +1097,7 @@ test("stress pilot diagnostics can be saved from the debug area", async ({ page 
 test("quick pilot diagnostics can be saved from the debug area", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runQuickPilot")
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-run-quick-pilot-save").click()
