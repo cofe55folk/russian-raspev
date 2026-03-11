@@ -4457,3 +4457,33 @@ Comment for the next window:
 Итог после `9.107`:
 1. Persistent route report теперь покрыт и для automatic evidence, и для manual reviewer overrides.
 2. Helper для открытия diagnostics больше не создаёт собственные flakes при повторном вызове внутри длинных playback/reload сценариев.
+
+## 9.108 Route diagnostics теперь явно показывают, когда blocked route уже готов как safe-rollout candidate
+
+Что сделано:
+1. Следующий appendable slice после `9.107` снова не меняет playback engine и не включает новый rollout по умолчанию.
+2. Вместо этого он делает явным один важный операторский факт:
+   - route может остаться на baseline из-за targeting
+   - но при этом уже быть manifest-backed и continuation-qualified кандидатом для `safe_rollout`
+3. Для этого в `MultiTrackPlayer` добавлен diagnostics-only preflight поверх startup manifest:
+   - preflight теперь запускается, когда route appendable flags уже включены, даже если сам runtime path не активировался
+   - `sourceProgress` теперь хранит:
+     - `safeRolloutCandidateQualified`
+     - `safeRolloutCandidateTarget`
+   - если route blocked by targeting, checklist теперь подсказывает не общий `activation_targets`, а конкретный `rr_audio_appendable_queue_safe_rollout_targets`, когда текущий slug уже qualified
+4. Contract layer тоже усилен:
+   - live diagnostics выводят candidate verdict и recommended target явно
+   - `captureReport()` и сохранённый route report несут те же поля через `sourceProgress`
+5. Route e2e дополнен проверкой blocked-route case:
+   - route остаётся в `audio mode: soundtouch`
+   - но одновременно показывает `appendable safe rollout candidate: yes`
+   - и рекомендует текущий slug как `safe_rollout` target
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `52/52`
+3. `npm run build` — pass
+
+Итог после `9.108`:
+1. Следующий rollout-widening slice теперь можно делать по live diagnostics/report recommendations, а не по памяти о manifest-qualified track-set’ах.
+2. Оператору больше не нужно включать startup-head path вручную только ради того, чтобы понять, подходит ли текущий route для `safe_rollout`.
