@@ -198,6 +198,14 @@ test("safe appendable rollout auto-enables qualified continuation ingest without
   await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
   await waitForPlayerText(page, "appendable continuation coverage sec: 26.000 / available groups: 2")
   await waitForPlayerText(page, "tempo: off / pitch: off")
+  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("запусти playback для runtime probe")
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
+  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("готов к ручному pilot")
 })
 
 test("safe appendable rollout keeps qualified ingest off when manifest continuation qualification fails", async ({ page }) => {
@@ -227,6 +235,18 @@ test("safe appendable rollout keeps qualified ingest off when manifest continuat
   await waitForPlayerText(page, "appendable startup mode: full_buffer")
   await waitForPlayerText(page, "appendable continuation chunks: 0/0 decoded, 0/0 appended")
   await waitForPlayerText(page, "appendable continuation coverage sec: — / available groups: 1")
+  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText(
+    "safe rollout fallback: source_chunk_count_mismatch"
+  )
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
+  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText(
+    "safe rollout fallback: source_chunk_count_mismatch"
+  )
 })
 
 test("appendable startup head pilot feeds manifest startup audio before background full append", async ({ page }) => {

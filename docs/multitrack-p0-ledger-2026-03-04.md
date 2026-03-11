@@ -4038,3 +4038,38 @@ Comment for the next window:
 1. Safe rollout теперь реально включает qualified startup-head continuation ingest без ручных route flags.
 2. Fallback state при failed qualification стал явно наблюдаемым, а не скрытым за `off`.
 3. Следующий rollout/hardening slice можно строить вокруг реальных diagnostics и qualified target-sets.
+
+## 9.95 Safe rollout readiness now refuses clean full-buffer fallback and requires qualified continuation path
+
+Что сделано:
+1. Следующий hardening slice после `9.94` закрыл дырку в route checklist/report semantics.
+2. До этого шага `safe_rollout` route мог выглядеть как `готов к ручному pilot`, даже если:
+   - continuation qualification уже упал в `fallback`
+   - source mode остался `full_buffer`
+   - runtime probe был чистым только потому, что route не пошёл в qualified continuation ingest
+3. После этого шага readiness для `safe_rollout` считается пройденной только когда одновременно выполняется всё ниже:
+   - `continuationQualification = qualified`
+   - `sourceProgress.mode = startup_head_continuation_chunks`
+   - runtime probe active и underrun/discontinuity = 0
+4. Если qualification не проходит:
+   - route по-прежнему может безопасно играть на appendable `full_buffer`
+   - но checklist/report теперь остаются в явном `attention_required`
+   - label и steps сохраняют конкретный fallback reason code вместо ложного ready-state
+5. Это превращает safe rollout из “appendable жив и не хрипит” в более строгий operational gate:
+   - qualified continuation path должен не только существовать в manifest
+   - он должен реально стать активным route-mode и пройти runtime cleanliness
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `26/26`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не выключает appendable `full_buffer` fallback.
+2. Этот шаг не делает global default rollout.
+3. Этот шаг лишь запрещает считать fallback-route rollout-ready, если qualified continuation path так и не активировался.
+
+Итог после `9.95`:
+1. Safe rollout checklist/report теперь опираются не только на чистый runtime, но и на факт реального qualified continuation ingestion.
+2. Clean `full_buffer` fallback больше не маскируется под rollout success.
+3. Следующий hardening slice можно уже строить вокруг runtime thresholds/soak evidence, а не вокруг semantics readiness-state.
