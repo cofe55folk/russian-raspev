@@ -51,6 +51,46 @@ const TARGETS = [
       },
     ],
   },
+  {
+    slug: "tomsk-bogoslovka-po-moryam",
+    sources: [
+      {
+        src: "public/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01.m4a",
+        output: "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02.m4a",
+        output: "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03.m4a",
+        output: "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+  {
+    slug: "balman-vechor-devku",
+    sources: [
+      {
+        src: "public/audio/balman-vechor_devku/balman-vechor_devku-01.mp3",
+        output: "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-vechor_devku/balman-vechor_devku-02.mp3",
+        output: "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-vechor_devku/balman-vechor_devku-03.mp3",
+        output: "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
 ]
 
 function toPosix(value) {

@@ -2,22 +2,40 @@ import { readFile } from "node:fs/promises"
 import { expect, test, type Download, type Page } from "@playwright/test"
 
 const SLUG = "terek-ne-vo-daleche"
-const PLAYER_ROUTE = `/sound/${SLUG}`
+const SECONDARY_SLUG = "tomsk-bogoslovka-po-moryam"
+
+function toPlayerRoute(slug: string) {
+  return `/sound/${slug}`
+}
 
 test.describe.configure({ mode: "serial" })
 
-async function waitForPlayerRouteReachable(page: Page, timeout = 30000) {
+async function waitForPlayerRouteReachable(
+  page: Page,
+  playerRouteOrTimeout: string | number = toPlayerRoute(SLUG),
+  timeout = 30000
+) {
+  const playerRoute =
+    typeof playerRouteOrTimeout === "string" && playerRouteOrTimeout.length > 0
+      ? playerRouteOrTimeout
+      : toPlayerRoute(SLUG)
+  const effectiveTimeout = typeof playerRouteOrTimeout === "number" ? playerRouteOrTimeout : timeout
   await expect
     .poll(
       async () => {
         try {
-          const response = await page.request.get(PLAYER_ROUTE)
+          const currentUrl = page.url()
+          const requestUrl =
+            currentUrl && currentUrl !== "about:blank"
+              ? new URL(playerRoute, currentUrl).toString()
+              : playerRoute
+          const response = await page.request.get(requestUrl)
           return response.ok() ? "ok" : `status:${response.status()}`
         } catch (error) {
           return error instanceof Error ? error.message : "request_failed"
         }
       },
-      { timeout }
+      { timeout: effectiveTimeout }
     )
     .toBe("ok")
 }
@@ -34,7 +52,8 @@ async function openPlayerWithAppendableFlags(
     streaming?: boolean
     activationTargets?: string | string[]
     safeRolloutTargets?: string | string[]
-  } = {}
+  } = {},
+  routeSlug = SLUG
 ) {
   await page.addInitScript((nextFlags) => {
     localStorage.removeItem("rr_audio_streaming_pilot")
@@ -67,10 +86,11 @@ async function openPlayerWithAppendableFlags(
   }, flags)
 
   let lastGotoError: unknown = null
+  const playerRoute = toPlayerRoute(routeSlug)
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      await waitForPlayerRouteReachable(page, attempt === 0 ? 30000 : 10000)
-      await page.goto(PLAYER_ROUTE, { waitUntil: "domcontentloaded" })
+      await waitForPlayerRouteReachable(page, playerRoute, attempt === 0 ? 30000 : 10000)
+      await page.goto(playerRoute, { waitUntil: "domcontentloaded" })
       await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
       await expect
         .poll(async () => await page.locator("canvas[aria-label^='Waveform ']").count(), { timeout: 30000 })
@@ -112,7 +132,7 @@ async function openPlayerWithAppendableFlags(
     } catch (error) {
       lastGotoError = error
       if (attempt === 4) throw error
-      await waitForPlayerRouteReachable(page, 10000)
+      await waitForPlayerRouteReachable(page, playerRoute, 10000)
       await page.waitForTimeout(1500)
     }
   }
@@ -132,19 +152,31 @@ async function waitForChecklistStatus(page: Page, needle: string) {
 }
 
 async function openRuntimeProbe(page: Page) {
-  const guestPanelToggle = page.getByTestId("guest-panel-toggle")
-  const checklistToggle = page.getByTestId("recording-checklist-toggle")
-  if (!(await checklistToggle.isVisible().catch(() => false))) {
-    await expect(guestPanelToggle).toBeVisible({ timeout: 15000 })
-    await guestPanelToggle.click()
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const guestPanelToggle = page.getByTestId("guest-panel-toggle")
+    const checklistToggle = page.getByTestId("recording-checklist-toggle")
+    const report = page.getByTestId("appendable-route-pilot-report")
+    try {
+      if (!(await checklistToggle.isVisible().catch(() => false))) {
+        await expect(guestPanelToggle).toBeVisible({ timeout: 15000 })
+        await guestPanelToggle.click()
+      }
+      await expect(checklistToggle).toBeVisible({ timeout: 15000 })
+      if (!(await report.isVisible().catch(() => false))) {
+        await checklistToggle.click()
+      }
+      await expect(page.getByTestId("appendable-route-checklist")).toBeVisible({ timeout: 15000 })
+      await expect(report).toBeVisible({ timeout: 15000 })
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt === 2) throw error
+      await waitForPlayerRouteReachable(page, 10000)
+      await page.waitForTimeout(1000)
+    }
   }
-  await expect(checklistToggle).toBeVisible({ timeout: 15000 })
-  const report = page.getByTestId("appendable-route-pilot-report")
-  if (!(await report.isVisible().catch(() => false))) {
-    await checklistToggle.click()
-  }
-  await expect(page.getByTestId("appendable-route-checklist")).toBeVisible({ timeout: 15000 })
-  await expect(report).toBeVisible({ timeout: 15000 })
+  throw lastError instanceof Error ? lastError : new Error("openRuntimeProbe failed")
 }
 
 async function waitForAppendablePilotDebugMethod(page: Page, methodName: string) {
@@ -223,6 +255,12 @@ test("appendable route pilot stays off when the current track set is not targete
       { timeout: 10000 }
     )
     .toBe(SLUG)
+  await page.addInitScript((safeRolloutTarget) => {
+    localStorage.setItem("rr_audio_appendable_queue_safe_rollout_targets", safeRolloutTarget)
+  }, SLUG)
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
   await openRuntimeProbe(page)
   await waitForPlayerText(page, "appendable activation mode: safe_rollout")
   await waitForPlayerText(page, "appendable activation allowed: on")
@@ -596,6 +634,25 @@ test("safe appendable rollout auto-enables qualified continuation ingest without
       { timeout: 45000 }
     )
     .toBe(true)
+})
+
+test("safe appendable rollout also auto-enables qualified continuation ingest on the tomsk route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: SECONDARY_SLUG }, SECONDARY_SLUG)
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, `appendable activation match: ${SECONDARY_SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
+  await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
 })
 
 test("safe appendable rollout keeps qualified ingest off when manifest continuation qualification fails", async ({ page }) => {
