@@ -3,7 +3,10 @@ import { expect, test, type Download, type Page } from "@playwright/test"
 
 const SLUG = "terek-ne-vo-daleche"
 const SECONDARY_SLUG = "tomsk-bogoslovka-po-moryam"
+const TERTIARY_SLUG = "balman-ty-zorya-moya"
 const QUALIFIED_SAFE_ROLLOUT_COHORT = [
+  "balman-seyu-veyu",
+  TERTIARY_SLUG,
   "balman-vechor-devku",
   SECONDARY_SLUG,
   "terek-mne-mladcu-malym-spalos",
@@ -705,6 +708,25 @@ test("safe appendable rollout also auto-enables qualified continuation ingest on
 
   await waitForPlayerText(page, "appendable activation mode: safe_rollout")
   await waitForPlayerText(page, `appendable activation match: ${SECONDARY_SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
+  await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
+})
+
+test("safe appendable rollout also auto-enables qualified continuation ingest on the balman route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: TERTIARY_SLUG }, TERTIARY_SLUG)
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, `appendable activation match: ${TERTIARY_SLUG}`)
   await waitForPlayerText(page, "appendable tempo policy: locked")
   await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
   await waitForPlayerText(page, "appendable continuation qualification: qualified")
