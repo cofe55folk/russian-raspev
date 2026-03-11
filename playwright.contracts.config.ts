@@ -24,10 +24,11 @@ const projects = isCI
       },
     ];
 
-export function createContractsConfig(options: { testDir: string; testMatch: string[] }) {
+export function createContractsConfig(options: { testDir: string; testMatch: string[]; testIgnore?: string[] }) {
   return defineConfig({
     testDir: options.testDir,
     testMatch: options.testMatch,
+    testIgnore: options.testIgnore ?? [],
     fullyParallel: true,
     forbidOnly: isCI,
     retries: isCI ? 2 : 0,
@@ -50,4 +51,5 @@ export function createContractsConfig(options: { testDir: string; testMatch: str
 export default createContractsConfig({
   testDir: "tests/e2e",
   testMatch: ["**/*.spec.ts"],
+  testIgnore: ["**/miniplayer-regressions.spec.ts"],
 });

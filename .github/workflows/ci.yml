@@ -69,7 +69,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run admin analytics contract specs
-        run: npx playwright test --config=playwright.admin-analytics.config.ts --project=chromium --workers=1
+        run: npm run test:e2e:admin-analytics
 
       - name: Upload Playwright report
         if: failure()

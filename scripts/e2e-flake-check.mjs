@@ -7,14 +7,6 @@ const DEFAULT_MAX_FLAKE_RATE = 0.02;
 const DEFAULT_REPORT_PATH = path.join(process.cwd(), 'tmp', 'e2e-flake-report.json');
 const JSON_OUTPUT_DIR = path.join(process.cwd(), 'tmp', 'e2e-flake-json');
 
-const CRITICAL_TESTS = [
-  'tests/e2e/donate-checkout.spec.ts',
-  'tests/e2e/billing-webhook.spec.ts',
-  'tests/e2e/events-page.spec.ts',
-  'tests/e2e/map-filters.spec.ts',
-  'tests/e2e/search-page.spec.ts',
-];
-
 const INFRA_PATTERNS = [
   {
     signature: 'infra.webserver.start_failed',
@@ -176,10 +168,11 @@ function runOnce(runIndex) {
     const args = [
       'playwright',
       'test',
-      ...CRITICAL_TESTS,
-      '--config=playwright.critical.config.ts',
+      '--config=playwright.contracts.config.ts',
       '--project=chromium',
       '--workers=1',
+      '--grep',
+      '@critical-contract',
       '--reporter=line,json',
     ];
 
