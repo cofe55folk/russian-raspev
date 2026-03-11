@@ -1953,3 +1953,32 @@ Suggested opening prompt for the next window:
 7. Practical next step:
    - this PR is now merge-ready
    - next window should not reopen appendable or privacy triage unless CI regresses again
+
+## 8.136 Scoped appendable activation layer now exists after merge
+1. `PR #6` was merged into `develop` as:
+   - `8ee9920` `p1: transplant appendable queue pilot stack (#6)`
+2. The next focused slice moved from PR extraction to rollout control:
+   - keep baseline as default
+   - keep appendable pilot-gated
+   - add an appendable-specific activation layer instead of reviving `soundCatalog.ts`
+3. New helper:
+   - `app/components/audio/appendablePilotActivation.ts`
+4. Current activation sources:
+   - env: `NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_ACTIVATION_TARGETS`
+   - local storage: `rr_audio_appendable_queue_activation_targets`
+   - preview cookie tokens: `multitrack_appendable_queue_target:<id>`
+5. Matching strategy:
+   - always matches `trackScopeId`
+   - normal `/sound/...` route also passes the human-readable `slug`
+   - allowlist may use exact ids or `*`
+6. Route-level diagnostics are now explicit when appendable flags are on but the current track set is not part of the rollout target:
+   - checklist status: track set is not targeted for appendable rollout
+   - guest panel now shows activation scoped/allowed/match values
+   - report / packet snapshots now include activation metadata
+7. Validation after this slice:
+   - `npx tsc --noEmit`
+   - Chromium player-route spec: `7 passed`
+   - WebKit player-route spec: `7 passed`
+8. Updated practical next step:
+   - open a focused PR for this scoped activation layer
+   - after merge, widen appendable rollout by explicit target list instead of dark-flagging everything

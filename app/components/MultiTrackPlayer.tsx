@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import Link from "next/link"
 import { createAppendableQueueEngine, createAudioBufferAppendableSource } from "./audio/appendableQueueEngine"
 import { createAppendableQueueMultitrackCoordinator, type AppendableQueueMultitrackCoordinator } from "./audio/appendableQueueMultitrackCoordinator"
+import { resolveClientAppendablePilotActivation } from "./audio/appendablePilotActivation"
 import { resolveAudioPilotRouting, type AudioPilotEngineMode } from "./audio/audioPilotRouting"
 import { createSoundTouchEngine, type AudioEngineCapabilities, type SoundTouchEngine } from "./audio/soundtouchEngine"
 import { createMediaStreamingEngine } from "./audio/mediaStreamingEngine"
@@ -88,6 +89,13 @@ type AppendableRoutePilotReportSnapshot = {
     appendableQueuePilotEnabled: boolean
     appendableQueueMultistemPilotEnabled: boolean
   }
+  activation: {
+    configured: boolean
+    allowed: boolean
+    matchedTarget: string | null
+    currentTargets: string[]
+    configuredTargets: string[]
+  }
   probe: AppendableQueueRuntimeProbeSnapshot
 }
 type AppendableRoutePilotReport = {
@@ -102,7 +110,12 @@ type AppendableRoutePilotDebugState = {
   playing: boolean
   audioMode: EngineMode
   checklist: {
-    status: "waiting_for_flags" | "play_to_activate_probe" | "ready_for_manual_pilot" | "attention_required"
+    status:
+      | "waiting_for_flags"
+      | "blocked_by_targeting"
+      | "play_to_activate_probe"
+      | "ready_for_manual_pilot"
+      | "attention_required"
     statusLabel: string
     steps: string[]
   }
@@ -403,7 +416,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
     updatedAt: report.updatedAt,
     status: report.status,
     notes: report.notes,
-    snapshot: report.snapshot
+      snapshot: report.snapshot
       ? {
           capturedAt: report.snapshot.capturedAt,
           trackScopeId: report.snapshot.trackScopeId,
@@ -411,6 +424,13 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           flags: {
             appendableQueuePilotEnabled: report.snapshot.flags.appendableQueuePilotEnabled,
             appendableQueueMultistemPilotEnabled: report.snapshot.flags.appendableQueueMultistemPilotEnabled,
+          },
+          activation: {
+            configured: report.snapshot.activation.configured,
+            allowed: report.snapshot.activation.allowed,
+            matchedTarget: report.snapshot.activation.matchedTarget,
+            currentTargets: report.snapshot.activation.currentTargets.slice(),
+            configuredTargets: report.snapshot.activation.configuredTargets.slice(),
           },
           probe: cloneAppendableQueueRuntimeProbeSnapshot(report.snapshot.probe),
         }
@@ -445,6 +465,24 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
               flags: {
                 appendableQueuePilotEnabled: !!parsed.snapshot.flags?.appendableQueuePilotEnabled,
                 appendableQueueMultistemPilotEnabled: !!parsed.snapshot.flags?.appendableQueueMultistemPilotEnabled,
+              },
+              activation: {
+                configured: !!parsed.snapshot.activation?.configured,
+                allowed: parsed.snapshot.activation?.allowed == null ? true : !!parsed.snapshot.activation?.allowed,
+                matchedTarget:
+                  typeof parsed.snapshot.activation?.matchedTarget === "string"
+                    ? parsed.snapshot.activation.matchedTarget
+                    : null,
+                currentTargets: Array.isArray(parsed.snapshot.activation?.currentTargets)
+                  ? parsed.snapshot.activation.currentTargets.filter(
+                      (target): target is string => typeof target === "string" && target.trim().length > 0
+                    )
+                  : [],
+                configuredTargets: Array.isArray(parsed.snapshot.activation?.configuredTargets)
+                  ? parsed.snapshot.activation.configuredTargets.filter(
+                      (target): target is string => typeof target === "string" && target.trim().length > 0
+                    )
+                  : [],
               },
               probe: cloneAppendableQueueRuntimeProbeSnapshot({
                 ...createAppendableQueueRuntimeProbeSnapshot(),
@@ -806,7 +844,15 @@ function readClientAudioPilotFlag(envEnabled: boolean, previewFlag: string, stor
   return envEnabled || hasClientPreviewFlag(previewFlag) || hasClientStorageFlag(storageKey)
 }
 
-function resolveClientAudioPilotRouting(trackCount: number) {
+function resolveClientAudioPilotRouting({
+  trackCount,
+  appendableActivationConfigured = false,
+  appendableActivationAllowed = true,
+}: {
+  trackCount: number
+  appendableActivationConfigured?: boolean
+  appendableActivationAllowed?: boolean
+}) {
   return resolveAudioPilotRouting({
     trackCount,
     streamingBufferPilotEnabled: readClientAudioPilotFlag(
@@ -829,6 +875,8 @@ function resolveClientAudioPilotRouting(trackCount: number) {
       RINGBUFFER_PILOT_PREVIEW_FLAG,
       "rr_audio_ringbuffer_pilot"
     ),
+    appendableActivationConfigured,
+    appendableActivationAllowed,
   })
 }
 
@@ -1589,6 +1637,7 @@ function CenterMarkedSlider(props: {
 
 type MultiTrackPlayerProps = {
   tracks?: TrackDef[]
+  appendableActivationTargets?: string[]
   onTimeChange?: (timeSec: number) => void
   seekToSeconds?: number | null
   teleprompterSourceUrl?: string | null
@@ -1605,6 +1654,7 @@ type MultiTrackPlayerProps = {
 
 export default function MultiTrackPlayer({
   tracks: inputTracks,
+  appendableActivationTargets = [],
   onTimeChange,
   seekToSeconds,
   teleprompterSourceUrl,
@@ -1628,6 +1678,10 @@ export default function MultiTrackPlayer({
   )
   const trackList = inputTracks?.length ? inputTracks : tracks
   const trackScopeId = useMemo(() => buildTrackScopeId(trackList), [trackList])
+  const initialAppendablePilotActivation = resolveClientAppendablePilotActivation({
+    trackScopeId,
+    activationTargets: appendableActivationTargets,
+  })
   const initialTrackVolumes = useMemo(
     () => trackList.map((track) => clamp(track.defaultVolume ?? 1, 0, TRACK_MAX_GAIN)),
     [trackList]
@@ -1751,7 +1805,11 @@ export default function MultiTrackPlayer({
   const [mainPlayPending, setMainPlayPending] = useState(false)
   const [loopOn, setLoopOn] = useState(false)
   const loopOnRef = useRef(loopOn)
-  const initialAudioPilotRouting = resolveClientAudioPilotRouting(trackList.length)
+  const initialAudioPilotRouting = resolveClientAudioPilotRouting({
+    trackCount: trackList.length,
+    appendableActivationConfigured: initialAppendablePilotActivation.activationConfigured,
+    appendableActivationAllowed: initialAppendablePilotActivation.activationAllowed,
+  })
   const [progressiveLoadEnabled, setProgressiveLoadEnabled] = useState(
     () => hasClientPreviewFlag(PROGRESSIVE_LOAD_PREVIEW_FLAG) || shouldPreferProgressiveLoad(trackList)
   )
@@ -1793,6 +1851,10 @@ export default function MultiTrackPlayer({
         "rr_audio_appendable_queue_multistem_pilot"
       )
   )
+  const appendablePilotActivation = resolveClientAppendablePilotActivation({
+    trackScopeId,
+    activationTargets: appendableActivationTargets,
+  })
   const [appendableQueueRuntimeProbeSnapshot, setAppendableQueueRuntimeProbeSnapshot] = useState<AppendableQueueRuntimeProbeSnapshot>(
     () => createAppendableQueueRuntimeProbeSnapshot()
   )
@@ -2450,18 +2512,26 @@ export default function MultiTrackPlayer({
       appendableQueuePilotEnabled,
       appendableQueueMultistemPilotEnabled,
       ringBufferPilotEnabled,
+      appendableActivationConfigured: appendablePilotActivation.activationConfigured,
+      appendableActivationAllowed: appendablePilotActivation.activationAllowed,
     })
-    const flagsReady = appendableQueuePilotEnabled && appendableQueueMultistemPilotEnabled
+    const flagsReady = routing.appendableFlagsReady
     const modeReady = activeEngineMode === "appendable_queue_worklet"
     const probeActive = appendableQueueRuntimeProbeSnapshot.active
     const cleanRuntime =
       appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames === 0 &&
       appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount === 0
 
-    let status: "waiting_for_flags" | "play_to_activate_probe" | "ready_for_manual_pilot" | "attention_required" =
-      "waiting_for_flags"
+    let status:
+      | "waiting_for_flags"
+      | "blocked_by_targeting"
+      | "play_to_activate_probe"
+      | "ready_for_manual_pilot"
+      | "attention_required" = "waiting_for_flags"
     if (flagsReady && modeReady && probeActive && cleanRuntime) {
       status = "ready_for_manual_pilot"
+    } else if (routing.appendableBlockedByTargeting) {
+      status = "blocked_by_targeting"
     } else if (routing.appendableBlockedByStreaming) {
       status = "attention_required"
     } else if (flagsReady && modeReady && probeActive && !cleanRuntime) {
@@ -2474,6 +2544,8 @@ export default function MultiTrackPlayer({
       uiLang === "ru"
         ? status === "ready_for_manual_pilot"
           ? "готов к ручному pilot"
+          : status === "blocked_by_targeting"
+            ? "track-set не включен в appendable rollout"
           : routing.appendableBlockedByStreaming
             ? "appendable pilot перекрыт streaming mode"
           : status === "play_to_activate_probe"
@@ -2483,6 +2555,8 @@ export default function MultiTrackPlayer({
               : "включи оба appendable флага"
         : status === "ready_for_manual_pilot"
           ? "ready for manual pilot"
+          : status === "blocked_by_targeting"
+            ? "track set is not targeted for appendable rollout"
           : routing.appendableBlockedByStreaming
             ? "appendable pilot is blocked by streaming mode"
           : status === "play_to_activate_probe"
@@ -2492,7 +2566,19 @@ export default function MultiTrackPlayer({
               : "enable both appendable flags"
 
     const steps =
-      routing.appendableBlockedByStreaming
+      routing.appendableBlockedByTargeting
+        ? uiLang === "ru"
+          ? [
+              "1. Добавь текущий route slug или trackScopeId в `rr_audio_appendable_queue_activation_targets`.",
+              "2. Оставь включенными `appendable queue` и `appendable multistem`.",
+              "3. Перезагрузи `/sound/...` route и проверь, что `audio mode = appendable_queue_worklet`.",
+            ]
+          : [
+              "1. Add the current route slug or trackScopeId to `rr_audio_appendable_queue_activation_targets`.",
+              "2. Keep `appendable queue` and `appendable multistem` enabled.",
+              "3. Reload the `/sound/...` route and confirm `audio mode = appendable_queue_worklet`.",
+            ]
+        : routing.appendableBlockedByStreaming
         ? uiLang === "ru"
           ? [
               "1. Отключи `streaming` flag для route-level appendable pilot.",
@@ -2525,6 +2611,8 @@ export default function MultiTrackPlayer({
     }
   }, [
     activeEngineMode,
+    appendablePilotActivation.activationAllowed,
+    appendablePilotActivation.activationConfigured,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     ringBufferPilotEnabled,
@@ -2561,10 +2649,22 @@ export default function MultiTrackPlayer({
         appendableQueuePilotEnabled,
         appendableQueueMultistemPilotEnabled,
       },
+      activation: {
+        configured: appendablePilotActivation.activationConfigured,
+        allowed: appendablePilotActivation.activationAllowed,
+        matchedTarget: appendablePilotActivation.matchedTarget,
+        currentTargets: appendablePilotActivation.currentTargets.slice(),
+        configuredTargets: appendablePilotActivation.configuredTargets.slice(),
+      },
       probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
     }
   }, [
     activeEngineMode,
+    appendablePilotActivation.activationAllowed,
+    appendablePilotActivation.activationConfigured,
+    appendablePilotActivation.configuredTargets,
+    appendablePilotActivation.currentTargets,
+    appendablePilotActivation.matchedTarget,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     appendableQueueRuntimeProbeSnapshot,
@@ -3471,10 +3571,14 @@ export default function MultiTrackPlayer({
       appendableQueuePilotEnabled,
       appendableQueueMultistemPilotEnabled,
       ringBufferPilotEnabled,
+      appendableActivationConfigured: appendablePilotActivation.activationConfigured,
+      appendableActivationAllowed: appendablePilotActivation.activationAllowed,
     })
     setActiveEngineMode(nextRouting.engineMode)
     setActiveEngineCapabilities(getEngineModeCapabilities(nextRouting.engineMode))
   }, [
+    appendablePilotActivation.activationAllowed,
+    appendablePilotActivation.activationConfigured,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     isReady,
@@ -3894,6 +3998,8 @@ export default function MultiTrackPlayer({
         appendableQueuePilotEnabled,
         appendableQueueMultistemPilotEnabled,
         ringBufferPilotEnabled,
+        appendableActivationConfigured: appendablePilotActivation.activationConfigured,
+        appendableActivationAllowed: appendablePilotActivation.activationAllowed,
       })
       const useStreamingPilot = audioPilotRouting.useStreamingPilot
       const useAppendableQueueMultistemPilot = audioPilotRouting.useAppendableQueueMultistemPilot
@@ -4745,6 +4851,8 @@ export default function MultiTrackPlayer({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    appendablePilotActivation.activationAllowed,
+    appendablePilotActivation.activationConfigured,
     appendableQueueMultistemPilotEnabled,
     appendableQueuePilotEnabled,
     disposeTrackAudioGraph,
@@ -6811,6 +6919,7 @@ export default function MultiTrackPlayer({
           finalState = readState()
           if (
             finalState.checklist.status === "ready_for_manual_pilot" ||
+            finalState.checklist.status === "blocked_by_targeting" ||
             finalState.checklist.status === "attention_required"
           ) {
             break
@@ -9614,6 +9723,15 @@ export default function MultiTrackPlayer({
                             appendable multistem flag: {appendableQueueMultistemPilotEnabled ? "on" : "off"}
                           </div>
                           <div>
+                            appendable activation scoped: {appendablePilotActivation.activationConfigured ? "on" : "off"}
+                          </div>
+                          <div>
+                            appendable activation allowed: {appendablePilotActivation.activationAllowed ? "on" : "off"}
+                          </div>
+                          <div>
+                            appendable activation match: {appendablePilotActivation.matchedTarget ?? "—"}
+                          </div>
+                          <div>
                             appendable queue probe: {appendableQueueRuntimeProbeSnapshot.active ? "active" : "idle"}
                           </div>
                           <div>
@@ -9642,6 +9760,9 @@ export default function MultiTrackPlayer({
                           </div>
                           <div>
                             audio mode: {activeEngineMode}
+                          </div>
+                          <div>
+                            track scope id: {trackScopeId}
                           </div>
                           <div>
                             tempo: {activeEngineCapabilities.supportsTempo ? "on" : "off"} / pitch: {activeEngineCapabilities.supportsIndependentPitch ? "on" : "off"}

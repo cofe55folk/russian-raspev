@@ -3599,3 +3599,56 @@ Comment for the next window:
 1. Не нужно заново расследовать teleprompter noise, `soundCatalog.ts`, privacy leak или admin-analytics CI.
 2. Эти линии уже закрыты и записаны выше.
 3. Текущий appendable PR находится в merge-ready state; если не появится новый red CI, следующая работа должна идти уже после merge или в новом focused slice.
+
+## 9.84 Update 2026-03-11: Appendable pilot moved from merged PR to scoped activation targeting
+Что произошло:
+1. `PR #6` с appendable transplant был реально смержен в `develop`.
+2. Новый `develop` head:
+   - `8ee9920` `p1: transplant appendable queue pilot stack (#6)`
+3. После merge следующий инженерный шаг сделали не в сторону нового runtime-R&D, а в rollout control:
+   - baseline по-прежнему default
+   - appendable по-прежнему pilot-gated
+   - добавлен отдельный appendable-specific activation layer
+
+Что добавили:
+1. Новый helper:
+   - `app/components/audio/appendablePilotActivation.ts`
+2. Он поддерживает scoped targeting через:
+   - `NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_ACTIVATION_TARGETS`
+   - `rr_audio_appendable_queue_activation_targets`
+   - preview tokens `multitrack_appendable_queue_target:<id>`
+3. Матчинг теперь идет не через `soundCatalog.ts` и не через `startupChunk/splice` semantics, а через:
+   - `trackScopeId`
+   - route slug на обычном `/sound/...` route
+   - wildcard `*`, если нужен широкий controlled rollout
+
+Что изменили в route behavior:
+1. `audioPilotRouting.ts` теперь учитывает не только flags/preemption, но и scoped activation allowlist.
+2. Если appendable flags включены, но текущий track-set не входит в target list:
+   - route не уходит в `appendable_queue_worklet`
+   - checklist явно показывает, что track-set не включен в appendable rollout
+   - guest/debug panel показывает:
+     - `appendable activation scoped`
+     - `appendable activation allowed`
+     - `appendable activation match`
+3. `appendable route pilot report` и packet export теперь сохраняют activation metadata рядом с runtime probe.
+
+Почему это важно:
+1. Это и есть тот `dedicated appendable activation layer`, который ранее был записан как следующий шаг после manual gate.
+2. Больше не нужно переиспользовать quarantined `soundCatalog.ts` слой для controlled pilot widening.
+3. Rollout теперь можно расширять точечно по slug/scope, не включая appendable глобально на все route сразу.
+
+Проверка:
+1. `npx tsc --noEmit`
+   - green
+2. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --reporter=line`
+   - `7 passed`
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --reporter=line`
+   - `7 passed`
+
+Рабочий вывод после `9.84`:
+1. Appendable forward path уже не просто merged в `develop`, а получил отдельный rollout-control layer.
+2. Следующий правильный шаг теперь:
+   - вынести этот activation slice в focused PR
+   - затем расширять appendable rollout через явный target list
+3. `soundCatalog.ts` по-прежнему не возвращаем в forward path.

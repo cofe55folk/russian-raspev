@@ -641,6 +641,7 @@ export default function SoundRoutePlayer() {
   const playerNode = (
     <MultiTrackPlayer
       tracks={activeTracks}
+      appendableActivationTargets={activeSlug ? [activeSlug] : []}
       teleprompterSourceUrl={activeTeleprompterUrl}
       onControllerReady={onBackendControllerReady}
       onPlaybackStateChange={onPlaybackStateChange}
