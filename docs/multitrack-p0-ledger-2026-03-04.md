@@ -4569,3 +4569,33 @@ Comment for the next window:
 Итог после `9.111`:
 1. Continuation packaging больше не привязан только к исходной Terek-паре.
 2. Следующее widening можно строить уже на более широком и codec-diverse manifest-qualified наборе route, не меняя appendable architecture.
+
+## 9.112 Route diagnostics теперь умеет одним действием применить весь manifest-qualified safe-rollout cohort
+
+Что сделано:
+1. Следующий slice после `9.111` снова не меняет playback engine и не расширяет rollout автоматически в фоне.
+2. Вместо этого он закрывает операторский cohort gap:
+   - после расширения packaging manifest уже содержал `4` qualified slug’а
+   - но route diagnostics умел только добавить или убрать текущий route target
+   - чтобы расширить safe rollout на весь manifest-qualified набор, оператору приходилось повторять одно и то же действие по каждому slug отдельно
+3. В этом slice поверх текущего per-route toggle добавлен bulk action:
+   - `appendableStartupManifest` теперь умеет вернуть нормализованный список всех manifest-qualified slug’ов
+   - `appendablePilotActivation` теперь умеет одним вызовом добавить несколько `safe_rollout` targets в client storage
+   - в diagnostics toolbar появилась кнопка `Apply full qualified safe rollout cohort`
+   - после нажатия route сразу переоценивает activation state и сохраняет весь manifest-backed cohort в `rr_audio_appendable_queue_safe_rollout_targets`
+4. Contract layer обновлён соответственно:
+   - новый e2e стартует на default `terek-ne-vo-daleche` при blocked-by-targeting состоянии
+   - кликает bulk cohort action
+   - проверяет, что в `localStorage` теперь лежит весь список из `4` qualified slug’ов
+   - затем переходит на `tomsk-bogoslovka-po-moryam`
+   - и доказывает, что второй route уже сам входит в `appendable activation mode: safe_rollout` c `tempo locked` и `startup_head_continuation_chunks`
+
+Проверка:
+1. targeted cohort route test Chromium + WebKit — `2/2`
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `56/56`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.112`:
+1. Route diagnostics теперь умеет явно и обратимо применить весь текущий manifest-qualified safe-rollout cohort одним действием.
+2. Следующее widening можно строить уже не на ручном per-slug targeting, а на cohort-level operator flow, который совпадает с текущей manifest-qualified поверхностью.

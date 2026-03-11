@@ -3,6 +3,12 @@ import { expect, test, type Download, type Page } from "@playwright/test"
 
 const SLUG = "terek-ne-vo-daleche"
 const SECONDARY_SLUG = "tomsk-bogoslovka-po-moryam"
+const QUALIFIED_SAFE_ROLLOUT_COHORT = [
+  "balman-vechor-devku",
+  SECONDARY_SLUG,
+  "terek-mne-mladcu-malym-spalos",
+  SLUG,
+].sort()
 
 function toPlayerRoute(slug: string) {
   return `/sound/${slug}`
@@ -268,6 +274,46 @@ test("appendable route pilot stays off when the current track set is not targete
   await waitForPlayerText(page, "appendable tempo policy: locked")
   await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeDisabled()
   await expect(page.getByRole("slider", { name: "Pitch" })).toBeDisabled()
+})
+
+test("appendable route diagnostics can apply the full qualified safe-rollout cohort", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: "different-scope",
+  })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable safe rollout candidate: yes")
+  await page.getByTestId("appendable-route-safe-rollout-cohort-apply").click()
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() =>
+          (localStorage.getItem("rr_audio_appendable_queue_safe_rollout_targets") ?? "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean)
+            .sort()
+            .join(",")
+        ),
+      { timeout: 10000 }
+    )
+    .toBe(QUALIFIED_SAFE_ROLLOUT_COHORT.join(","))
+
+  await page.addInitScript((targets) => {
+    localStorage.setItem("rr_audio_appendable_queue_safe_rollout_targets", targets.join(","))
+  }, QUALIFIED_SAFE_ROLLOUT_COHORT)
+  await waitForPlayerRouteReachable(page, toPlayerRoute(SECONDARY_SLUG), 10000)
+  await page.goto(toPlayerRoute(SECONDARY_SLUG), { waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, `appendable activation match: ${SECONDARY_SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
 })
 
 test("multistem appendable pilot stays off without the dedicated multistem flag", async ({ page }) => {

@@ -10,13 +10,14 @@ import {
 } from "./audio/appendableQueueEngine"
 import { createAppendableQueueMultitrackCoordinator, type AppendableQueueMultitrackCoordinator } from "./audio/appendableQueueMultitrackCoordinator"
 import {
+  addClientAppendableSafeRolloutTargets,
   addClientAppendableSafeRolloutTarget,
   removeClientAppendableSafeRolloutTarget,
   resolveClientAppendablePilotActivation,
   type AppendablePilotActivationState,
 } from "./audio/appendablePilotActivation"
 import { resolveAudioPilotRouting, type AudioPilotEngineMode } from "./audio/audioPilotRouting"
-import { resolveAppendableStartupManifestMatch } from "./audio/appendableStartupManifest"
+import { listAppendableStartupManifestSlugs, resolveAppendableStartupManifestMatch } from "./audio/appendableStartupManifest"
 import {
   qualifyAppendableContinuationChunks,
   type AppendableContinuationQualificationReason,
@@ -3405,6 +3406,25 @@ export default function MultiTrackPlayer({
     appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget,
     uiLang,
   ])
+
+  const applyQualifiedSafeRolloutCohort = useCallback(() => {
+    void (async () => {
+      const manifestTargets = await listAppendableStartupManifestSlugs()
+      if (!manifestTargets.length) {
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru" ? "qualified safe rollout cohort не найден" : "qualified safe rollout cohort not found"
+        )
+        return
+      }
+      const nextTargets = addClientAppendableSafeRolloutTargets(manifestTargets)
+      setAppendableActivationStorageRevision((current) => current + 1)
+      setAppendableRouteQuickPilotMessage(
+        uiLang === "ru"
+          ? `qualified safe rollout cohort применен: ${manifestTargets.length} route / configured ${nextTargets.length}`
+          : `qualified safe rollout cohort applied: ${manifestTargets.length} routes / configured ${nextTargets.length}`
+      )
+    })()
+  }, [uiLang])
 
   const commitAppendableRoutePilotReport = useCallback(
     (
@@ -11893,20 +11913,32 @@ export default function MultiTrackPlayer({
                                   : "Run stress pilot + save diagnostics"}
                             </button>
                             {appendableSafeRolloutCandidateTarget ? (
-                              <button
-                                type="button"
-                                data-testid="appendable-route-safe-rollout-target-toggle"
-                                onClick={toggleCurrentRouteSafeRolloutTarget}
-                                className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[11px] text-cyan-100 hover:bg-cyan-500/15"
-                              >
-                                {appendableSafeRolloutCandidateConfigured
-                                  ? uiLang === "ru"
-                                    ? "Убрать current route из safe rollout"
-                                    : "Remove current route from safe rollout"
-                                  : uiLang === "ru"
-                                    ? "Добавить current route в safe rollout"
-                                    : "Add current route to safe rollout"}
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid="appendable-route-safe-rollout-target-toggle"
+                                  onClick={toggleCurrentRouteSafeRolloutTarget}
+                                  className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[11px] text-cyan-100 hover:bg-cyan-500/15"
+                                >
+                                  {appendableSafeRolloutCandidateConfigured
+                                    ? uiLang === "ru"
+                                      ? "Убрать current route из safe rollout"
+                                      : "Remove current route from safe rollout"
+                                    : uiLang === "ru"
+                                      ? "Добавить current route в safe rollout"
+                                      : "Add current route to safe rollout"}
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid="appendable-route-safe-rollout-cohort-apply"
+                                  onClick={applyQualifiedSafeRolloutCohort}
+                                  className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px] text-sky-100 hover:bg-sky-500/15"
+                                >
+                                  {uiLang === "ru"
+                                    ? "Применить весь qualified safe rollout cohort"
+                                    : "Apply full qualified safe rollout cohort"}
+                                </button>
+                              </>
                             ) : null}
                             <button
                               type="button"
