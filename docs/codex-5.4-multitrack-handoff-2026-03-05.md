@@ -2777,3 +2777,24 @@ Suggested opening prompt for the next window:
 7. Practical consequence after `8.165`:
    - route rollout evidence now encodes not only runtime cleanliness, but also whether the current appendable transport shape matches the intended qualification envelope
    - future widening can key off an explicit persisted transport verdict instead of reading raw probe fields by hand
+
+## 8.166 Continuation packaging now covers six manifest-qualified track-sets, including two additional Balman routes
+1. The next slice expands the offline ingest surface again rather than changing the runtime primitive.
+2. `scripts/generate-startup-chunks.mjs` now also generates startup/tail/continuation assets for:
+   - `balman-ty-zorya-moya`
+   - `balman-seyu-veyu`
+3. Practical packaging consequence:
+   - `startup-chunks-manifest.json` now carries six qualified route slugs instead of four
+   - the full manifest-qualified safe-rollout cohort therefore expands beyond the original Terek/Tomsk/Balman subset without altering appendable queue semantics
+4. Route contract coverage widened in the same slice:
+   - the cohort-apply diagnostics contract now expects the full six-slug manifest set in client storage
+   - route e2e now proves that `balman-ty-zorya-moya` also enters `safe_rollout -> startup_head_continuation_chunks`
+   - the new Balman route follows the same locked-tempo appendable path with clean runtime probe behavior
+5. Verification completed locally:
+   - targeted cohort + Balman route contracts on Chromium + WebKit: `4/4`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `58/58`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.166`:
+   - manifest-qualified continuation packaging is no longer concentrated in only four routes
+   - the next widening step can operate over a broader six-route cohort while still staying inside the same appendable rollout and transport envelope

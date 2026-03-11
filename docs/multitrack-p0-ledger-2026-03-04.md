@@ -4639,3 +4639,26 @@ Comment for the next window:
 Итог после `9.113`:
 1. Route rollout evidence теперь хранит не только gate/qualification/stress, но и явный transport verdict.
 2. Следующее widening можно строить уже на persisted transport envelope, а не на ручном чтении сырых probe-полей из diagnostics.
+
+## 9.114 Continuation packaging расширен до шести manifest-qualified track-set’ов, включая ещё два Balman route
+
+Что сделано:
+1. Следующий slice после `9.113` снова расширяет offline packaging layer, а не меняет appendable runtime.
+2. В `scripts/generate-startup-chunks.mjs` добавлены ещё два реальных three-stem route:
+   - `balman-ty-zorya-moya`
+   - `balman-seyu-veyu`
+3. После регенерации `startup-chunks-manifest.json` и startup/continuation WAV assets manifest-qualified surface вырос с `4` до `6` slug’ов.
+4. Contract layer расширен соответственно:
+   - cohort-apply route test теперь проверяет уже полный список из `6` qualified slug’ов
+   - новый safe-rollout route contract доказывает, что `balman-ty-zorya-moya` тоже входит в `appendable activation mode: safe_rollout`
+   - и так же доходит до `startup_head_continuation_chunks` с locked tempo и clean runtime probe
+
+Проверка:
+1. targeted cohort + Balman route tests Chromium + WebKit — `4/4`
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `58/58`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.114`:
+1. Manifest-qualified continuation cohort теперь покрывает уже шесть реальных multistem route.
+2. Следующее widening можно строить на более широком Balman/Terek/Tomsk surface, не меняя appendable architecture и не возвращаясь к старым handoff-путям.

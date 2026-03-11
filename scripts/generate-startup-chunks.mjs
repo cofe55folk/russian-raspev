@@ -91,6 +91,46 @@ const TARGETS = [
       },
     ],
   },
+  {
+    slug: "balman-ty-zorya-moya",
+    sources: [
+      {
+        src: "public/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-01.mp3",
+        output: "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-02.mp3",
+        output: "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-ty_zorya_moya/balman-ty_zorya_moya-03.mp3",
+        output: "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+  {
+    slug: "balman-seyu-veyu",
+    sources: [
+      {
+        src: "public/audio/balman-seyu_veyu/balman-seyu-veyu-01.m4a",
+        output: "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-seyu_veyu/balman-seyu-veyu-02.m4a",
+        output: "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-seyu_veyu/balman-seyu-veyu-03.m4a",
+        output: "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
 ]
 
 function toPosix(value) {
