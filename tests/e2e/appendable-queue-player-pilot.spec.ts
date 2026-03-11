@@ -29,6 +29,7 @@ async function openPlayerWithAppendableFlags(
     multistem?: boolean
     startupHead?: boolean
     continuationChunks?: boolean
+    preserveStoredReport?: boolean
     ringbuffer?: boolean
     streaming?: boolean
     activationTargets?: string | string[]
@@ -44,8 +45,10 @@ async function openPlayerWithAppendableFlags(
     localStorage.removeItem("rr_audio_appendable_queue_continuation_chunks_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_activation_targets")
     localStorage.removeItem("rr_audio_appendable_queue_safe_rollout_targets")
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith("rr_appendable_route_pilot_report:")) localStorage.removeItem(key)
+    if (!nextFlags.preserveStoredReport) {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("rr_appendable_route_pilot_report:")) localStorage.removeItem(key)
+      }
     }
     if (nextFlags.streaming) localStorage.setItem("rr_audio_streaming_pilot", "1")
     if (nextFlags.ringbuffer) localStorage.setItem("rr_audio_ringbuffer_pilot", "1")
@@ -265,7 +268,7 @@ test("multistem appendable pilot runs on the normal player route when both flags
           text.includes(needle)
         )
       },
-      { timeout: 30000 }
+      { timeout: 45000 }
     )
     .toBe(true)
   await page.getByTestId("appendable-route-pilot-report-capture").click()
@@ -291,7 +294,7 @@ test("appendable route captureReport returns the derived rollout verdict, not th
         const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
         return text.includes("готов к ручному pilot") || text.includes("нужна проверка runtime")
       },
-      { timeout: 30000 }
+      { timeout: 45000 }
     )
     .toBe(true)
 
@@ -380,7 +383,7 @@ test("safe appendable rollout auto-enables qualified continuation ingest without
         const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
         return text.includes("готов к ручному pilot") || text.includes("нужна проверка runtime")
       },
-      { timeout: 30000 }
+      { timeout: 45000 }
     )
     .toBe(true)
 })
@@ -974,6 +977,151 @@ test("downloaded appendable report preserves cumulative rollout evidence after q
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
   })
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("saved appendable route report rehydrates after reload with the same cumulative rollout evidence", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    preserveStoredReport: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runQualificationPilot")
+
+  const persistedBeforeReload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runQualificationPilot: (durationSec?: number | null) => Promise<unknown>
+        runStressPilot: (holdSec?: number | null) => Promise<{
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot: { capturedAt: string; rollout: { status: string; reason: string | null } } | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runQualificationPilot(6)
+    const finalState = await api.runStressPilot(1)
+    const storageKey = `rr_appendable_route_pilot_report:${finalState.trackScopeId}:v1`
+    return {
+      trackScopeId: finalState.trackScopeId,
+      report: finalState.report,
+      storageKey,
+    }
+  })
+
+  expect(persistedBeforeReload).not.toBeNull()
+  expect(persistedBeforeReload?.report.snapshot).not.toBeNull()
+
+  const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
+  const expectedCapturedAt = persistedBeforeReload?.report.snapshot?.capturedAt ?? ""
+  const expectedStatus = persistedBeforeReload?.report.status ?? "pending"
+  const expectedRolloutStatus = persistedBeforeReload?.report.snapshot?.rollout.status ?? "pending"
+  const expectedRolloutReason = persistedBeforeReload?.report.snapshot?.rollout.reason ?? null
+  let expectedStored: string | null = null
+  let expectedStoredReport:
+    | {
+        status: string
+        snapshot: { capturedAt: string; rollout: { status: string; reason: string | null } }
+      }
+    | null = null
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    expectedStored = await page.evaluate((storageKey) => localStorage.getItem(storageKey), persistedBeforeReload?.storageKey ?? "")
+    if (expectedStored) {
+      try {
+        const parsed = JSON.parse(expectedStored) as {
+          status?: string
+          snapshot?: {
+            capturedAt?: string
+            rollout?: { status?: string; reason?: string | null }
+          }
+        }
+        if (
+          typeof parsed.status === "string" &&
+          parsed.snapshot?.capturedAt === expectedCapturedAt &&
+          parsed.snapshot?.rollout?.status === expectedRolloutStatus &&
+          (parsed.snapshot?.rollout?.reason ?? null) === expectedRolloutReason &&
+          parsed.status === expectedStatus
+        ) {
+          expectedStoredReport = {
+            status: parsed.status,
+            snapshot: {
+              capturedAt: parsed.snapshot.capturedAt,
+              rollout: {
+                status: parsed.snapshot.rollout.status,
+                reason: parsed.snapshot.rollout.reason ?? null,
+              },
+            },
+          }
+          break
+        }
+      } catch {}
+    }
+    await page.waitForTimeout(250)
+  }
+  expect(expectedStored).not.toBeNull()
+  expect(expectedStoredReport).not.toBeNull()
+
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "getState")
+
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute(
+    "data-status",
+    expectedStoredReport?.status ?? expectedStatus
+  )
+  await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).toContainText(
+    expectedStoredReport?.snapshot.capturedAt ?? expectedCapturedAt
+  )
+  await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText(
+    `rollout: ${expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus}`
+  )
+
+  const persistedAfterReload = await evaluateWithRetry(page, () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        getState: () => {
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot: {
+              capturedAt: string
+              trackScopeId: string
+              rollout: { status: string; reason: string | null }
+            } | null
+          }
+        }
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    const state = api.getState()
+    const storageKey = `rr_appendable_route_pilot_report:${state.trackScopeId}:v1`
+    return {
+      trackScopeId: state.trackScopeId,
+      report: state.report,
+      stored: localStorage.getItem(storageKey),
+    }
+  })
+
+  expect(persistedAfterReload).not.toBeNull()
+  expect(persistedAfterReload?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.status).toBe(expectedStoredReport?.status ?? expectedStatus)
+  expect(persistedAfterReload?.report.snapshot?.capturedAt).toBe(
+    expectedStoredReport?.snapshot.capturedAt ?? expectedCapturedAt
+  )
+  expect(persistedAfterReload?.report.snapshot?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.snapshot?.rollout.status).toBe(
+    expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus
+  )
+  expect(persistedAfterReload?.report.snapshot?.rollout.reason ?? null).toBe(
+    expectedStoredReport?.snapshot.rollout.reason ?? expectedRolloutReason
+  )
+  expect(persistedAfterReload?.stored).toBe(expectedStored)
 })
 
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {

@@ -2603,3 +2603,21 @@ Suggested opening prompt for the next window:
    - report download is now covered as a first-class contract, not just packet export
    - transient dev-server/bootstrap hiccups no longer masquerade as appendable runtime regressions in this route pack
    - appendable debug API tests now prove behavior after the route has actually entered appendable mode
+
+## 8.158 Reload no longer overwrites a saved appendable route report with the default pending state
+1. The next persistence-focused slice exposed a real reload bug rather than another export-only gap.
+2. Before this fix, the route report was restored from `localStorage` on mount, but the initial default `pending` report could still be written back to the same storage key before hydration finished.
+3. This slice closes that bug in the runtime storage path:
+   - `MultiTrackPlayer` now tracks when the appendable route report has hydrated for the current storage key
+   - save-to-`localStorage` is skipped until that hydration step has completed
+   - route e2e now verifies that a cumulative `qualification + stress` report rehydrates after reload with the same saved rollout evidence instead of silently falling back to default `pending`
+4. Supporting hardening in the same slice:
+   - the new reload test preserves the stored report across navigations explicitly instead of clearing the route report namespace on every init script run
+   - timing-sensitive safe-rollout readiness polls in the route pack received a larger settle timeout so WebKit bootstrap latency no longer produces false negatives
+5. Verification completed locally:
+   - `npm run build`
+   - `npx tsc --noEmit` after a short `next dev` warm-up to regenerate `.next/dev/types`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `50/50`
+6. Practical consequence after `8.158`:
+   - reloading `/sound/...` no longer destroys a previously saved appendable pilot verdict for that route scope
+   - route operators can trust that saved rollout evidence survives page reloads instead of reverting to a fresh `pending` shell
