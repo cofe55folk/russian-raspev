@@ -142,6 +142,13 @@ type AppendableRouteStressSnapshot = {
   passed: boolean | null
   reason: string | null
 }
+type AppendableRouteRolloutSnapshot = {
+  status: AppendableRoutePilotReportStatus
+  gateReady: boolean
+  qualificationPassed: boolean | null
+  stressPassed: boolean | null
+  reason: string | null
+}
 type AppendableRoutePilotReportSnapshot = {
   capturedAt: string
   trackScopeId: string
@@ -171,6 +178,7 @@ type AppendableRoutePilotReportSnapshot = {
   sourceProgress: AppendableQueueSourceProgressSnapshot
   qualification: AppendableRouteQualificationSnapshot
   stress: AppendableRouteStressSnapshot
+  rollout: AppendableRouteRolloutSnapshot
 }
 type AppendableRoutePilotReport = {
   version: 1
@@ -664,6 +672,16 @@ function createAppendableRouteStressSnapshot(): AppendableRouteStressSnapshot {
   }
 }
 
+function createAppendableRouteRolloutSnapshot(): AppendableRouteRolloutSnapshot {
+  return {
+    status: "pending",
+    gateReady: false,
+    qualificationPassed: null,
+    stressPassed: null,
+    reason: null,
+  }
+}
+
 function cloneAppendableRouteStressSnapshot(snapshot: AppendableRouteStressSnapshot): AppendableRouteStressSnapshot {
   return {
     holdPerSeekSec: snapshot.holdPerSeekSec,
@@ -693,6 +711,16 @@ function hasAppendableRouteStressEvidence(snapshot: AppendableRouteStressSnapsho
   )
 }
 
+function cloneAppendableRouteRolloutSnapshot(snapshot: AppendableRouteRolloutSnapshot): AppendableRouteRolloutSnapshot {
+  return {
+    status: snapshot.status,
+    gateReady: snapshot.gateReady,
+    qualificationPassed: snapshot.qualificationPassed,
+    stressPassed: snapshot.stressPassed,
+    reason: snapshot.reason,
+  }
+}
+
 function mergeAppendableRoutePilotEvidenceSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot,
   previousSnapshot: AppendableRoutePilotReportSnapshot | null
@@ -706,6 +734,46 @@ function mergeAppendableRoutePilotEvidenceSnapshot(
     stress: hasAppendableRouteStressEvidence(snapshot.stress)
       ? cloneAppendableRouteStressSnapshot(snapshot.stress)
       : cloneAppendableRouteStressSnapshot(previousSnapshot.stress),
+  }
+}
+
+function withAppendableRouteRolloutSnapshot(
+  snapshot: AppendableRoutePilotReportSnapshot
+): AppendableRoutePilotReportSnapshot {
+  const gateReady = snapshot.gate.status === "ready_for_manual_pilot"
+  const qualificationPassed = snapshot.qualification.passed
+  const stressPassed = snapshot.stress.passed
+  let status: AppendableRoutePilotReportStatus = "pending"
+  let reason: string | null = null
+
+  if (snapshot.gate.status === "attention_required") {
+    status = "fail"
+    reason = `gate:${snapshot.gate.status}`
+  } else if (!gateReady) {
+    reason = `gate:${snapshot.gate.status}`
+  } else if (qualificationPassed == null) {
+    reason = "qualification:missing"
+  } else if (!qualificationPassed) {
+    status = "fail"
+    reason = snapshot.qualification.reason ? `qualification:${snapshot.qualification.reason}` : "qualification:failed"
+  } else if (stressPassed == null) {
+    reason = "stress:missing"
+  } else if (!stressPassed) {
+    status = "fail"
+    reason = snapshot.stress.reason ? `stress:${snapshot.stress.reason}` : "stress:failed"
+  } else {
+    status = "pass"
+  }
+
+  return {
+    ...snapshot,
+    rollout: {
+      status,
+      gateReady,
+      qualificationPassed,
+      stressPassed,
+      reason,
+    },
   }
 }
 
@@ -815,6 +883,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           sourceProgress: cloneAppendableQueueSourceProgressSnapshot(report.snapshot.sourceProgress),
           qualification: cloneAppendableRouteQualificationSnapshot(report.snapshot.qualification),
           stress: cloneAppendableRouteStressSnapshot(report.snapshot.stress),
+          rollout: cloneAppendableRouteRolloutSnapshot(report.snapshot.rollout),
         }
       : null,
   }
@@ -955,6 +1024,26 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                         typeof parsed.snapshot.stress.reason === "string" ? parsed.snapshot.stress.reason : null,
                     }
                   : createAppendableRouteStressSnapshot(),
+              rollout:
+                parsed.snapshot.rollout && typeof parsed.snapshot.rollout === "object"
+                  ? {
+                      status:
+                        parsed.snapshot.rollout.status === "pass" || parsed.snapshot.rollout.status === "fail"
+                          ? parsed.snapshot.rollout.status
+                          : "pending",
+                      gateReady: !!parsed.snapshot.rollout.gateReady,
+                      qualificationPassed:
+                        typeof parsed.snapshot.rollout.qualificationPassed === "boolean"
+                          ? parsed.snapshot.rollout.qualificationPassed
+                          : null,
+                      stressPassed:
+                        typeof parsed.snapshot.rollout.stressPassed === "boolean"
+                          ? parsed.snapshot.rollout.stressPassed
+                          : null,
+                      reason:
+                        typeof parsed.snapshot.rollout.reason === "string" ? parsed.snapshot.rollout.reason : null,
+                    }
+                  : createAppendableRouteRolloutSnapshot(),
             }
           : null,
     }
@@ -968,11 +1057,9 @@ function formatOptionalFixed(value: number | null | undefined, digits = 3) {
 }
 
 function resolveAppendableRoutePilotAutoStatus(
-  checklistStatus: AppendableRoutePilotChecklistStatus
+  snapshot: AppendableRoutePilotReportSnapshot
 ): AppendableRoutePilotReportStatus {
-  if (checklistStatus === "ready_for_manual_pilot") return "pass"
-  if (checklistStatus === "attention_required") return "fail"
-  return "pending"
+  return snapshot.rollout.status
 }
 
 function getStartupChunkHandoffAtSec(runtime: StartupChunkRuntimeState): number {
@@ -3277,6 +3364,7 @@ export default function MultiTrackPlayer({
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
       qualification: createAppendableRouteQualificationSnapshot(),
       stress: createAppendableRouteStressSnapshot(),
+      rollout: createAppendableRouteRolloutSnapshot(),
     }
   }, [
     activeEngineMode,
@@ -3306,11 +3394,13 @@ export default function MultiTrackPlayer({
       options?: { status?: AppendableRoutePilotReportStatus; autoStatus?: boolean }
     ): AppendableRoutePilotReport => {
       const currentReport = appendableRoutePilotReportRef.current
-      const nextSnapshot = mergeAppendableRoutePilotEvidenceSnapshot(snapshot, currentReport.snapshot)
+      const nextSnapshot = withAppendableRouteRolloutSnapshot(
+        mergeAppendableRoutePilotEvidenceSnapshot(snapshot, currentReport.snapshot)
+      )
       const nextStatus =
         options?.status ??
         (options?.autoStatus
-          ? resolveAppendableRoutePilotAutoStatus(nextSnapshot.gate.status)
+          ? resolveAppendableRoutePilotAutoStatus(nextSnapshot)
           : currentReport.status)
       return {
         ...currentReport,
@@ -8245,9 +8335,7 @@ export default function MultiTrackPlayer({
           safeDurationSec
         )
         const qualificationPassed = settledSnapshot.qualification.passed === true
-        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, {
-          status: qualificationPassed ? "pass" : "fail",
-        })
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
         commitAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
@@ -8339,9 +8427,7 @@ export default function MultiTrackPlayer({
           completedSeeks,
         })
         const stressPassed = settledSnapshot.stress.passed === true
-        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, {
-          status: stressPassed ? "pass" : "fail",
-        })
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
         commitAppendableRoutePilotReport(nextReport)
         finalState = {
           ...finalState,
@@ -11522,6 +11608,23 @@ export default function MultiTrackPlayer({
                                 {formatOptionalFixed(appendableRoutePilotReport.snapshot.stress.holdPerSeekSec)}
                                 {appendableRoutePilotReport.snapshot.stress.reason
                                   ? ` (${appendableRoutePilotReport.snapshot.stress.reason})`
+                                  : ""}
+                              </div>
+                              <div data-testid="appendable-route-pilot-report-rollout">
+                                rollout: {appendableRoutePilotReport.snapshot.rollout.status} / gate=
+                                {appendableRoutePilotReport.snapshot.rollout.gateReady ? "ready" : "not_ready"} / qualification=
+                                {appendableRoutePilotReport.snapshot.rollout.qualificationPassed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.rollout.qualificationPassed
+                                    ? "pass"
+                                    : "fail"} / stress=
+                                {appendableRoutePilotReport.snapshot.rollout.stressPassed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.rollout.stressPassed
+                                    ? "pass"
+                                    : "fail"}
+                                {appendableRoutePilotReport.snapshot.rollout.reason
+                                  ? ` (${appendableRoutePilotReport.snapshot.rollout.reason})`
                                   : ""}
                               </div>
                               <div>
