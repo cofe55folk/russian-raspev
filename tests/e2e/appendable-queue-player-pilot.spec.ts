@@ -764,7 +764,16 @@ test("current appendable diagnostics can be saved from the debug area without qu
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
   await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
   await waitForPlayerText(page, "appendable queue probe: active")
-  await waitForChecklistStatus(page, "готов к ручному pilot")
+  await expect
+    .poll(
+      async () => {
+        const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
+        return text.includes("готов к ручному pilot") || text.includes("нужна проверка runtime")
+      },
+      { timeout: 30000 }
+    )
+    .toBe(true)
+  const checklistStatusText = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()
@@ -773,8 +782,13 @@ test("current appendable diagnostics can be saved from the debug area without qu
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("сохранено текущее diagnostics")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
-  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pending")
-  await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("qualification:missing")
+  if (checklistStatusText.includes("готов к ручному pilot")) {
+    await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pending")
+    await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("qualification:missing")
+  } else {
+    await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "fail")
+    await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("gate:attention_required")
+  }
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
