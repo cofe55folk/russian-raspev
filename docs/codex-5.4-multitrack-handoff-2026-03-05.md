@@ -2364,3 +2364,39 @@ Suggested opening prompt for the next window:
    - saved route diagnostics are now immediately triageable without manual report relabeling
    - pass/fail semantics survive export/download paths, not just the live UI
    - the next slice can move into runtime thresholds / soak evidence with a better diagnostics contract already in place
+
+## 8.149 Route readiness now requires a minimum clean-soak window instead of becoming ready on the first clean probe sample
+1. The next hardening slice after `8.148` moves from reporting semantics into runtime-threshold semantics.
+2. Before this step, route appendable could become `ready_for_manual_pilot` almost immediately after:
+   - probe became active
+   - `underrun = 0`
+   - `discontinuity = 0`
+   - even if that “clean” state had existed only for a moment
+3. This slice introduces an explicit clean-soak gate:
+   - appendable runtime probe now tracks:
+     - `cleanSoakSec`
+     - `readyThresholdSec`
+   - route readiness now requires:
+     - probe active
+     - clean runtime (`underrun = 0`, `discontinuity = 0`)
+     - clean soak at or above the configured threshold
+4. Current threshold in this slice:
+   - `readyThresholdSec = 3.0`
+   - with the existing appendable probe heartbeat still sampling on the route
+5. Observable behavior change:
+   - after playback starts, checklist first moves into explicit soak state instead of jumping directly to ready
+   - only after the route survives that clean-soak window does checklist/report treat it as ready/pass
+   - safe-rollout fallback attention remains unchanged and still blocks readiness immediately
+6. Diagnostics/reporting changes:
+   - guest-panel runtime probe now shows:
+     - `appendable clean soak sec`
+     - `appendable ready threshold sec`
+   - saved route report snapshots now persist the same probe fields for later triage
+7. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `28/28`
+   - `npm run build`
+8. Practical consequence after `8.149`:
+   - widened appendable rollout no longer treats a single clean heartbeat as sufficient readiness evidence
+   - route diagnostics now distinguish “clean but still soaking” from truly ready
+   - the next slice can focus on broader soak/stress coverage rather than basic readiness timing

@@ -59,6 +59,12 @@ async function waitForPlayerText(page: Page, needle: string) {
     .toContain(needle)
 }
 
+async function waitForChecklistStatus(page: Page, needle: string) {
+  await expect
+    .poll(async () => (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? "", { timeout: 30000 })
+    .toContain(needle)
+}
+
 async function openRuntimeProbe(page: Page) {
   await page.getByTestId("guest-panel-toggle").click()
   const checklistToggle = page.getByTestId("recording-checklist-toggle")
@@ -167,7 +173,9 @@ test("multistem appendable pilot runs on the normal player route when both flags
   expect(runtimeProbe?.controlPlaneMode).toBe("message_port")
   expect(runtimeProbe?.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(runtimeProbe?.appendMessageCount ?? 0).toBeGreaterThan(0)
-  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("готов к ручному pilot")
+  await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
+  await waitForChecklistStatus(page, "идет runtime soak")
+  await waitForChecklistStatus(page, "готов к ручному pilot")
   await page.getByTestId("appendable-route-pilot-report-capture").click()
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
   await page.getByTestId("appendable-route-pilot-report-pass").click()
@@ -197,6 +205,8 @@ test("safe appendable rollout keeps route on appendable mode while tempo stays l
   await waitForPlayerText(page, "appendable queue probe: active")
   await waitForPlayerText(page, "appendable total underrun: 0")
   await waitForPlayerText(page, "appendable total discontinuity: 0")
+  await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
+  await waitForChecklistStatus(page, "идет runtime soak")
 })
 
 test("safe appendable rollout auto-enables qualified continuation ingest without manual startup flags", async ({ page }) => {
@@ -218,7 +228,9 @@ test("safe appendable rollout auto-enables qualified continuation ingest without
   await waitForPlayerText(page, "appendable queue probe: active")
   await waitForPlayerText(page, "appendable total underrun: 0")
   await waitForPlayerText(page, "appendable total discontinuity: 0")
-  await expect(page.getByTestId("appendable-route-checklist-status")).toContainText("готов к ручному pilot")
+  await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
+  await waitForChecklistStatus(page, "идет runtime soak")
+  await waitForChecklistStatus(page, "готов к ручному pilot")
 })
 
 test("safe appendable rollout keeps qualified ingest off when manifest continuation qualification fails", async ({ page }) => {
@@ -490,6 +502,7 @@ test("current appendable diagnostics can be saved from the debug area without qu
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
   await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
   await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForChecklistStatus(page, "готов к ручному pilot")
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()

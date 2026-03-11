@@ -4112,3 +4112,45 @@ Comment for the next window:
 1. Route diagnostics теперь автоматически несут пригодный pass/fail verdict в самом report и packet export.
 2. Safe-rollout fallback attention уже не требует ручного relabeling, чтобы стать triage-ready.
 3. Следующий автономный slice можно брать уже по runtime thresholds / soak evidence, а не по diagnostics plumbing.
+
+## 9.97 Route readiness now requires a clean-soak window before appendable becomes rollout-ready
+
+Что сделано:
+1. Следующий hardening slice после `9.96` перевёл readiness с “один clean probe sample” на явный runtime soak gate.
+2. До этого шага route мог стать `готов к ручному pilot` почти сразу после того, как:
+   - probe стал active
+   - `underrun = 0`
+   - `discontinuity = 0`
+3. Теперь appendable runtime probe явно считает:
+   - `cleanSoakSec`
+   - `readyThresholdSec`
+4. Checklist/readiness после этого шага требует одновременно:
+   - `appendable queue probe = active`
+   - `totalUnderrunFrames = 0`
+   - `totalDiscontinuityCount = 0`
+   - `cleanSoakSec >= readyThresholdSec`
+5. Текущий threshold этого slice:
+   - `readyThresholdSec = 3.0`
+6. Что видно в route diagnostics после патча:
+   - сразу после старта playback статус больше не прыгает прямо в `готов к ручному pilot`
+   - сначала он показывает явный `runtime soak in progress`
+   - только после чистого soak-window route становится ready
+7. Это же состояние теперь сохраняется и в report/export path:
+   - live panel показывает `appendable clean soak sec`
+   - live panel показывает `appendable ready threshold sec`
+   - те же поля уходят в saved route report snapshot
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `28/28`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не меняет playback engine.
+2. Этот шаг ужесточает только readiness semantics.
+3. Fallback attention для safe rollout по-прежнему блокирует ready немедленно, без soak grace period.
+
+Итог после `9.97`:
+1. Route appendable теперь не считается rollout-ready на первом clean heartbeat.
+2. Diagnostics различают `still soaking` и `ready`, а не смешивают их.
+3. Следующий автономный slice можно уже делать вокруг более длинного soak/stress evidence, а не вокруг минимального readiness threshold.

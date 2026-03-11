@@ -96,6 +96,8 @@ type AppendableQueueRuntimeProbeSnapshot = {
   minLeadSec: number | null
   maxLeadSec: number | null
   dropDeltaSec: number | null
+  cleanSoakSec: number | null
+  readyThresholdSec: number | null
   totalUnderrunFrames: number
   totalDiscontinuityCount: number
 }
@@ -123,6 +125,7 @@ type AppendableRoutePilotChecklistStatus =
   | "waiting_for_flags"
   | "blocked_by_targeting"
   | "play_to_activate_probe"
+  | "soak_in_progress"
   | "ready_for_manual_pilot"
   | "attention_required"
 type AppendableRoutePilotReportStatus = "pending" | "pass" | "fail"
@@ -431,6 +434,7 @@ const RINGBUFFER_RUNTIME_PROBE_DROP_DELTA_SEC = 0.22
 const APPENDABLE_QUEUE_RUNTIME_PROBE_INTERVAL_MS = 2000
 const APPENDABLE_QUEUE_RUNTIME_PROBE_LOG_INTERVAL_MS = 8000
 const APPENDABLE_QUEUE_RUNTIME_PROBE_DROP_DELTA_SEC = 0.22
+const APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC = 3
 const SEEK_SMOOTH_DEBOUNCE_MS = 28
 const SEEK_SMOOTH_CLOSE_RAMP_SEC = 0.008
 const SEEK_SMOOTH_OPEN_RAMP_SEC = 0.03
@@ -464,6 +468,8 @@ function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProb
     minLeadSec: null,
     maxLeadSec: null,
     dropDeltaSec: null,
+    cleanSoakSec: null,
+    readyThresholdSec: APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC,
     totalUnderrunFrames: 0,
     totalDiscontinuityCount: 0,
   }
@@ -487,6 +493,8 @@ function cloneAppendableQueueRuntimeProbeSnapshot(
     minLeadSec: snapshot.minLeadSec,
     maxLeadSec: snapshot.maxLeadSec,
     dropDeltaSec: snapshot.dropDeltaSec,
+    cleanSoakSec: snapshot.cleanSoakSec,
+    readyThresholdSec: snapshot.readyThresholdSec,
     totalUnderrunFrames: snapshot.totalUnderrunFrames,
     totalDiscontinuityCount: snapshot.totalDiscontinuityCount,
   }
@@ -671,6 +679,7 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                 status:
                   parsed.snapshot.gate?.status === "blocked_by_targeting" ||
                   parsed.snapshot.gate?.status === "play_to_activate_probe" ||
+                  parsed.snapshot.gate?.status === "soak_in_progress" ||
                   parsed.snapshot.gate?.status === "ready_for_manual_pilot" ||
                   parsed.snapshot.gate?.status === "attention_required"
                     ? parsed.snapshot.gate.status
@@ -1974,6 +1983,7 @@ export default function MultiTrackPlayer({
   const appendableQueueSourceProgressTimerRef = useRef<number | null>(null)
   const appendableQueueRuntimeProbeLastLogAtMsRef = useRef(0)
   const appendableQueueRuntimeProbeLastMinLeadSecRef = useRef<number | null>(null)
+  const appendableQueueRuntimeProbeCleanSinceMsRef = useRef<number | null>(null)
 
   // gate (anti-cascade + clean start/stop)
   const engineGateRef = useRef<GainNode[]>([])
@@ -2810,6 +2820,10 @@ export default function MultiTrackPlayer({
     const cleanRuntime =
       appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames === 0 &&
       appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount === 0
+    const readyThresholdSec =
+      appendableQueueRuntimeProbeSnapshot.readyThresholdSec ?? APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC
+    const cleanSoakSec = appendableQueueRuntimeProbeSnapshot.cleanSoakSec ?? 0
+    const readySoakMet = cleanSoakSec >= Math.max(0, readyThresholdSec - 0.001)
     const safeRolloutMode = appendablePilotActivation.activationMode === "safe_rollout"
     const safeRolloutSourceGateReason = safeRolloutMode
       ? appendableQueueSourceProgressSnapshot.continuationQualification === "qualified"
@@ -2827,9 +2841,10 @@ export default function MultiTrackPlayer({
       | "waiting_for_flags"
       | "blocked_by_targeting"
       | "play_to_activate_probe"
+      | "soak_in_progress"
       | "ready_for_manual_pilot"
       | "attention_required" = "waiting_for_flags"
-    if (flagsReady && modeReady && probeActive && cleanRuntime && !safeRolloutSourceGateReason) {
+    if (flagsReady && modeReady && probeActive && cleanRuntime && readySoakMet && !safeRolloutSourceGateReason) {
       status = "ready_for_manual_pilot"
     } else if (routing.appendableBlockedByTargeting) {
       status = "blocked_by_targeting"
@@ -2839,6 +2854,8 @@ export default function MultiTrackPlayer({
       status = "attention_required"
     } else if (flagsReady && modeReady && probeActive && !cleanRuntime) {
       status = "attention_required"
+    } else if (flagsReady && modeReady && probeActive && cleanRuntime) {
+      status = "soak_in_progress"
     } else if (flagsReady && modeReady) {
       status = "play_to_activate_probe"
     }
@@ -2847,6 +2864,8 @@ export default function MultiTrackPlayer({
       uiLang === "ru"
         ? status === "ready_for_manual_pilot"
           ? "готов к ручному pilot"
+        : status === "soak_in_progress"
+          ? `идет runtime soak (${cleanSoakSec.toFixed(1)} / ${readyThresholdSec.toFixed(1)}s)`
         : status === "blocked_by_targeting"
             ? "track-set не включен в appendable rollout"
           : routing.appendableBlockedByStreaming
@@ -2860,6 +2879,8 @@ export default function MultiTrackPlayer({
               : "включи оба appendable флага"
         : status === "ready_for_manual_pilot"
           ? "ready for manual pilot"
+        : status === "soak_in_progress"
+          ? `runtime soak in progress (${cleanSoakSec.toFixed(1)} / ${readyThresholdSec.toFixed(1)}s)`
         : status === "blocked_by_targeting"
             ? "track set is not targeted for appendable rollout"
           : routing.appendableBlockedByStreaming
@@ -2909,6 +2930,18 @@ export default function MultiTrackPlayer({
               "2. Recheck the manifest continuation plan across stems and the root-level continuationChunks contract.",
               "3. Until qualification becomes `qualified`, the route should stay on appendable `full_buffer`.",
             ]
+        : status === "soak_in_progress"
+        ? uiLang === "ru"
+          ? [
+              "1. Оставь playback и appendable route активными без новых seek/pause.",
+              `2. Дождиcь непрерывного clean runtime soak не меньше ${readyThresholdSec.toFixed(1)}s.`,
+              "3. Если underrun/discontinuity появятся раньше, route не должен считаться ready.",
+            ]
+          : [
+              "1. Keep playback and the appendable route running without new seek/pause input.",
+              `2. Wait until the clean runtime soak reaches at least ${readyThresholdSec.toFixed(1)}s.`,
+              "3. If underrun/discontinuity appears before that, the route must not be considered ready.",
+            ]
         : appendablePilotActivation.activationMode === "safe_rollout"
         ? uiLang === "ru"
           ? [
@@ -2951,6 +2984,8 @@ export default function MultiTrackPlayer({
     appendableQueuePilotEnabled,
     ringBufferPilotEnabled,
     appendableQueueRuntimeProbeSnapshot.active,
+    appendableQueueRuntimeProbeSnapshot.cleanSoakSec,
+    appendableQueueRuntimeProbeSnapshot.readyThresholdSec,
     appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount,
     appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames,
     appendableQueueSourceProgressSnapshot.continuationQualification,
@@ -6659,6 +6694,7 @@ export default function MultiTrackPlayer({
       }
       appendableQueueRuntimeProbeLastLogAtMsRef.current = 0
       appendableQueueRuntimeProbeLastMinLeadSecRef.current = null
+      appendableQueueRuntimeProbeCleanSinceMsRef.current = null
       setAppendableQueueRuntimeProbeSnapshot((current) =>
         current.active || current.sampleAtMs != null ? createAppendableQueueRuntimeProbeSnapshot() : current
       )
@@ -6709,6 +6745,19 @@ export default function MultiTrackPlayer({
       const lastMinLeadSec = appendableQueueRuntimeProbeLastMinLeadSecRef.current
       const dropDeltaSec =
         typeof lastMinLeadSec === "number" ? Math.max(0, lastMinLeadSec - minLeadSec) : 0
+      const cleanRuntime =
+        snapshot.sync.totalUnderrunFrames === 0 && snapshot.sync.totalDiscontinuityCount === 0
+      if (cleanRuntime) {
+        if (appendableQueueRuntimeProbeCleanSinceMsRef.current == null) {
+          appendableQueueRuntimeProbeCleanSinceMsRef.current = nowMs
+        }
+      } else {
+        appendableQueueRuntimeProbeCleanSinceMsRef.current = null
+      }
+      const cleanSoakSec =
+        cleanRuntime && appendableQueueRuntimeProbeCleanSinceMsRef.current != null
+          ? Math.max(0, (nowMs - appendableQueueRuntimeProbeCleanSinceMsRef.current) / 1000)
+          : 0
       const dueHeartbeat = lastLogAtMs === 0 || nowMs - lastLogAtMs >= APPENDABLE_QUEUE_RUNTIME_PROBE_LOG_INTERVAL_MS
       const notableDrop = dropDeltaSec >= APPENDABLE_QUEUE_RUNTIME_PROBE_DROP_DELTA_SEC
 
@@ -6729,6 +6778,8 @@ export default function MultiTrackPlayer({
         minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
         maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
         dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
+        cleanSoakSec: Number(cleanSoakSec.toFixed(3)),
+        readyThresholdSec: APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC,
         totalUnderrunFrames: snapshot.sync.totalUnderrunFrames,
         totalDiscontinuityCount: snapshot.sync.totalDiscontinuityCount,
       })
@@ -6748,6 +6799,8 @@ export default function MultiTrackPlayer({
           minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
           maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
           dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
+          cleanSoakSec: Number(cleanSoakSec.toFixed(3)),
+          readyThresholdSec: APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC,
           totalUnderrunFrames: snapshot.sync.totalUnderrunFrames,
           totalDiscontinuityCount: snapshot.sync.totalDiscontinuityCount,
           availableFrames: debugStates.map((state) => state.availableFrames).filter((value) => typeof value === "number"),
@@ -6769,6 +6822,7 @@ export default function MultiTrackPlayer({
         window.clearInterval(appendableQueueRuntimeProbeTimerRef.current)
         appendableQueueRuntimeProbeTimerRef.current = null
       }
+      appendableQueueRuntimeProbeCleanSinceMsRef.current = null
     }
   }, [activeEngineMode, isPlaying])
 
@@ -10683,6 +10737,12 @@ export default function MultiTrackPlayer({
                             appendable probe drop delta sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.dropDeltaSec)}
                           </div>
                           <div>
+                            appendable clean soak sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.cleanSoakSec)}
+                          </div>
+                          <div>
+                            appendable ready threshold sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.readyThresholdSec)}
+                          </div>
+                          <div>
                             appendable total underrun: {appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames}
                           </div>
                           <div>
@@ -10911,6 +10971,10 @@ export default function MultiTrackPlayer({
                                 probe: {appendableRoutePilotReport.snapshot.probe.active ? "active" : "idle"} / underrun=
                                 {appendableRoutePilotReport.snapshot.probe.totalUnderrunFrames} / discontinuity=
                                 {appendableRoutePilotReport.snapshot.probe.totalDiscontinuityCount}
+                              </div>
+                              <div>
+                                probe soak: {formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.cleanSoakSec)} / threshold=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.readyThresholdSec)}
                               </div>
                               <div>
                                 transport: data={appendableRoutePilotReport.snapshot.probe.dataPlaneMode ?? "—"} / control=
