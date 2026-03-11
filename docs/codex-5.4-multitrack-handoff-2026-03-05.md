@@ -2203,3 +2203,37 @@ Suggested opening prompt for the next window:
    - appendable now has a real route-level `startup head -> background full append` proof point
    - this still uses the current phase-one `postMessage PCM` data plane
    - the next latency step should continue through controlled manifest/chunk ingest, not through `decodeAudioData()` windows or MSE hybrid
+
+## 8.144 Route-level appendable continuation chunks now bridge startup head to full fallback
+1. The next ingest slice after `8.143` still does not revive engine swap or partial `decodeAudioData()` windows.
+2. Instead, startup-head route appendable now has a second guarded manifest path:
+   - preview/storage gate: `multitrack_appendable_queue_continuation_chunks`
+   - local storage key: `rr_audio_appendable_queue_continuation_chunks_pilot`
+   - it only activates when startup-head appendable is already active and every stem in the matched manifest exposes continuation chunk entries
+3. Runtime behavior in this slice:
+   - startup WAV still enters the same long-lived appendable source/controller as the first queued PCM
+   - packaged continuation WAV chunks are then decoded and appended into that same source/controller at their declared sample boundaries
+   - only after those continuation chunks are appended does full-track decode append the remaining tail from the controller's current `bufferedUntilFrame`
+   - this keeps the ingest path continuous inside one appendable engine instead of swapping engines or replaying already-buffered audio
+4. Route diagnostics/reporting changes:
+   - startup-head source progress now distinguishes:
+     - `startup_head_manifest`
+     - `startup_head_continuation_chunks`
+   - route diagnostics now show:
+     - `appendable continuation chunks flag`
+     - decoded/appended continuation chunk group counts
+   - saved route pilot snapshots/debug state now persist those continuation counters together with the existing startup/full progress flags
+5. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npm run build`
+   - targeted Chromium continuation test: `1/1`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium: `10/10`
+   - `appendable-queue-player-pilot.spec.ts` on WebKit: `10/10`
+6. Important verification note:
+   - one initial Chromium full-suite attempt hit the existing checklist-panel visibility flake on the first route test
+   - a direct rerun of that test passed immediately
+   - the subsequent full Chromium + WebKit route pass was green without code changes, so the observed noise was treated as pre-existing test flake, not as continuation-ingest regression
+7. Practical consequence after `8.144`:
+   - appendable route now has a real `startup head -> packaged continuation -> background full fallback` proof point
+   - this remains a manifest-scoped pilot on top of the current phase-one `postMessage PCM` data plane
+   - the next ingest step after merge should expand controlled continuation packaging/qualification, not reopen swap-based handoff or MSE-style hybrid work

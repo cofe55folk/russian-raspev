@@ -5,6 +5,11 @@ type StartupManifestSource = {
   src: string
   startupSrc: string
   startupDurationSec?: number
+  continuationChunks?: Array<{
+    src: string
+    startSec?: number
+    durationSec?: number
+  }>
   tailSrc?: string
   tailStartSec?: number
   tailDurationSec?: number
@@ -73,6 +78,18 @@ export async function resolveAppendableStartupManifestMatch(
         src: normalizePublicAssetPath(source.src),
         startupSrc: normalizePublicAssetPath(source.startupSrc),
         startupDurationSec: source.startupDurationSec,
+        continuationChunks: Array.isArray(source.continuationChunks)
+          ? source.continuationChunks
+              .filter(
+                (chunk): chunk is { src: string; startSec?: number; durationSec?: number } =>
+                  !!chunk && typeof chunk.src === "string" && chunk.src.trim().length > 0
+              )
+              .map((chunk) => ({
+                src: normalizePublicAssetPath(chunk.src),
+                startSec: chunk.startSec,
+                durationSec: chunk.durationSec,
+              }))
+          : undefined,
         tailSrc: typeof source.tailSrc === "string" ? normalizePublicAssetPath(source.tailSrc) : undefined,
         tailStartSec: source.tailStartSec,
         tailDurationSec: source.tailDurationSec,
