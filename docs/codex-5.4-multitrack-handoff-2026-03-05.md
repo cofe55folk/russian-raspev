@@ -2635,3 +2635,25 @@ Suggested opening prompt for the next window:
 5. Practical consequence after `8.159`:
    - manual reviewer conclusions are now covered as persistent route-report state, not just auto-generated rollout evidence
    - the route diagnostics helper can be reused inside longer reload/playback scenarios without introducing its own toggle-state flakes
+
+## 8.160 Route diagnostics now surface when a blocked route is already a safe-rollout candidate
+1. The next appendable slice still does not widen rollout by default and does not touch the playback core.
+2. Instead, it makes one operator-facing rollout fact explicit in the route diagnostics/report layer:
+   - if the current track-set already has a manifest-backed, continuation-qualified appendable path
+   - but appendable is still blocked by targeting
+   - the route now says so directly and recommends the concrete `safe_rollout` target to add
+3. Implementation details in this slice:
+   - appendable manifest/continuation preflight now runs in a diagnostics-only mode whenever the appendable route flags are on, even if the route ultimately stays on baseline because targeting blocks activation
+   - `sourceProgress` now persists `safeRolloutCandidateQualified` plus `safeRolloutCandidateTarget`
+   - the blocked-by-targeting checklist now prefers `rr_audio_appendable_queue_safe_rollout_targets` guidance when the current route is already continuation-qualified
+   - captured/saved route reports now carry that same candidate information through the normal snapshot/export path
+4. Route e2e was extended accordingly:
+   - the blocked-route scenario now proves that a qualified manifest-backed route still reports `audio mode: soundtouch`
+   - while also surfacing `appendable safe rollout candidate: yes` and the recommended slug target in both live diagnostics and `captureReport()`
+5. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `52/52`
+   - `npm run build`
+6. Practical consequence after `8.160`:
+   - the next rollout widening step no longer depends on remembering which manifest-backed routes are already safe candidates
+   - operators can read the recommendation directly from the normal route diagnostics without enabling startup-head flags or reconstructing manifest qualification by hand

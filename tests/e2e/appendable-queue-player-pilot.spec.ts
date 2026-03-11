@@ -193,7 +193,29 @@ test("appendable route pilot stays off when the current track set is not targete
   await waitForPlayerText(page, "appendable activation allowed: off")
   await waitForPlayerText(page, "appendable activation match: —")
   await waitForPlayerText(page, "audio mode: soundtouch")
+  await waitForPlayerText(page, "appendable safe rollout candidate: yes")
+  await waitForPlayerText(page, `appendable recommended safe rollout target: ${SLUG}`)
   await waitForChecklistStatus(page, "track-set не включен в appendable rollout")
+  await expect(page.getByTestId("appendable-route-checklist")).toContainText(
+    "rr_audio_appendable_queue_safe_rollout_targets"
+  )
+  await expect(page.getByTestId("appendable-route-checklist")).toContainText(SLUG)
+  const captured = await evaluateWithRetry(page, () => {
+    return (
+      (window as Window & {
+        __rrAppendableRoutePilotDebug?: {
+          captureReport: () => {
+            sourceProgress: {
+              safeRolloutCandidateQualified: boolean
+              safeRolloutCandidateTarget: string | null
+            }
+          }
+        }
+      }).__rrAppendableRoutePilotDebug?.captureReport() ?? null
+    )
+  })
+  expect(captured?.sourceProgress.safeRolloutCandidateQualified).toBe(true)
+  expect(captured?.sourceProgress.safeRolloutCandidateTarget).toBe(SLUG)
   await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
   await expect(page.getByRole("slider", { name: "Pitch" })).toBeEnabled()
 })

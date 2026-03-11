@@ -110,6 +110,8 @@ type AppendableQueueSourceProgressSnapshot = {
   allFullAppended: boolean
   continuationQualification: AppendableContinuationQualificationStatus
   continuationQualificationReason: AppendableContinuationQualificationReason | null
+  safeRolloutCandidateQualified: boolean
+  safeRolloutCandidateTarget: string | null
   continuationChunkGroupsAvailable: number
   continuationChunkGroupsPlanned: number
   continuationChunkGroupsDecoded: number
@@ -267,8 +269,11 @@ type AppendableStartupHeadRuntimeState = {
   stems: AppendableStartupHeadStemRuntimeState[]
 }
 type AppendableContinuationPreflightState = {
+  manifestSlug: string | null
   qualification: AppendableContinuationQualificationStatus
   qualificationReason: AppendableContinuationQualificationReason | null
+  safeRolloutCandidateQualified: boolean
+  safeRolloutCandidateTarget: string | null
   availableGroupCount: number
   plannedGroupCount: number
   coverageEndSec: number | null
@@ -541,6 +546,8 @@ function createAppendableQueueSourceProgressSnapshot(): AppendableQueueSourcePro
     allFullAppended: false,
     continuationQualification: "off",
     continuationQualificationReason: null,
+    safeRolloutCandidateQualified: false,
+    safeRolloutCandidateTarget: null,
     continuationChunkGroupsAvailable: 0,
     continuationChunkGroupsPlanned: 0,
     continuationChunkGroupsDecoded: 0,
@@ -566,6 +573,8 @@ function cloneAppendableQueueSourceProgressSnapshot(
     allFullAppended: snapshot.allFullAppended,
     continuationQualification: snapshot.continuationQualification,
     continuationQualificationReason: snapshot.continuationQualificationReason,
+    safeRolloutCandidateQualified: snapshot.safeRolloutCandidateQualified,
+    safeRolloutCandidateTarget: snapshot.safeRolloutCandidateTarget,
     continuationChunkGroupsAvailable: snapshot.continuationChunkGroupsAvailable,
     continuationChunkGroupsPlanned: snapshot.continuationChunkGroupsPlanned,
     continuationChunkGroupsDecoded: snapshot.continuationChunkGroupsDecoded,
@@ -581,8 +590,11 @@ function cloneAppendableQueueSourceProgressSnapshot(
 
 function createAppendableContinuationPreflightState(): AppendableContinuationPreflightState {
   return {
+    manifestSlug: null,
     qualification: "off",
     qualificationReason: null,
+    safeRolloutCandidateQualified: false,
+    safeRolloutCandidateTarget: null,
     availableGroupCount: 0,
     plannedGroupCount: 0,
     coverageEndSec: null,
@@ -594,7 +606,22 @@ function readAppendableQueueSourceProgressSnapshot(
   runtime: AppendableStartupHeadRuntimeState | null,
   preflight?: AppendableContinuationPreflightState | null
 ): AppendableQueueSourceProgressSnapshot {
-  if (!coordinator) return createAppendableQueueSourceProgressSnapshot()
+  if (!coordinator) {
+    return {
+      ...createAppendableQueueSourceProgressSnapshot(),
+      manifestSlug: preflight?.manifestSlug ?? null,
+      continuationQualification: preflight?.qualification ?? "off",
+      continuationQualificationReason: preflight?.qualificationReason ?? null,
+      safeRolloutCandidateQualified: !!preflight?.safeRolloutCandidateQualified,
+      safeRolloutCandidateTarget: preflight?.safeRolloutCandidateTarget ?? null,
+      continuationChunkGroupsAvailable: preflight?.availableGroupCount ?? 0,
+      continuationChunkGroupsPlanned: preflight?.plannedGroupCount ?? 0,
+      continuationCoverageEndSec:
+        typeof preflight?.coverageEndSec === "number" && Number.isFinite(preflight.coverageEndSec)
+          ? Number(preflight.coverageEndSec.toFixed(3))
+          : null,
+    }
+  }
   const snapshot = coordinator.getSnapshot()
   const sourceBufferedUntilSecs = snapshot.stems
     .map((stem) => stem.sourceBufferedUntilSec)
@@ -604,7 +631,7 @@ function readAppendableQueueSourceProgressSnapshot(
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
   return {
     mode: runtime?.mode ?? "full_buffer",
-    manifestSlug: runtime?.manifestSlug ?? null,
+    manifestSlug: runtime?.manifestSlug ?? preflight?.manifestSlug ?? null,
     startupDurationSec:
       typeof runtime?.startupDurationSec === "number" && Number.isFinite(runtime.startupDurationSec)
         ? Number(runtime.startupDurationSec.toFixed(3))
@@ -614,6 +641,13 @@ function readAppendableQueueSourceProgressSnapshot(
     allFullAppended: snapshot.allFullAppended,
     continuationQualification: runtime?.continuationQualification ?? preflight?.qualification ?? "off",
     continuationQualificationReason: runtime?.continuationQualificationReason ?? preflight?.qualificationReason ?? null,
+    safeRolloutCandidateQualified:
+      !!(runtime?.manifestSlug ?? preflight?.manifestSlug) &&
+      (runtime?.continuationQualification ?? preflight?.qualification) === "qualified",
+    safeRolloutCandidateTarget:
+      (runtime?.continuationQualification ?? preflight?.qualification) === "qualified"
+        ? runtime?.manifestSlug ?? preflight?.safeRolloutCandidateTarget ?? preflight?.manifestSlug ?? null
+        : null,
     continuationChunkGroupsAvailable: runtime?.continuationChunkGroupsAvailable ?? preflight?.availableGroupCount ?? 0,
     continuationChunkGroupsPlanned: runtime?.continuationChunkGroupsPlanned ?? preflight?.plannedGroupCount ?? 0,
     continuationChunkGroupsDecoded: runtime?.continuationChunkGroupsDecoded ?? 0,
@@ -3146,6 +3180,7 @@ export default function MultiTrackPlayer({
             ? "continuation_qualification_missing"
             : null
       : null
+    const safeRolloutCandidateTarget = appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget
 
     let status:
       | "waiting_for_flags"
@@ -3206,15 +3241,29 @@ export default function MultiTrackPlayer({
     const steps =
       routing.appendableBlockedByTargeting
         ? uiLang === "ru"
-          ? [
-              "1. Добавь текущий route slug или trackScopeId в `rr_audio_appendable_queue_activation_targets`.",
-              "2. Оставь включенными `appendable queue` и `appendable multistem`.",
-              "3. Перезагрузи `/sound/...` route и проверь, что `audio mode = appendable_queue_worklet`.",
-            ]
+          ? appendableQueueSourceProgressSnapshot.safeRolloutCandidateQualified && safeRolloutCandidateTarget
+            ? [
+                `1. Добавь \`${safeRolloutCandidateTarget}\` в \`rr_audio_appendable_queue_safe_rollout_targets\`.`,
+                "2. Оставь включенными `appendable queue` и `appendable multistem`; startup flags здесь не нужны.",
+                "3. Перезагрузи `/sound/...` route и проверь, что `appendable activation mode = safe_rollout`.",
+              ]
+            : [
+                "1. Добавь текущий route slug или trackScopeId в `rr_audio_appendable_queue_activation_targets`.",
+                "2. Оставь включенными `appendable queue` и `appendable multistem`.",
+                "3. Перезагрузи `/sound/...` route и проверь, что `audio mode = appendable_queue_worklet`.",
+              ]
           : [
-              "1. Add the current route slug or trackScopeId to `rr_audio_appendable_queue_activation_targets`.",
-              "2. Keep `appendable queue` and `appendable multistem` enabled.",
-              "3. Reload the `/sound/...` route and confirm `audio mode = appendable_queue_worklet`.",
+              ...(appendableQueueSourceProgressSnapshot.safeRolloutCandidateQualified && safeRolloutCandidateTarget
+                ? [
+                    `1. Add \`${safeRolloutCandidateTarget}\` to \`rr_audio_appendable_queue_safe_rollout_targets\`.`,
+                    "2. Keep `appendable queue` and `appendable multistem` enabled; startup flags are not required here.",
+                    "3. Reload the `/sound/...` route and confirm `appendable activation mode = safe_rollout`.",
+                  ]
+                : [
+                    "1. Add the current route slug or trackScopeId to `rr_audio_appendable_queue_activation_targets`.",
+                    "2. Keep `appendable queue` and `appendable multistem` enabled.",
+                    "3. Reload the `/sound/...` route and confirm `audio mode = appendable_queue_worklet`.",
+                  ]),
             ]
         : routing.appendableBlockedByStreaming
         ? uiLang === "ru"
@@ -3300,6 +3349,8 @@ export default function MultiTrackPlayer({
     appendableQueueRuntimeProbeSnapshot.totalUnderrunFrames,
     appendableQueueSourceProgressSnapshot.continuationQualification,
     appendableQueueSourceProgressSnapshot.continuationQualificationReason,
+    appendableQueueSourceProgressSnapshot.safeRolloutCandidateQualified,
+    appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget,
     appendableQueueSourceProgressSnapshot.mode,
     streamingBufferPilotEnabled,
     trackList.length,
@@ -4764,39 +4815,55 @@ export default function MultiTrackPlayer({
       const useAppendableQueuePilot = audioPilotRouting.useAppendableQueuePilot
       const useRingBufferPilot = audioPilotRouting.useRingBufferPilot
       const useAppendableQualifiedRolloutAutoIngest = appendablePilotActivation.activationMode === "safe_rollout"
+      const appendableManifestDiagnosticsRequested =
+        appendableQueuePilotEnabled &&
+        appendableQueueMultistemPilotEnabled &&
+        !useStreamingPilot &&
+        !useRingBufferPilot
+      const appendableStartupManifestDiagnosticMatch = appendableManifestDiagnosticsRequested
+        ? await resolveAppendableStartupManifestMatch(trackList)
+        : null
       const appendableStartupHeadRequested =
         appendableQueueStartupHeadPilotEnabled || useAppendableQualifiedRolloutAutoIngest
       const appendableStartupManifestMatch =
-        useAppendableQueuePilot && appendableStartupHeadRequested
-          ? await resolveAppendableStartupManifestMatch(trackList)
-          : null
-      const manifestStartupDurationCandidates = appendableStartupManifestMatch?.sources
+        useAppendableQueuePilot && appendableStartupHeadRequested ? appendableStartupManifestDiagnosticMatch : null
+      const manifestStartupDurationCandidates = appendableStartupManifestDiagnosticMatch?.sources
         .map((source) => source.startupDurationSec ?? 0)
         .filter((value): value is number => Number.isFinite(value) && value > 0)
       const manifestStartupDurationSec =
         manifestStartupDurationCandidates && manifestStartupDurationCandidates.length
           ? Math.min(...manifestStartupDurationCandidates)
           : null
-      const appendableQualifiedRolloutContinuationQualification =
-        useAppendableQualifiedRolloutAutoIngest &&
-        appendableStartupManifestMatch &&
+      const appendableContinuationDiagnosticQualification =
+        appendableStartupManifestDiagnosticMatch &&
         typeof manifestStartupDurationSec === "number" &&
         Number.isFinite(manifestStartupDurationSec)
           ? qualifyAppendableContinuationChunks({
               enabled: true,
               startupDurationSec: manifestStartupDurationSec,
-              manifestMatch: appendableStartupManifestMatch,
+              manifestMatch: appendableStartupManifestDiagnosticMatch,
             })
           : null
-      appendableContinuationPreflightRef.current = appendableQualifiedRolloutContinuationQualification
+      const appendableQualifiedRolloutContinuationQualification =
+        useAppendableQualifiedRolloutAutoIngest ? appendableContinuationDiagnosticQualification : null
+      appendableContinuationPreflightRef.current = appendableContinuationDiagnosticQualification
         ? {
-            qualification: appendableQualifiedRolloutContinuationQualification.status,
-            qualificationReason: appendableQualifiedRolloutContinuationQualification.reason,
-            availableGroupCount: appendableQualifiedRolloutContinuationQualification.availableGroupCount,
-            plannedGroupCount: appendableQualifiedRolloutContinuationQualification.plannedGroupCount,
-            coverageEndSec: appendableQualifiedRolloutContinuationQualification.coverageEndSec,
+            manifestSlug: appendableStartupManifestDiagnosticMatch?.slug || null,
+            qualification: appendableContinuationDiagnosticQualification.status,
+            qualificationReason: appendableContinuationDiagnosticQualification.reason,
+            safeRolloutCandidateQualified: appendableContinuationDiagnosticQualification.status === "qualified",
+            safeRolloutCandidateTarget:
+              appendableContinuationDiagnosticQualification.status === "qualified"
+                ? appendableStartupManifestDiagnosticMatch?.slug || null
+                : null,
+            availableGroupCount: appendableContinuationDiagnosticQualification.availableGroupCount,
+            plannedGroupCount: appendableContinuationDiagnosticQualification.plannedGroupCount,
+            coverageEndSec: appendableContinuationDiagnosticQualification.coverageEndSec,
           }
         : createAppendableContinuationPreflightState()
+      setAppendableQueueSourceProgressSnapshot(
+        readAppendableQueueSourceProgressSnapshot(null, null, appendableContinuationPreflightRef.current)
+      )
       const useAppendableQualifiedRolloutStartupHead =
         appendableQualifiedRolloutContinuationQualification?.status === "qualified"
       const useAppendableStartupHeadPilot =
@@ -4981,8 +5048,14 @@ export default function MultiTrackPlayer({
             manifestMatch: appendableStartupManifestMatch,
           })
           appendableContinuationPreflightRef.current = {
+            manifestSlug: appendableStartupManifestMatch.slug || null,
             qualification: continuationQualification.status,
             qualificationReason: continuationQualification.reason,
+            safeRolloutCandidateQualified: continuationQualification.status === "qualified",
+            safeRolloutCandidateTarget:
+              continuationQualification.status === "qualified"
+                ? appendableStartupManifestMatch.slug || null
+                : null,
             availableGroupCount: continuationQualification.availableGroupCount,
             plannedGroupCount: continuationQualification.plannedGroupCount,
             coverageEndSec: continuationQualification.coverageEndSec,
@@ -7175,8 +7248,12 @@ export default function MultiTrackPlayer({
         window.clearInterval(appendableQueueSourceProgressTimerRef.current)
         appendableQueueSourceProgressTimerRef.current = null
       }
-      setAppendableQueueSourceProgressSnapshot((current) =>
-        current.mode !== "off" ? createAppendableQueueSourceProgressSnapshot() : current
+      setAppendableQueueSourceProgressSnapshot(
+        readAppendableQueueSourceProgressSnapshot(
+          null,
+          appendableStartupHeadRuntimeRef.current,
+          appendableContinuationPreflightRef.current
+        )
       )
       return
     }
@@ -11276,6 +11353,14 @@ export default function MultiTrackPlayer({
                               : ""}
                           </div>
                           <div>
+                            appendable safe rollout candidate:{" "}
+                            {appendableQueueSourceProgressSnapshot.safeRolloutCandidateQualified ? "yes" : "no"}
+                          </div>
+                          <div>
+                            appendable recommended safe rollout target:{" "}
+                            {appendableQueueSourceProgressSnapshot.safeRolloutCandidateTarget ?? "—"}
+                          </div>
+                          <div>
                             appendable activation scoped: {appendablePilotActivation.activationConfigured ? "on" : "off"}
                           </div>
                           <div>
@@ -11301,7 +11386,8 @@ export default function MultiTrackPlayer({
                           </div>
                           <div>
                             appendable startup mode: {appendableQueueSourceProgressSnapshot.mode}
-                            {appendableQueueSourceProgressSnapshot.manifestSlug
+                            {appendableQueueSourceProgressSnapshot.mode !== "off" &&
+                            appendableQueueSourceProgressSnapshot.manifestSlug
                               ? ` (${appendableQueueSourceProgressSnapshot.manifestSlug})`
                               : ""}
                           </div>
@@ -11583,6 +11669,11 @@ export default function MultiTrackPlayer({
                                 activation: mode={appendableRoutePilotReport.snapshot.activation.mode} / tempo=
                                 {appendableRoutePilotReport.snapshot.activation.tempoControlUnlocked ? "unlocked" : "locked"} / match=
                                 {appendableRoutePilotReport.snapshot.activation.matchedTarget ?? "—"}
+                              </div>
+                              <div>
+                                source candidate:{" "}
+                                {appendableRoutePilotReport.snapshot.sourceProgress.safeRolloutCandidateQualified ? "yes" : "no"} /
+                                target={appendableRoutePilotReport.snapshot.sourceProgress.safeRolloutCandidateTarget ?? "—"}
                               </div>
                               <div>
                                 probe: {appendableRoutePilotReport.snapshot.probe.active ? "active" : "idle"} / underrun=
