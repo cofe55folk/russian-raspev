@@ -3652,3 +3652,35 @@ Comment for the next window:
    - вынести этот activation slice в focused PR
    - затем расширять appendable rollout через явный target list
 3. `soundCatalog.ts` по-прежнему не возвращаем в forward path.
+
+## 9.85 Update 2026-03-11: Scoped activation targeting is already in PR #7 with green CI
+Что уже сделано поверх `9.84`:
+1. Slice вынесли в отдельную short-lived ветку:
+   - `codex/feature/appendable-activation-targeting`
+2. Коммит:
+   - `024b0c3` `p1: add scoped appendable activation targeting`
+3. Открыт focused PR:
+   - `#7` -> `develop`
+
+Проверка:
+1. Локально:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --reporter=line`
+     - `7 passed`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --reporter=line`
+     - `7 passed`
+2. На GitHub:
+   - `validate`
+     - green
+   - `admin-analytics-contracts`
+     - green
+   - `Vercel`
+     - green
+
+Итоговая стадия на сейчас:
+1. `appendable transplant` уже merged в `develop`.
+2. `scoped activation targeting` уже вынесен в отдельный green PR.
+3. Следующий правильный ход для следующего окна:
+   - не переоткрывать old audio R&D,
+   - а либо смержить `PR #7`,
+   - либо после merge уже расширять allowlist rollout controlled way.

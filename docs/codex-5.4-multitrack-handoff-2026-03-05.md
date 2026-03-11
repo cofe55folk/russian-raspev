@@ -1982,3 +1982,20 @@ Suggested opening prompt for the next window:
 8. Updated practical next step:
    - open a focused PR for this scoped activation layer
    - after merge, widen appendable rollout by explicit target list instead of dark-flagging everything
+
+## 8.137 Scoped activation slice is now PR-ready
+1. Focused branch / PR:
+   - branch: `codex/feature/appendable-activation-targeting`
+   - commit: `024b0c3`
+   - PR: `#7` into `develop`
+2. Verification status:
+   - `npx tsc --noEmit` green
+   - route player spec in Chromium: `7 passed`
+   - route player spec in WebKit: `7 passed`
+   - GitHub `validate` green
+   - GitHub `admin-analytics-contracts` green
+   - Vercel green
+3. Practical meaning for the next window:
+   - appendable queue is merged into `develop`
+   - scoped activation targeting is now separately reviewable
+   - if no new CI regression appears, the next move should be merge of `PR #7`, not another return to splice/runtime R&D
