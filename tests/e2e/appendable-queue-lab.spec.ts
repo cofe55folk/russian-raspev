@@ -25,6 +25,7 @@ type AppendableQueueLabStemState = {
 type AppendableQueueLabState = {
   ready: boolean
   playing: boolean
+  tempo: number
   trackLabel: string
   stemCount: number
   transportSec: number
@@ -107,6 +108,7 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
         return {
           ready: false,
           playing: false,
+          tempo: 1,
           trackLabel: "",
           stemCount: 0,
           transportSec: 0,
@@ -135,6 +137,7 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
       return {
         ready: false,
         playing: false,
+        tempo: 1,
         trackLabel: "",
         stemCount: 0,
         transportSec: 0,
@@ -276,6 +279,17 @@ async function runSeekLoopScenario(page: Page) {
   })
 }
 
+async function setHarnessTempo(page: Page, tempo: number) {
+  const applied = await page.evaluate((nextTempo) => {
+    const api =
+      (window as Window & { __rrAppendableQueueDebug?: { setTempo: (tempo: number) => number } })
+        .__rrAppendableQueueDebug
+    if (!api) throw new Error("appendable queue debug API unavailable")
+    return api.setTempo(nextTempo)
+  }, tempo)
+  expect(applied).toBeCloseTo(tempo, 3)
+}
+
 function expectCleanFinalState(finalState: AppendableQueueLabState) {
   expect(finalState.sync.totalUnderrunFrames).toBe(0)
   expect(finalState.sync.totalDiscontinuityCount).toBe(0)
@@ -352,6 +366,28 @@ test("seek/rebase and pause/resume keep both engine instances aligned", async ({
   expect(finalState.stems.map((stem) => stem.engineInstanceId)).toEqual(beforeEngineIds)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
   expectCleanFinalState(finalState)
+})
+
+test("tempo-only mode keeps appendable multistem playback aligned", async ({ page }) => {
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+  await appendAllFullRemainder(page)
+  await setHarnessTempo(page, 1.2)
+
+  const initialState = await getHarnessState(page)
+  expect(initialState.tempo).toBeCloseTo(1.2, 3)
+
+  await page.getByRole("button", { name: "Play", exact: true }).click()
+  await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1)
+  await expect
+    .poll(async () => (await getHarnessState(page)).transportSec, { timeout: 8000 })
+    .toBeGreaterThan(2.6)
+
+  const finalState = await getHarnessState(page)
+  expect(finalState.tempo).toBeCloseTo(1.2, 3)
+  expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
+  expect(finalState.sync.stemDriftSec).toBeLessThan(0.04)
+  expect(finalState.sync.totalDiscontinuityCount).toBe(0)
 })
 
 test("late per-stem append still clears the boundary without seam telemetry", async ({ page }) => {

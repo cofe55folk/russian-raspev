@@ -34,6 +34,7 @@ export type AppendableQueueCoordinatorStemSnapshot = {
 
 export type AppendableQueueCoordinatorSnapshot = {
   playing: boolean
+  tempo: number
   transportSec: number
   durationSec: number
   stemCount: number
@@ -56,6 +57,7 @@ export type AppendableQueueMultitrackCoordinator = {
   pause: () => void
   seekSeconds: (sec: number) => number
   rebaseSeconds: (sec: number) => number
+  setTempo: (tempo: number) => number
   tick: (opts?: { force?: boolean }) => void
   isPlaying: () => boolean
   getSnapshot: () => AppendableQueueCoordinatorSnapshot
@@ -125,6 +127,8 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
     transportFrame: toFiniteNumber(stats.transportFrame, 0),
     transportSec: toFiniteNumber(stats.transportSec, 0),
     anchorFrame: toFiniteNumber(stats.anchorFrame, 0),
+    transportRate: toFiniteNumber(stats.transportRate, 1),
+    tempo: toFiniteNumber(stats.tempo, 1),
   }
 }
 
@@ -142,6 +146,7 @@ export function createAppendableQueueMultitrackCoordinator(
   const stems = opts.stems
   const transportClock = createAppendableTransportClock(sampleRate, durationFrames)
   let playing = false
+  let tempo = 1
 
   const computeTickPlan = (force = false) => {
     const stats = stems.map((stem) => getStemStats(stem)).filter((value): value is AppendableQueueDebugStats => !!value)
@@ -237,6 +242,17 @@ export function createAppendableQueueMultitrackCoordinator(
       return moveAllToSec(sec, "rebase")
     },
 
+    setTempo(nextTempo: number) {
+      tempo = clamp(nextTempo, 0.25, 4)
+      transportClock.setRate(tempo, ctx.currentTime)
+      stems.forEach((stem) => {
+        try {
+          stem.engine.setTempo(tempo)
+        } catch {}
+      })
+      return tempo
+    },
+
     tick,
 
     isPlaying() {
@@ -269,6 +285,7 @@ export function createAppendableQueueMultitrackCoordinator(
       })
       return {
         playing,
+        tempo: Number(tempo.toFixed(3)),
         transportSec: Number(transport.currentSec.toFixed(3)),
         durationSec: Number(durationSec.toFixed(3)),
         stemCount: stemSnapshots.length,

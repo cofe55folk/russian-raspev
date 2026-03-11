@@ -2060,3 +2060,38 @@ Suggested opening prompt for the next window:
    - no partial `decodeAudioData()` window plan
    - no mandatory `WebCodecs` or `SharedArrayBuffer`
    - no attempt to ship tempo parity, independent pitch, progressive decode, and wide rollout in one milestone
+
+## 8.140 Appendable tempo-only parity is now landed inside the worklet path
+1. Scope completed on branch `codex/feature/appendable-tempo-parity`:
+   - the appendable runtime now has `tempo-only` parity as the next agreed production milestone
+   - `independent pitch` remains intentionally disabled
+   - no progressive decode / ingest work was mixed into this slice
+2. Runtime architecture now matches the post-review direction more closely:
+   - tempo state moved into the long-lived appendable worklet path instead of staying outside the render thread
+   - the appendable worklet now keeps one long-lived `SoundTouch` stretcher state per stem
+   - appendable transport clock is rate-aware, so route/lab transport no longer stays implicitly pinned to `1x`
+   - multistem coordinator now propagates one tempo decision across all appendable stems
+3. Route-level behavior after this change:
+   - appendable multistem route now reports `tempo: on / pitch: off`
+   - tempo control is enabled on the appendable route
+   - pitch control stays disabled, which is the intended state for this milestone
+4. Lab / automation coverage added for the new capability:
+   - appendable lab now exposes tempo in the debug snapshot and debug API
+   - a dedicated multistem lab test now verifies `tempo=1.2` playback without drift/discontinuity regression
+   - normal player-route pilot spec now asserts the new `tempo on / pitch off` state
+5. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium: `7/7`
+   - `appendable-queue-lab.spec.ts` on Chromium: `8/8`
+   - `appendable-queue-player-pilot.spec.ts` on WebKit: `7/7`
+   - `appendable-queue-lab.spec.ts` on WebKit: `8/8`
+6. Important operational note from verification:
+   - intermittent WebKit failures during one attempt were caused by `config.webServer` / `.next/dev/lock` contention from concurrent Playwright startup
+   - sequential reruns on a clean dev server passed
+   - the observed noise was environmental and not evidence of a tempo/runtime regression
+7. Practical state after `8.140`:
+   - appendable is now closer to feature parity, but still not global default
+   - next steps remain:
+     - merge this tempo slice into `develop`
+     - widen rollout only in safe `1.0x` / no-pitch scenarios
+     - only after that move to `startup head PCM as first queued data`

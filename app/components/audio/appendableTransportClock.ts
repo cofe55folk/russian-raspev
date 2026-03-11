@@ -7,6 +7,7 @@ export type AppendableTransportClockSnapshot = {
   anchorFrame: number
   anchorCtxTime: number
   durationFrames: number
+  playbackRate: number
 }
 
 export type AppendableTransportClock = {
@@ -15,6 +16,8 @@ export type AppendableTransportClock = {
   pause: (ctxTime: number) => AppendableTransportClockSnapshot
   seek: (frame: number, ctxTime: number) => AppendableTransportClockSnapshot
   rebase: (frame: number, ctxTime: number) => AppendableTransportClockSnapshot
+  setRate: (rate: number, ctxTime: number) => AppendableTransportClockSnapshot
+  getRate: () => number
   isRunning: () => boolean
 }
 
@@ -30,10 +33,14 @@ export function createAppendableTransportClock(sampleRate: number, durationFrame
   let anchorFrame = 0
   let anchorCtxTime = 0
   let parkedFrame = 0
+  let playbackRate = 1
 
   const getCurrentFrame = (ctxTime: number) => {
     if (!running) return parkedFrame
-    const elapsedFrames = Math.max(0, Math.floor(Math.max(0, ctxTime - anchorCtxTime) * safeSampleRate))
+    const elapsedFrames = Math.max(
+      0,
+      Math.floor(Math.max(0, ctxTime - anchorCtxTime) * safeSampleRate * playbackRate)
+    )
     return clampFrame(anchorFrame + elapsedFrames, safeDurationFrames)
   }
 
@@ -46,6 +53,7 @@ export function createAppendableTransportClock(sampleRate: number, durationFrame
       anchorFrame,
       anchorCtxTime,
       durationFrames: safeDurationFrames,
+      playbackRate,
     }
   }
 
@@ -83,6 +91,20 @@ export function createAppendableTransportClock(sampleRate: number, durationFrame
 
     rebase(frame, ctxTime) {
       return moveToFrame(frame, ctxTime, running)
+    },
+
+    setRate(rate, ctxTime) {
+      const safeRate = Math.min(4, Math.max(0.25, Number.isFinite(rate) ? rate : 1))
+      const snapshot = toSnapshot(ctxTime)
+      parkedFrame = snapshot.currentFrame
+      anchorFrame = snapshot.currentFrame
+      anchorCtxTime = Math.max(0, ctxTime)
+      playbackRate = safeRate
+      return toSnapshot(ctxTime)
+    },
+
+    getRate() {
+      return playbackRate
     },
 
     isRunning() {

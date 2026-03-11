@@ -3179,11 +3179,21 @@ export default function MultiTrackPlayer({
   const applyTempoPitchToEngines = useCallback((tempo: number, pitchSemi: number) => {
     tempoAppliedRef.current = tempo
     pitchAppliedRef.current = pitchSemi
+    const appendableCoordinator =
+      activeEngineMode === "appendable_queue_worklet" && enginesRef.current.length > 1
+        ? appendableQueueCoordinatorRef.current
+        : null
+    if (appendableCoordinator) {
+      appendableCoordinator.setTempo(tempo)
+    } else {
+      enginesRef.current.forEach((eng) => {
+        eng?.setTempo(tempo)
+      })
+    }
     enginesRef.current.forEach((eng) => {
-      eng?.setTempo(tempo)
       eng?.setPitchSemitones(pitchSemi)
     })
-  }, [])
+  }, [activeEngineMode])
 
   const cancelTempoPitchSmoothing = useCallback(() => {
     if (tempoPitchSmoothRafRef.current == null) return

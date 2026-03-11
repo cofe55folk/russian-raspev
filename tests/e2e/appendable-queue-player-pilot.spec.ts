@@ -108,7 +108,8 @@ test("multistem appendable pilot runs on the normal player route when both flags
   await waitForPlayerText(page, `appendable activation match: ${SLUG}`)
   await waitForPlayerText(page, "appendable multistem flag: on")
   await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
-  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeDisabled()
+  await waitForPlayerText(page, "tempo: on / pitch: off")
+  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
   await expect(page.getByRole("slider", { name: "Pitch" })).toBeDisabled()
 
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()

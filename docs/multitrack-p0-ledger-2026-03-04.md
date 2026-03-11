@@ -3763,3 +3763,42 @@ Comment for the next window:
    - не `progressive decode next`,
    - а `tempo parity inside worklet next`.
 3. После этого уже можно controlled way расширять rollout и только затем снижать ingest latency further.
+
+## 9.88 Appendable `tempo-only inside worklet` milestone completed
+
+Что сделано:
+1. Реализован следующий agreed slice после external review:
+   - `tempo-only` parity внутри appendable architecture
+   - без `independent pitch`
+   - без progressive ingest/decode
+2. Transport/runtime слой приведён к одному tempo-aware пути:
+   - appendable transport clock теперь учитывает playback rate
+   - appendable worklet держит long-lived `SoundTouch` state на stem
+   - multistem coordinator прокидывает tempo change на все stem engines
+3. Route/lab поведение обновлено под новый milestone:
+   - на normal route appendable diagnostics теперь видно `tempo: on / pitch: off`
+   - tempo slider на appendable route разрешён
+   - pitch slider остаётся выключенным
+   - lab snapshot/debug API теперь явно отражают `tempo`
+4. Добавлена целевая проверка:
+   - отдельный lab test на `tempo=1.2`
+   - он проверяет multistem playback без drift/discontinuity regression
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium — `7/7`
+3. `appendable-queue-lab.spec.ts` Chromium — `8/8`
+4. `appendable-queue-player-pilot.spec.ts` WebKit — `7/7`
+5. `appendable-queue-lab.spec.ts` WebKit — `8/8`
+
+Что важно не перепутать:
+1. Один неудачный WebKit прогон был связан не с audio code, а с `config.webServer` / `.next/dev/lock` contention при параллельном dev-server старте.
+2. После последовательного повторного запуска WebKit route и lab оба стали зелёными.
+3. То есть remaining topic после `9.88` уже не runtime-seam/tempo bug, а обычный merge/rollout порядок.
+
+Итог после `9.88`:
+1. `tempo parity inside worklet next` больше не план, а выполненный milestone.
+2. Следующий шаг смещается на:
+   - merge tempo slice в `develop`
+   - controlled rollout widening only for safe `1.0x` / no-pitch modes
+   - потом `startup head PCM as first queued data`

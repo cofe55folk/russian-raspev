@@ -1,3 +1,55 @@
+import { SimpleFilter, SoundTouch } from "./soundtouch.js";
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+class AppendableSoundTouchSource {
+  constructor(processor) {
+    this.processor = processor;
+    this.position = 0;
+  }
+
+  extract(target, numFrames) {
+    const processor = this.processor;
+    const framesToRead = Math.min(Math.max(0, numFrames | 0), processor.availableFrames);
+    if (framesToRead <= 0) {
+      return 0;
+    }
+
+    let written = 0;
+    while (written < framesToRead) {
+      const readIndex = processor.readIndex;
+      const chunkFrames = Math.min(framesToRead - written, processor.ringFrames - readIndex);
+      const left = processor.buffers[0];
+      const right = processor.buffers[1] || left;
+
+      for (let i = 0; i < chunkFrames; i += 1) {
+        const outIndex = (written + i) * 2;
+        target[outIndex] = left?.[readIndex + i] ?? 0;
+        target[outIndex + 1] = right?.[readIndex + i] ?? target[outIndex];
+      }
+
+      processor.readIndex = (processor.readIndex + chunkFrames) % processor.ringFrames;
+      processor.availableFrames -= chunkFrames;
+      written += chunkFrames;
+    }
+
+    this.position += written;
+    processor.playedFrame = this.position;
+    return written;
+  }
+
+  setPosition(frame) {
+    this.position = Math.max(0, Number(frame) | 0);
+    this.processor.playedFrame = this.position;
+  }
+
+  getPosition() {
+    return this.position;
+  }
+}
+
 class RrAppendableQueueProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -19,9 +71,16 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     this.maxAvailableFrames = 0;
     this.generation = 0;
     this.baseFrame = 0;
-    this.playedFrames = 0;
+    this.playedFrame = 0;
     this.bufferedEndFrame = 0;
     this.discontinuityCount = 0;
+    this.tempo = 1;
+    this.outputInterleaved = new Float32Array(4096 * 2);
+    this.source = new AppendableSoundTouchSource(this);
+    this.st = new SoundTouch(sampleRate);
+    this.st.tempo = this.tempo;
+    this.st.pitch = 1;
+    this.filter = new SimpleFilter(this.source, this.st);
 
     this.port.onmessage = (event) => {
       const data = event?.data;
@@ -39,10 +98,30 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
         case "append":
           this.appendFrames(data);
           break;
+        case "setTempo":
+          this.setTempo(data);
+          break;
         default:
           break;
       }
     };
+  }
+
+  ensureOutputBuffer(frameCount) {
+    const needed = Math.max(256, frameCount | 0) * 2;
+    if (this.outputInterleaved.length >= needed) return;
+    this.outputInterleaved = new Float32Array(needed);
+  }
+
+  clearProcessorState() {
+    try {
+      this.filter.clear();
+    } catch {}
+    try {
+      this.st.clear();
+    } catch {}
+    this.source.setPosition(this.baseFrame);
+    this.playedFrame = this.baseFrame;
   }
 
   resetState(data) {
@@ -53,11 +132,17 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     this.droppedFrames = 0;
     this.minAvailableFrames = 0;
     this.maxAvailableFrames = 0;
-    this.playedFrames = 0;
     this.discontinuityCount = 0;
     this.generation = Number.isFinite(data.generation) ? (Number(data.generation) | 0) : 0;
     this.baseFrame = Number.isFinite(data.startFrame) ? (Number(data.startFrame) | 0) : 0;
     this.bufferedEndFrame = this.baseFrame;
+    this.clearProcessorState();
+  }
+
+  setTempo(data) {
+    const nextTempo = clamp(Number.isFinite(data.tempo) ? Number(data.tempo) : 1, 0.25, 4);
+    this.tempo = nextTempo;
+    this.st.tempo = nextTempo;
   }
 
   appendFrames(data) {
@@ -77,8 +162,8 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
       this.writeIndex = 0;
       this.availableFrames = 0;
       this.baseFrame = startFrame;
-      this.playedFrames = 0;
       this.bufferedEndFrame = startFrame;
+      this.clearProcessorState();
     }
 
     const availableByChannel = channels
@@ -125,10 +210,11 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
       maxAvailableFrames: this.maxAvailableFrames,
       underrunFrames: this.underrunFrames,
       droppedFrames: this.droppedFrames,
-      playedFrame: this.baseFrame + this.playedFrames,
+      playedFrame: this.playedFrame,
       bufferedEndFrame: this.bufferedEndFrame,
       discontinuityCount: this.discontinuityCount,
       generation: this.generation,
+      tempo: this.tempo,
     };
     this.framesSinceReport = 0;
     this.minAvailableFrames = this.availableFrames;
@@ -143,6 +229,7 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     if (!output || !output.length || !output[0]) return true;
 
     const frames = output[0].length;
+    this.ensureOutputBuffer(frames);
     this.minAvailableFrames = Math.min(this.minAvailableFrames, this.availableFrames);
     this.maxAvailableFrames = Math.max(this.maxAvailableFrames, this.availableFrames);
 
@@ -157,25 +244,31 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
       return true;
     }
 
-    for (let i = 0; i < frames; i += 1) {
-      if (this.availableFrames > 0) {
-        for (let ch = 0; ch < output.length; ch += 1) {
-          output[ch][i] = this.buffers[ch]?.[this.readIndex] ?? 0;
-        }
-        this.readIndex = (this.readIndex + 1) % this.ringFrames;
-        this.availableFrames -= 1;
-      } else {
-        for (let ch = 0; ch < output.length; ch += 1) {
-          output[ch][i] = 0;
-        }
-        this.underrunFrames += 1;
+    let extracted = 0;
+    try {
+      extracted = this.filter.extract(this.outputInterleaved, frames);
+    } catch {
+      extracted = 0;
+    }
+
+    const safeExtracted = Math.max(0, Math.min(frames, Number.isFinite(extracted) ? extracted | 0 : 0));
+    for (let ch = 0; ch < output.length; ch += 1) {
+      const channel = output[ch];
+      const interleavedOffset = ch === 0 ? 0 : 1;
+      for (let i = 0; i < safeExtracted; i += 1) {
+        channel[i] = this.outputInterleaved[i * 2 + interleavedOffset] || 0;
       }
-      this.playedFrames += 1;
+      if (safeExtracted < frames) {
+        channel.fill(0, safeExtracted);
+      }
+    }
+
+    if (safeExtracted < frames) {
+      this.underrunFrames += frames - safeExtracted;
     }
 
     this.minAvailableFrames = Math.min(this.minAvailableFrames, this.availableFrames);
     this.maxAvailableFrames = Math.max(this.maxAvailableFrames, this.availableFrames);
-
     this.framesSinceReport += frames;
     if (this.framesSinceReport >= this.reportEveryFrames) {
       this.reportStats();
