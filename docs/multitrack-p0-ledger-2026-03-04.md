@@ -4662,3 +4662,121 @@ Comment for the next window:
 Итог после `9.114`:
 1. Manifest-qualified continuation cohort теперь покрывает уже шесть реальных multistem route.
 2. Следующее widening можно строить на более широком Balman/Terek/Tomsk surface, не меняя appendable architecture и не возвращаясь к старым handoff-путям.
+
+## 9.115 Внешний Web Pro review зафиксировал следующий порядок работ по data plane, independent pitch, packaging и Safari/iOS qualification
+
+Что зафиксировано как platform constraints:
+1. На март `2026` `AudioWorklet` остаётся правильным runtime primitive для appendable path в Safari/WebKit, но один `BaseAudioContext` по-прежнему означает один общий render thread / `AudioWorkletGlobalScope`.
+2. Render timeline по-прежнему идёт квантами по `128` frames.
+3. `MessagePort` нужно считать asynchronous control plane, а не real-time sample transport.
+4. `SharedArrayBuffer` по-прежнему требует secure context + cross-origin isolation.
+5. `WebCodecs AudioDecoder` в Safari `26` уже есть, но остаётся non-Baseline и живёт вне `AudioWorklet`.
+6. `decodeAudioData()` всё ещё требует complete-file input и приводит decoded `AudioBuffer` к sample rate текущего `AudioContext`.
+
+Data-plane verdict:
+1. Текущий `postmessage_pcm` подтверждён как приемлемый phase-one bridge и fallback path.
+2. Но он теперь явно считается не финальным broad-rollout PCM lane.
+3. Preferred long-term path из review:
+   - отдельный SAB ring/FIFO per stem
+   - `MessagePort` только для команд, watermark/telemetry/error сообщений
+   - batched transferable `postMessage` оставить только как deterministic fallback
+4. Review отдельно подтверждает, что SAB пока не должен становиться mandatory baseline, потому что это ещё и deployment/headers вопрос, а не только runtime code.
+
+Independent pitch verdict:
+1. `independent pitch` должен жить внутри того же long-lived worklet-local DSP/runtime per stem.
+2. Tempo и pitch нельзя снова разносить по разным scheduling domain.
+3. Pitch changes должны применяться frame-aligned через общий coordinator.
+4. Безопасный sequencing из review:
+   - сначала narrow production pitch range
+   - потом worst-device qualification
+   - и только затем, если нужно, отдельный replacement pitch core inside worklet
+
+Packaging verdict:
+1. Continuation path должен оставаться на independently decodable complete chunks, а не на fragment windows.
+2. Qualification должен быть group-level: all required stems or nothing.
+3. Один bad required chunk должен poison’ить весь group и вести к whole-group fallback.
+4. Один sample-rate domain должен держаться across startup / continuation / full fallback для одного проекта.
+5. Review рекомендует fixed `6s` continuation groups как default и `4s-8s` как допустимый рабочий диапазон.
+6. Наш текущий `8s` continuation plan прямо попадает в допустимый диапазон и поэтому не требует немедленного retune перед следующим widening.
+
+Safari / iOS qualification matrix из review:
+1. Обязательные оси:
+   - `44.1 kHz` и `48 kHz`
+   - oldest supported iPhone
+   - один current iPhone
+   - один iPad
+   - один Apple Silicon Mac
+   - Intel Mac только если он ещё реально в support policy
+2. Output / lifecycle matrix:
+   - built-in output
+   - Bluetooth / AirPods
+   - connect/disconnect route while playing
+   - background / foreground
+   - interruption
+   - mute-switch policy behavior на iPhone
+3. Recommended soak windows:
+   - `5 min` smoke
+   - `30 min` qualification run
+   - `60 min` worst-device soak
+4. Recommended objective gates:
+   - `0` audible glitches
+   - `0` steady-state underruns на qualification runs
+   - cross-stem drift target `P99 < 0.1 ms`, hard max `< 0.5 ms`
+   - no control divergence beyond one render quantum
+
+Recommendation order после review:
+1. Preferred optional SAB data plane.
+2. `independent pitch` inside the existing worklet-local runtime.
+3. Fixed group-based continuation packaging with whole-group qualification/fallback.
+4. Только потом более широкий Safari/iOS rollout по явной qualification matrix.
+
+Что review прямо запрещает возвращать в active plan:
+1. Не считать `postMessage` PCM долгосрочным основным broad-rollout lane.
+2. Не выносить pitch DSP обратно на main thread.
+3. Не разделять tempo и pitch по разным runtime domains.
+4. Не строить следующий ingest шаг на partial `decodeAudioData()` windows.
+5. Не делать SAB или WebCodecs mandatory base для первого широкого appendable release.
+
+Итог после `9.115`:
+1. Текущий appendable stack подтверждён внешним review как архитектурно правильный по направлению.
+2. Следующим окнам больше не нужно заново спорить о high-level order:
+   - текущий `postmessage_pcm` path = phase-one bridge/fallback
+   - следующий крупный runtime milestone = preferred SAB data plane
+   - следующий DSP milestone после этого = independent pitch inside worklet
+   - Safari/iOS widening должен идти по явной qualification matrix, а не по общему ощущению “автотесты уже зелёные”
+
+## 9.116 Явная `SAB readiness` диагностика заведена в appendable stack без смены текущего PCM lane
+
+Что сделано:
+1. Следующий slice после `9.114` не переключает appendable runtime на `SharedArrayBuffer` и не меняет transport qualification semantics текущего rollout.
+2. Фактический active lane оставлен прежним:
+   - `dataPlaneMode = postmessage_pcm`
+   - `controlPlaneMode = message_port`
+3. Вместо этого в stack добавлен отдельный readiness layer для будущего SAB migration:
+   - `appendableQueueEngine` теперь экспортирует:
+     - `preferredDataPlaneMode`
+     - `sabCapable`
+     - `sabReady`
+     - `crossOriginIsolated`
+     - `sabRequirement`
+   - в обычном локальном/CI окружении без COI ожидаемый результат теперь явно виден как:
+     - `preferredDataPlaneMode = postmessage_pcm_fallback`
+     - `sabReady = false`
+     - `sabRequirement = cross_origin_isolation_required`
+4. Эти поля протянуты сквозь весь diagnostic/report surface:
+   - `appendableQueueMultitrackCoordinator`
+   - route runtime probe в `MultiTrackPlayer`
+   - persisted route transport snapshot / downloaded report / packet export / reload rehydration
+   - appendable lab snapshot и stem-level stats
+5. Важно: transport gate этого slice намеренно не переопределялся под hypothetical SAB path.
+6. `transport.passed` по-прежнему оценивает текущий реально работающий lane, а новые SAB fields только фиксируют preferred-vs-current distinction.
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `58/58`
+3. `appendable-queue-lab.spec.ts` Chromium + WebKit — `16/16`
+4. `npm run build` — pass
+
+Итог после `9.116`:
+1. В appendable stack теперь уже явно видно, что `postmessage_pcm` — это текущий квалифицированный phase-one lane, а `SAB` — preferred future lane с отдельной readiness surface.
+2. Следующий SAB slice сможет заниматься уже самой заменой data plane, а не подготовкой report/probe plumbing и persisted evidence contracts.

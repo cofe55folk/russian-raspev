@@ -51,6 +51,11 @@ type AppendableQueueLabSnapshot = {
   tempo: number
   dataPlaneMode: string | null
   controlPlaneMode: string | null
+  preferredDataPlaneMode: string | null
+  sabCapable: boolean | null
+  sabReady: boolean | null
+  crossOriginIsolated: boolean | null
+  sabRequirement: string | null
   sampleRates: number[]
   totalAppendMessages: number
   totalAppendedBytes: number
@@ -248,6 +253,11 @@ function createUnavailableSnapshot(error: string | null = null): AppendableQueue
     tempo: 1,
     dataPlaneMode: null,
     controlPlaneMode: null,
+    preferredDataPlaneMode: null,
+    sabCapable: null,
+    sabReady: null,
+    crossOriginIsolated: null,
+    sabRequirement: null,
     sampleRates: [],
     totalAppendMessages: 0,
     totalAppendedBytes: 0,
@@ -488,6 +498,11 @@ export default function AppendableQueueLabPage() {
       tempo: coordinatorSnapshot.tempo,
       dataPlaneMode: coordinatorSnapshot.dataPlaneMode,
       controlPlaneMode: coordinatorSnapshot.controlPlaneMode,
+      preferredDataPlaneMode: coordinatorSnapshot.preferredDataPlaneMode,
+      sabCapable: coordinatorSnapshot.sabCapable,
+      sabReady: coordinatorSnapshot.sabReady,
+      crossOriginIsolated: coordinatorSnapshot.crossOriginIsolated,
+      sabRequirement: coordinatorSnapshot.sabRequirement,
       sampleRates: coordinatorSnapshot.sampleRates,
       totalAppendMessages: coordinatorSnapshot.totalAppendMessages,
       totalAppendedBytes: coordinatorSnapshot.totalAppendedBytes,
@@ -1073,6 +1088,11 @@ export default function AppendableQueueLabPage() {
               tempo: coordinatorSnapshot.tempo,
               dataPlaneMode: coordinatorSnapshot.dataPlaneMode,
               controlPlaneMode: coordinatorSnapshot.controlPlaneMode,
+              preferredDataPlaneMode: coordinatorSnapshot.preferredDataPlaneMode,
+              sabCapable: coordinatorSnapshot.sabCapable,
+              sabReady: coordinatorSnapshot.sabReady,
+              crossOriginIsolated: coordinatorSnapshot.crossOriginIsolated,
+              sabRequirement: coordinatorSnapshot.sabRequirement,
               sampleRates: coordinatorSnapshot.sampleRates,
               totalAppendMessages: coordinatorSnapshot.totalAppendMessages,
               totalAppendedBytes: coordinatorSnapshot.totalAppendedBytes,
@@ -1154,6 +1174,11 @@ export default function AppendableQueueLabPage() {
       ["tempo", formatNumber(snapshot.tempo)],
       ["dataPlane", snapshot.dataPlaneMode ?? "-"],
       ["controlPlane", snapshot.controlPlaneMode ?? "-"],
+      ["preferredDataPlane", snapshot.preferredDataPlaneMode ?? "-"],
+      ["sabReady", snapshot.sabReady == null ? "-" : snapshot.sabReady ? "yes" : "no"],
+      ["sabCapable", snapshot.sabCapable == null ? "-" : snapshot.sabCapable ? "yes" : "no"],
+      ["crossOriginIsolated", snapshot.crossOriginIsolated == null ? "-" : snapshot.crossOriginIsolated ? "yes" : "no"],
+      ["sabRequirement", snapshot.sabRequirement ?? "-"],
       ["sampleRates", snapshot.sampleRates.length ? snapshot.sampleRates.join(", ") : "-"],
       ["appendMessages", String(snapshot.totalAppendMessages)],
       ["appendedMiB", formatNumber(snapshot.totalAppendedBytes / (1024 * 1024), 3)],
@@ -1899,6 +1924,16 @@ export default function AppendableQueueLabPage() {
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-[#9fb4ca]">dataPlane</span>
                       <span className="font-mono text-[#edf1f6]">{stem.stats?.dataPlaneMode ?? "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[#9fb4ca]">preferredDataPlane</span>
+                      <span className="font-mono text-[#edf1f6]">{stem.stats?.preferredDataPlaneMode ?? "-"}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[#9fb4ca]">sabReady</span>
+                      <span className="font-mono text-[#edf1f6]">
+                        {stem.stats?.sabReady == null ? "-" : stem.stats.sabReady ? "yes" : "no"}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-[#9fb4ca]">sampleRate</span>

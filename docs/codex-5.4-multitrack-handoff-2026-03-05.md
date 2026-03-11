@@ -2798,3 +2798,101 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.166`:
    - manifest-qualified continuation packaging is no longer concentrated in only four routes
    - the next widening step can operate over a broader six-route cohort while still staying inside the same appendable rollout and transport envelope
+
+## 8.167 External Web Pro review snapshot now fixes the next architectural order for data plane, pitch, packaging, and Safari qualification
+1. A new external review snapshot was recorded on `2026-03-11` against the current appendable state after `8.166`.
+2. Platform facts that should now be treated as explicit constraints:
+   - `AudioWorklet` remains the correct production primitive on Safari/WebKit, but one `BaseAudioContext` still means one shared `AudioWorkletGlobalScope` / render thread
+   - render scheduling remains quantized in `128`-frame quanta
+   - `MessagePort` is asynchronous control-plane transport, not a true real-time sample pipe
+   - `SharedArrayBuffer` still requires secure context plus cross-origin isolation
+   - `WebCodecs AudioDecoder` exists in Safari `26`, but remains non-Baseline and lives outside `AudioWorklet`
+   - `decodeAudioData()` still requires complete-file inputs and resamples decoded `AudioBuffer` content to the current `AudioContext` sample rate
+3. Data-plane verdict from that review:
+   - current `postmessage_pcm` is acceptable as the phase-one bridge and production fallback
+   - it should not be treated as the preferred broad-rollout PCM lane
+   - the preferred long-term path is:
+     - one SAB ring/FIFO per stem
+     - `MessagePort` only for commands, watermarks, telemetry, and errors
+     - batched transferable `postMessage` retained only as deterministic fallback when SAB/cross-origin-isolation is unavailable
+   - no mandatory SAB ship requirement is introduced yet because deployment/headers remain an operational dependency
+4. DSP / pitch verdict from that review:
+   - `independent pitch` should stay inside the same long-lived worklet-local DSP/runtime per stem
+   - tempo and pitch should not be split across different scheduling domains
+   - pitch changes should remain frame-aligned through the shared coordinator
+   - the safe next milestone after current tempo parity is:
+     - narrow production pitch range first
+     - worst-device qualification next
+     - only then consider a dedicated replacement pitch core inside the worklet if SoundTouch-like CPU/quality is insufficient
+5. Packaging verdict from that review:
+   - continuation ingest should remain built from independently decodable complete chunks, not fragment windows
+   - group-level qualification should be all-required-stems-or-nothing
+   - one bad required chunk should poison the whole group and trigger whole-group fallback
+   - one sample-rate family should hold across startup, continuation, and full fallback sources for a project
+   - the external recommendation for continuation length is fixed `6s` default with `4s-8s` as acceptable working range
+   - current `8s` continuation groups therefore remain inside the acceptable range and do not require immediate retuning before wider qualification
+6. Safari/iOS qualification guidance from that review:
+   - the minimum meaningful matrix should explicitly cover:
+     - `44.1 kHz` and `48 kHz`
+     - oldest supported iPhone, one current iPhone, one iPad, one Apple Silicon Mac, and Intel Mac only if still in support
+     - built-in output plus Bluetooth route changes
+     - background / foreground, interruption, and mute-switch policy behavior on iPhone
+   - recommended soak windows:
+     - `5 min` smoke
+     - `30 min` qualification
+     - `60 min` worst-device soak
+   - recommended objective gates:
+     - `0` audible glitches
+     - `0` steady-state underruns on qualification runs
+     - cross-stem drift target `P99 < 0.1 ms`, hard max `< 0.5 ms`
+     - no control-change divergence beyond one render quantum
+7. External recommendation order after this review:
+   - preferred optional SAB data plane
+   - independent pitch inside the existing worklet-local runtime
+   - fixed group-based continuation packaging with whole-group qualification/fallback
+   - Safari/iOS widening only after that qualification matrix is in place
+8. Explicit "do not do" list now confirmed by the review:
+   - do not treat `postMessage` PCM as the long-term broad-rollout main lane
+   - do not move pitch DSP to the main thread
+   - do not split tempo and pitch across runtime domains
+   - do not build next ingest work on partial `decodeAudioData()` windows
+   - do not make SAB or WebCodecs mandatory for the first wide appendable release
+9. Practical consequence after `8.167`:
+   - future windows should treat the current appendable stack as architecturally validated but still phase-ordered:
+     - current route/runtime/packaging work is aligned with the external verdict
+     - the next major runtime milestone is SAB-preferred data plane plus later independent pitch
+     - Safari/iOS qualification must be planned explicitly rather than assumed from current route automation alone
+
+## 8.168 SAB readiness is now surfaced explicitly while the active appendable PCM lane remains unchanged
+1. This slice does not switch the appendable data plane yet.
+2. Actual runtime behavior is intentionally unchanged:
+   - appendable queue still transports PCM as `dataPlaneMode = postmessage_pcm`
+   - control still goes through `controlPlaneMode = message_port`
+   - existing transport qualification therefore remains valid for the current phase-one lane
+3. The new work is diagnostic and qualification-oriented:
+   - `appendableQueueEngine` now emits explicit `preferredDataPlaneMode`, `sabCapable`, `sabReady`, `crossOriginIsolated`, and `sabRequirement`
+   - current expected non-COI route/lab behavior is therefore visible as:
+     - `preferredDataPlaneMode = postmessage_pcm_fallback`
+     - `sabReady = false`
+     - `sabRequirement = cross_origin_isolation_required`
+4. The same readiness envelope is now propagated end-to-end:
+   - multitrack coordinator snapshot
+   - normal route runtime probe
+   - saved route transport reports / packets / reload rehydration
+   - appendable lab snapshot and stem stats
+5. This keeps the current rollout gate honest:
+   - `transport.passed` still evaluates the real active lane, not a hypothetical SAB lane
+   - route reports now distinguish clearly between:
+     - current qualified transport shape
+     - preferred future SAB path readiness
+6. Contract coverage was extended accordingly:
+   - route pilot spec now asserts the new fallback readiness fields on live route snapshots and persisted reports
+   - lab spec now asserts the same fallback readiness fields on the appendable lab harness
+7. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --project=webkit --reporter=line` → `58/58`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium --project=webkit --reporter=line` → `16/16`
+   - `npm run build`
+8. Practical consequence after `8.168`:
+   - future windows no longer need to infer whether SAB is merely a roadmap note or already reflected in the actual diagnostics surface
+   - the next real SAB milestone can focus on replacing the PCM lane itself instead of first inventing new report/probe plumbing

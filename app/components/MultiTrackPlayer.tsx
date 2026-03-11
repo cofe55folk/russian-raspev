@@ -91,6 +91,11 @@ type AppendableQueueRuntimeProbeSnapshot = {
   transportSec: number | null
   dataPlaneMode: string | null
   controlPlaneMode: string | null
+  preferredDataPlaneMode: string | null
+  sabCapable: boolean | null
+  sabReady: boolean | null
+  crossOriginIsolated: boolean | null
+  sabRequirement: string | null
   sampleRates: number[]
   appendMessageCount: number
   appendedMiB: number | null
@@ -150,6 +155,11 @@ type AppendableRouteStressSnapshot = {
 type AppendableRouteTransportSnapshot = {
   dataPlaneMode: string | null
   controlPlaneMode: string | null
+  preferredDataPlaneMode: string | null
+  sabCapable: boolean | null
+  sabReady: boolean | null
+  crossOriginIsolated: boolean | null
+  sabRequirement: string | null
   sampleRates: number[]
   appendMessageCount: number
   passed: boolean | null
@@ -501,6 +511,10 @@ const SCRUB_PREVIEW_LIVE_MIN_DELTA_SEC = 0.06
 const SCRUB_PREVIEW_LIVE_MIN_INTERVAL_MS = 56
 const TELEPROMPTER_AUTOCOLLECT_ENV_ENABLED = process.env.NEXT_PUBLIC_TELEPROMPTER_AUTOCOLLECT === "1"
 
+function readOptionalBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null
+}
+
 function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProbeSnapshot {
   return {
     active: false,
@@ -509,6 +523,11 @@ function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProb
     transportSec: null,
     dataPlaneMode: null,
     controlPlaneMode: null,
+    preferredDataPlaneMode: null,
+    sabCapable: null,
+    sabReady: null,
+    crossOriginIsolated: null,
+    sabRequirement: null,
     sampleRates: [],
     appendMessageCount: 0,
     appendedMiB: null,
@@ -534,6 +553,11 @@ function cloneAppendableQueueRuntimeProbeSnapshot(
     transportSec: snapshot.transportSec,
     dataPlaneMode: snapshot.dataPlaneMode,
     controlPlaneMode: snapshot.controlPlaneMode,
+    preferredDataPlaneMode: snapshot.preferredDataPlaneMode,
+    sabCapable: snapshot.sabCapable,
+    sabReady: snapshot.sabReady,
+    crossOriginIsolated: snapshot.crossOriginIsolated,
+    sabRequirement: snapshot.sabRequirement,
     sampleRates: snapshot.sampleRates.slice(),
     appendMessageCount: snapshot.appendMessageCount,
     appendedMiB: snapshot.appendedMiB,
@@ -723,6 +747,11 @@ function createAppendableRouteTransportSnapshot(): AppendableRouteTransportSnaps
   return {
     dataPlaneMode: null,
     controlPlaneMode: null,
+    preferredDataPlaneMode: null,
+    sabCapable: null,
+    sabReady: null,
+    crossOriginIsolated: null,
+    sabRequirement: null,
     sampleRates: [],
     appendMessageCount: 0,
     passed: null,
@@ -776,6 +805,11 @@ function cloneAppendableRouteTransportSnapshot(
   return {
     dataPlaneMode: snapshot.dataPlaneMode,
     controlPlaneMode: snapshot.controlPlaneMode,
+    preferredDataPlaneMode: snapshot.preferredDataPlaneMode,
+    sabCapable: snapshot.sabCapable,
+    sabReady: snapshot.sabReady,
+    crossOriginIsolated: snapshot.crossOriginIsolated,
+    sabRequirement: snapshot.sabRequirement,
     sampleRates: snapshot.sampleRates.slice(),
     appendMessageCount: snapshot.appendMessageCount,
     passed: snapshot.passed,
@@ -787,6 +821,11 @@ function hasAppendableRouteTransportEvidence(snapshot: AppendableRouteTransportS
   return (
     snapshot.dataPlaneMode != null ||
     snapshot.controlPlaneMode != null ||
+    snapshot.preferredDataPlaneMode != null ||
+    snapshot.sabCapable != null ||
+    snapshot.sabReady != null ||
+    snapshot.crossOriginIsolated != null ||
+    snapshot.sabRequirement != null ||
     snapshot.sampleRates.length > 0 ||
     snapshot.appendMessageCount > 0 ||
     snapshot.passed != null ||
@@ -831,6 +870,11 @@ function withAppendableRouteTransportSnapshot(
   const transport = cloneAppendableRouteTransportSnapshot({
     dataPlaneMode: probe.dataPlaneMode,
     controlPlaneMode: probe.controlPlaneMode,
+    preferredDataPlaneMode: probe.preferredDataPlaneMode,
+    sabCapable: probe.sabCapable,
+    sabReady: probe.sabReady,
+    crossOriginIsolated: probe.crossOriginIsolated,
+    sabRequirement: probe.sabRequirement,
     sampleRates: probe.sampleRates.slice(),
     appendMessageCount: probe.appendMessageCount,
     passed: null,
@@ -1128,6 +1172,26 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                       controlPlaneMode:
                         typeof parsed.snapshot.transport.controlPlaneMode === "string"
                           ? parsed.snapshot.transport.controlPlaneMode
+                          : null,
+                      preferredDataPlaneMode:
+                        typeof parsed.snapshot.transport.preferredDataPlaneMode === "string"
+                          ? parsed.snapshot.transport.preferredDataPlaneMode
+                          : null,
+                      sabCapable:
+                        typeof parsed.snapshot.transport.sabCapable === "boolean"
+                          ? parsed.snapshot.transport.sabCapable
+                          : null,
+                      sabReady:
+                        typeof parsed.snapshot.transport.sabReady === "boolean"
+                          ? parsed.snapshot.transport.sabReady
+                          : null,
+                      crossOriginIsolated:
+                        typeof parsed.snapshot.transport.crossOriginIsolated === "boolean"
+                          ? parsed.snapshot.transport.crossOriginIsolated
+                          : null,
+                      sabRequirement:
+                        typeof parsed.snapshot.transport.sabRequirement === "string"
+                          ? parsed.snapshot.transport.sabRequirement
                           : null,
                       sampleRates: Array.isArray(parsed.snapshot.transport.sampleRates)
                         ? parsed.snapshot.transport.sampleRates.filter(
@@ -7336,7 +7400,7 @@ export default function MultiTrackPlayer({
           const debugState = engine?.getDebugState?.()
           return debugState && typeof debugState === "object" ? debugState : null
         })
-        .filter((value): value is Record<string, number | string | null | undefined> => !!value)
+        .filter((value): value is Record<string, number | string | boolean | null | undefined> => !!value)
       const dataPlaneModes = Array.from(
         new Set(
           debugStates
@@ -7348,6 +7412,33 @@ export default function MultiTrackPlayer({
         new Set(
           debugStates
             .map((state) => state.controlPlaneMode)
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+        )
+      )
+      const preferredDataPlaneModes = Array.from(
+        new Set(
+          debugStates
+            .map((state) => state.preferredDataPlaneMode)
+            .filter((value): value is string => typeof value === "string" && value.length > 0)
+        )
+      )
+      const sabCapabilities = Array.from(
+        new Set(debugStates.map((state) => readOptionalBoolean(state.sabCapable)).filter((value): value is boolean => value != null))
+      )
+      const sabReadyStates = Array.from(
+        new Set(debugStates.map((state) => readOptionalBoolean(state.sabReady)).filter((value): value is boolean => value != null))
+      )
+      const crossOriginIsolatedStates = Array.from(
+        new Set(
+          debugStates
+            .map((state) => readOptionalBoolean(state.crossOriginIsolated))
+            .filter((value): value is boolean => value != null)
+        )
+      )
+      const sabRequirements = Array.from(
+        new Set(
+          debugStates
+            .map((state) => state.sabRequirement)
             .filter((value): value is string => typeof value === "string" && value.length > 0)
         )
       )
@@ -7398,6 +7489,16 @@ export default function MultiTrackPlayer({
           dataPlaneModes.length === 1 ? dataPlaneModes[0] : dataPlaneModes.length ? dataPlaneModes.join(",") : null,
         controlPlaneMode:
           controlPlaneModes.length === 1 ? controlPlaneModes[0] : controlPlaneModes.length ? controlPlaneModes.join(",") : null,
+        preferredDataPlaneMode:
+          preferredDataPlaneModes.length === 1
+            ? preferredDataPlaneModes[0]
+            : preferredDataPlaneModes.length
+              ? preferredDataPlaneModes.join(",")
+              : null,
+        sabCapable: sabCapabilities.length === 1 ? sabCapabilities[0] : null,
+        sabReady: sabReadyStates.length === 1 ? sabReadyStates[0] : null,
+        crossOriginIsolated: crossOriginIsolatedStates.length === 1 ? crossOriginIsolatedStates[0] : null,
+        sabRequirement: sabRequirements.length === 1 ? sabRequirements[0] : sabRequirements.length ? sabRequirements.join(",") : null,
         sampleRates,
         appendMessageCount,
         appendedMiB: Number((appendedBytes / (1024 * 1024)).toFixed(3)),
@@ -7421,6 +7522,13 @@ export default function MultiTrackPlayer({
           transportDriftSec: snapshot.sync.transportDriftSec,
           dataPlaneMode: dataPlaneModes.length === 1 ? dataPlaneModes[0] : dataPlaneModes,
           controlPlaneMode: controlPlaneModes.length === 1 ? controlPlaneModes[0] : controlPlaneModes,
+          preferredDataPlaneMode:
+            preferredDataPlaneModes.length === 1 ? preferredDataPlaneModes[0] : preferredDataPlaneModes,
+          sabCapable: sabCapabilities.length === 1 ? sabCapabilities[0] : sabCapabilities,
+          sabReady: sabReadyStates.length === 1 ? sabReadyStates[0] : sabReadyStates,
+          crossOriginIsolated:
+            crossOriginIsolatedStates.length === 1 ? crossOriginIsolatedStates[0] : crossOriginIsolatedStates,
+          sabRequirement: sabRequirements.length === 1 ? sabRequirements[0] : sabRequirements,
           sampleRates,
           appendMessageCount,
           appendedMiB: Number((appendedBytes / (1024 * 1024)).toFixed(3)),
@@ -11599,6 +11707,33 @@ export default function MultiTrackPlayer({
                             appendable control plane: {appendableQueueRuntimeProbeSnapshot.controlPlaneMode ?? "—"}
                           </div>
                           <div>
+                            appendable preferred data plane:{" "}
+                            {appendableQueueRuntimeProbeSnapshot.preferredDataPlaneMode ?? "—"}
+                          </div>
+                          <div>
+                            appendable SAB readiness:{" "}
+                            {appendableQueueRuntimeProbeSnapshot.sabReady == null
+                              ? "—"
+                              : appendableQueueRuntimeProbeSnapshot.sabReady
+                                ? "ready"
+                                : "fallback"}{" "}
+                            / capable=
+                            {appendableQueueRuntimeProbeSnapshot.sabCapable == null
+                              ? "—"
+                              : appendableQueueRuntimeProbeSnapshot.sabCapable
+                                ? "yes"
+                                : "no"}{" "}
+                            / coi=
+                            {appendableQueueRuntimeProbeSnapshot.crossOriginIsolated == null
+                              ? "—"
+                              : appendableQueueRuntimeProbeSnapshot.crossOriginIsolated
+                                ? "yes"
+                                : "no"}
+                            {appendableQueueRuntimeProbeSnapshot.sabRequirement
+                              ? ` (${appendableQueueRuntimeProbeSnapshot.sabRequirement})`
+                              : ""}
+                          </div>
+                          <div>
                             appendable startup mode: {appendableQueueSourceProgressSnapshot.mode}
                             {appendableQueueSourceProgressSnapshot.mode !== "off" &&
                             appendableQueueSourceProgressSnapshot.manifestSlug
@@ -11953,6 +12088,12 @@ export default function MultiTrackPlayer({
                                 {appendableRoutePilotReport.snapshot.probe.sampleRates.length
                                   ? appendableRoutePilotReport.snapshot.probe.sampleRates.join(", ")
                                   : "—"}
+                                / preferred={appendableRoutePilotReport.snapshot.probe.preferredDataPlaneMode ?? "—"} / sab=
+                                {appendableRoutePilotReport.snapshot.probe.sabReady == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.probe.sabReady
+                                    ? "ready"
+                                    : "fallback"}
                               </div>
                               <div>
                                 transport qualification: {appendableRoutePilotReport.snapshot.transport.passed == null
@@ -11966,6 +12107,15 @@ export default function MultiTrackPlayer({
                                   ? appendableRoutePilotReport.snapshot.transport.sampleRates.join(", ")
                                   : "—"} / append=
                                 {appendableRoutePilotReport.snapshot.transport.appendMessageCount}
+                                / preferred={appendableRoutePilotReport.snapshot.transport.preferredDataPlaneMode ?? "—"} / sab=
+                                {appendableRoutePilotReport.snapshot.transport.sabReady == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.transport.sabReady
+                                    ? "ready"
+                                    : "fallback"}
+                                {appendableRoutePilotReport.snapshot.transport.sabRequirement
+                                  ? ` / ${appendableRoutePilotReport.snapshot.transport.sabRequirement}`
+                                  : ""}
                                 {appendableRoutePilotReport.snapshot.transport.reason
                                   ? ` (${appendableRoutePilotReport.snapshot.transport.reason})`
                                   : ""}

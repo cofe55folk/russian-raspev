@@ -14,7 +14,7 @@ export type SoundTouchEngine = {
   getSourcePositionSeconds: () => number
   getDurationSeconds?: () => number
   getBufferedSeconds?: () => number
-  getDebugState?: () => Record<string, number | string | null | undefined>
+  getDebugState?: () => Record<string, number | string | boolean | null | undefined>
   tickPlayback?: (plan?: AudioEngineTickPlan) => void
 
   setTempo: (tempo: number) => void

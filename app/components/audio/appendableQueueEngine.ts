@@ -26,6 +26,11 @@ export type AppendablePcmSource = {
 
 export type AppendableQueueDataPlaneMode = "postmessage_pcm"
 export type AppendableQueueControlPlaneMode = "message_port"
+export type AppendableQueuePreferredDataPlaneMode = "sab_ring_preferred" | "postmessage_pcm_fallback"
+export type AppendableQueueSabRequirement =
+  | "cross_origin_isolation_required"
+  | "shared_array_buffer_missing"
+  | "shared_array_buffer_constructor_failed"
 
 export type AppendableQueueWorkletStats = {
   availableFrames: number
@@ -45,6 +50,11 @@ export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
   channelCount: number
   dataPlaneMode: AppendableQueueDataPlaneMode
   controlPlaneMode: AppendableQueueControlPlaneMode
+  preferredDataPlaneMode: AppendableQueuePreferredDataPlaneMode
+  sabCapable: boolean
+  sabReady: boolean
+  crossOriginIsolated: boolean
+  sabRequirement: AppendableQueueSabRequirement | null
   appendCount: number
   appendMessageCount: number
   appendedFrames: number
@@ -96,6 +106,45 @@ const WORKLET_MODULE_PATH = "/worklets/rr-appendable-queue-processor.js"
 const APPENDABLE_QUEUE_DATA_PLANE_MODE = "postmessage_pcm" as const
 const APPENDABLE_QUEUE_CONTROL_PLANE_MODE = "message_port" as const
 const moduleLoadPromiseByCtx = new WeakMap<AudioContext, Promise<void>>()
+
+function detectAppendableQueueSabReadiness(): {
+  preferredDataPlaneMode: AppendableQueuePreferredDataPlaneMode
+  sabCapable: boolean
+  sabReady: boolean
+  crossOriginIsolated: boolean
+  sabRequirement: AppendableQueueSabRequirement | null
+} {
+  const crossOriginIsolated = globalThis.crossOriginIsolated === true
+  const SharedArrayBufferCtor = globalThis.SharedArrayBuffer
+  const hasSabConstructor = typeof SharedArrayBufferCtor === "function"
+  let sabCapable = false
+
+  if (hasSabConstructor) {
+    try {
+      sabCapable = new SharedArrayBufferCtor(4).byteLength === 4
+    } catch {
+      sabCapable = false
+    }
+  }
+
+  const sabReady = crossOriginIsolated && sabCapable
+  let sabRequirement: AppendableQueueSabRequirement | null = null
+  if (!crossOriginIsolated) {
+    sabRequirement = "cross_origin_isolation_required"
+  } else if (!hasSabConstructor) {
+    sabRequirement = "shared_array_buffer_missing"
+  } else if (!sabCapable) {
+    sabRequirement = "shared_array_buffer_constructor_failed"
+  }
+
+  return {
+    preferredDataPlaneMode: sabReady ? "sab_ring_preferred" : "postmessage_pcm_fallback",
+    sabCapable,
+    sabReady,
+    crossOriginIsolated,
+    sabRequirement,
+  }
+}
 
 function clamp(n: number, a: number, b: number) {
   return Math.min(b, Math.max(a, n))
@@ -395,6 +444,7 @@ export async function createAppendableQueueEngine(
   let sourceEnded = false
   let queueFramesEstimate: number | null = null
   const supportsTempo = channelCount <= 2
+  const sabReadiness = detectAppendableQueueSabReadiness()
   let tempo = 1
   let lastWorkletStats: AppendableQueueWorkletStats = {
     availableFrames: 0,
@@ -419,6 +469,11 @@ export async function createAppendableQueueEngine(
       channelCount,
       dataPlaneMode: APPENDABLE_QUEUE_DATA_PLANE_MODE,
       controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
+      preferredDataPlaneMode: sabReadiness.preferredDataPlaneMode,
+      sabCapable: sabReadiness.sabCapable,
+      sabReady: sabReadiness.sabReady,
+      crossOriginIsolated: sabReadiness.crossOriginIsolated,
+      sabRequirement: sabReadiness.sabRequirement,
       generation,
       appendCount,
       appendMessageCount: appendCount,
@@ -769,6 +824,11 @@ export async function createAppendableQueueEngine(
         channelCount,
         dataPlaneMode: APPENDABLE_QUEUE_DATA_PLANE_MODE,
         controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
+        preferredDataPlaneMode: sabReadiness.preferredDataPlaneMode,
+        sabCapable: sabReadiness.sabCapable,
+        sabReady: sabReadiness.sabReady,
+        crossOriginIsolated: sabReadiness.crossOriginIsolated,
+        sabRequirement: sabReadiness.sabRequirement,
         generation,
         appendCount,
         appendMessageCount: appendCount,
