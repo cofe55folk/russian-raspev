@@ -1,6 +1,6 @@
 import { createContractsConfig } from "./playwright.contracts.config";
 
 export default createContractsConfig({
-  testDir: "tests/contracts",
-  testMatch: ["**/admin-analytics.contract.spec.ts"],
+  testDir: "tests",
+  testMatch: ["contracts/admin-analytics.contract.spec.ts"],
 });
