@@ -4345,3 +4345,22 @@ Comment for the next window:
 2. `npx tsc --noEmit`
 3. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit
 4. если зелёно — push, PR, CI, merge
+
+## 9.103 Прямой debug capture теперь возвращает тот же rollout verdict, что и сохранённый report
+
+Что сделано:
+1. После merge rollout-gate slice остался маленький debug-only gap:
+   - saved route report уже содержал нормализованный `rollout` block
+   - но `captureReport()` отдавал наружу сырой snapshot с default rollout placeholder
+2. Теперь `captureReport()` возвращает уже нормализованный snapshot из того же report-builder path.
+3. Route e2e дополнен прямой проверкой этого поведения:
+   - если route дошёл до `ready_for_manual_pilot`, direct capture должен вернуть `rollout: pending` с `qualification:missing`
+   - если route остался в `attention_required`, direct capture должен вернуть `rollout: fail` с `gate:attention_required`
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `44/44`
+
+Итог после `9.103`:
+1. Direct debug snapshot и сохранённый route report больше не расходятся по rollout semantics.
+2. Raw capture path теперь можно использовать как trustworthy источник для последующего tooling/reporting.

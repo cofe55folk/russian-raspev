@@ -2555,3 +2555,16 @@ Suggested opening prompt for the next window:
 7. Practical consequence of recording this checkpoint:
    - the next window does not need to reconstruct whether the rollout-gate work was only in chat or already persisted
    - the exact branch, commit, intent, and next validation steps are now explicit on disk
+
+## 8.155 `captureReport()` now returns the derived rollout verdict instead of the raw default snapshot
+1. After `8.154` merged, one small but real debug-path gap remained.
+2. The route report builder already persisted the derived `rollout` block correctly, but `captureReport()` still returned the pre-normalized snapshot object with the default rollout placeholder.
+3. This fix closes that mismatch:
+   - `captureReport()` now returns the same normalized snapshot shape that gets committed into the saved report
+   - route e2e now asserts that direct debug capture exposes the derived rollout verdict (`pending` when route is ready but evidence is incomplete, `fail` when route is still in runtime attention)
+4. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `44/44`
+5. Practical consequence after `8.155`:
+   - there is no longer a split between “report saved to state/export” and “snapshot returned directly by the debug API”
+   - future tooling can trust `captureReport()` as a faithful read of the same rollout semantics shown in the route UI

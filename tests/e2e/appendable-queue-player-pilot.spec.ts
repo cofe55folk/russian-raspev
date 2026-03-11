@@ -206,6 +206,58 @@ test("multistem appendable pilot runs on the normal player route when both flags
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
+test("appendable route captureReport returns the derived rollout verdict, not the raw default snapshot", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await expect
+    .poll(
+      async () => {
+        const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
+        return text.includes("готов к ручному pilot") || text.includes("нужна проверка runtime")
+      },
+      { timeout: 30000 }
+    )
+    .toBe(true)
+
+  const capturedSnapshot = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        captureReport: () => {
+          gate: { status: string }
+          rollout: { status: string; reason: string | null }
+        }
+        pause: () => void
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return api.captureReport()
+  })
+
+  expect(capturedSnapshot).not.toBeNull()
+  const expectedRolloutStatus =
+    (capturedSnapshot as {
+      gate: { status: string }
+      rollout: { status: string; reason: string | null }
+    }).gate.status === "ready_for_manual_pilot"
+      ? "pending"
+      : "fail"
+  expect((capturedSnapshot as { rollout: { status: string } }).rollout.status).toBe(expectedRolloutStatus)
+  if (expectedRolloutStatus === "pending") {
+    expect((capturedSnapshot as { rollout: { reason: string | null } }).rollout.reason).toBe("qualification:missing")
+  } else {
+    expect((capturedSnapshot as { rollout: { reason: string | null } }).rollout.reason).toBe("gate:attention_required")
+  }
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
 test("safe appendable rollout keeps route on appendable mode while tempo stays locked", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
   await openRuntimeProbe(page)
