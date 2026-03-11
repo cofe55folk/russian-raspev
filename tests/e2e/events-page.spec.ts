@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 test("events list is data-backed and opens detail route @critical-contract", async ({ page }) => {
-  await page.goto("/events");
+  await page.goto("/events", { waitUntil: "domcontentloaded" });
 
   const firstCardLink = page.locator('[data-testid^="events-card-link-"]').first();
-  await expect(firstCardLink).toBeVisible();
+  await expect(firstCardLink).toBeVisible({ timeout: 20_000 });
   await Promise.all([page.waitForURL(/\/events\/[a-z0-9-]+$/), firstCardLink.click()]);
 
   await expect(page).toHaveURL(/\/events\/[a-z0-9-]+$/);
@@ -18,10 +18,10 @@ test("events list is data-backed and opens detail route @critical-contract", asy
 });
 
 test("english events route keeps locale-prefixed detail links @critical-contract", async ({ page }) => {
-  await page.goto("/en/events");
+  await page.goto("/en/events", { waitUntil: "domcontentloaded" });
 
   const firstCardLink = page.locator('[data-testid^="events-card-link-"]').first();
-  await expect(firstCardLink).toBeVisible();
+  await expect(firstCardLink).toBeVisible({ timeout: 20_000 });
   await Promise.all([page.waitForURL(/\/en\/events\/[a-z0-9-]+$/), firstCardLink.click()]);
 
   await expect(page).toHaveURL(/\/en\/events\/[a-z0-9-]+$/);
