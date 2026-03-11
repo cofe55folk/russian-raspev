@@ -1446,10 +1446,14 @@ function resolveClientAudioPilotRouting({
   trackCount,
   appendableActivationConfigured = false,
   appendableActivationAllowed = true,
+  implicitAppendableQueuePilotEnabled = false,
+  implicitAppendableQueueMultistemPilotEnabled = false,
 }: {
   trackCount: number
   appendableActivationConfigured?: boolean
   appendableActivationAllowed?: boolean
+  implicitAppendableQueuePilotEnabled?: boolean
+  implicitAppendableQueueMultistemPilotEnabled?: boolean
 }) {
   return resolveAudioPilotRouting({
     trackCount,
@@ -1458,16 +1462,20 @@ function resolveClientAudioPilotRouting({
       STREAMING_BUFFER_PREVIEW_FLAG,
       "rr_audio_streaming_pilot"
     ),
-    appendableQueuePilotEnabled: readClientAudioPilotFlag(
-      process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_PILOT === "1",
-      APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG,
-      "rr_audio_appendable_queue_pilot"
-    ),
-    appendableQueueMultistemPilotEnabled: readClientAudioPilotFlag(
-      process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_MULTISTEM_PILOT === "1",
-      APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG,
-      "rr_audio_appendable_queue_multistem_pilot"
-    ),
+    appendableQueuePilotEnabled:
+      implicitAppendableQueuePilotEnabled ||
+      readClientAudioPilotFlag(
+        process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_PILOT === "1",
+        APPENDABLE_QUEUE_PILOT_PREVIEW_FLAG,
+        "rr_audio_appendable_queue_pilot"
+      ),
+    appendableQueueMultistemPilotEnabled:
+      implicitAppendableQueueMultistemPilotEnabled ||
+      readClientAudioPilotFlag(
+        process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_MULTISTEM_PILOT === "1",
+        APPENDABLE_QUEUE_MULTISTEM_PILOT_PREVIEW_FLAG,
+        "rr_audio_appendable_queue_multistem_pilot"
+      ),
     ringBufferPilotEnabled: readClientAudioPilotFlag(
       process.env.NEXT_PUBLIC_AUDIO_RINGBUFFER_PILOT === "1",
       RINGBUFFER_PILOT_PREVIEW_FLAG,
@@ -2425,6 +2433,8 @@ export default function MultiTrackPlayer({
     trackCount: trackList.length,
     appendableActivationConfigured: initialAppendablePilotActivation.activationConfigured,
     appendableActivationAllowed: initialAppendablePilotActivation.activationAllowed,
+    implicitAppendableQueuePilotEnabled: initialAppendablePilotActivation.activationMode === "safe_rollout",
+    implicitAppendableQueueMultistemPilotEnabled: initialAppendablePilotActivation.activationMode === "safe_rollout",
   })
   const [progressiveLoadEnabled, setProgressiveLoadEnabled] = useState(
     () => hasClientPreviewFlag(PROGRESSIVE_LOAD_PREVIEW_FLAG) || shouldPreferProgressiveLoad(trackList)
@@ -2492,6 +2502,11 @@ export default function MultiTrackPlayer({
       }),
     [appendableActivationStorageRevision, appendableActivationTargets, trackScopeId]
   )
+  const appendableSafeRolloutImplicitFlagsEnabled = appendablePilotActivation.activationMode === "safe_rollout"
+  const effectiveAppendableQueuePilotEnabled =
+    appendableQueuePilotEnabled || appendableSafeRolloutImplicitFlagsEnabled
+  const effectiveAppendableQueueMultistemPilotEnabled =
+    appendableQueueMultistemPilotEnabled || appendableSafeRolloutImplicitFlagsEnabled
   const [appendableQueueRuntimeProbeSnapshot, setAppendableQueueRuntimeProbeSnapshot] = useState<AppendableQueueRuntimeProbeSnapshot>(
     () => createAppendableQueueRuntimeProbeSnapshot()
   )
@@ -3159,8 +3174,8 @@ export default function MultiTrackPlayer({
     const routing = resolveAudioPilotRouting({
       trackCount: trackList.length,
       streamingBufferPilotEnabled,
-      appendableQueuePilotEnabled,
-      appendableQueueMultistemPilotEnabled,
+      appendableQueuePilotEnabled: effectiveAppendableQueuePilotEnabled,
+      appendableQueueMultistemPilotEnabled: effectiveAppendableQueueMultistemPilotEnabled,
       ringBufferPilotEnabled,
       appendableActivationConfigured: appendablePilotActivation.activationConfigured,
       appendableActivationAllowed: appendablePilotActivation.activationAllowed,
@@ -3346,8 +3361,8 @@ export default function MultiTrackPlayer({
     appendablePilotActivation.activationAllowed,
     appendablePilotActivation.activationConfigured,
     appendablePilotActivation.activationMode,
-    appendableQueueMultistemPilotEnabled,
-    appendableQueuePilotEnabled,
+    effectiveAppendableQueueMultistemPilotEnabled,
+    effectiveAppendableQueuePilotEnabled,
     ringBufferPilotEnabled,
     appendableQueueRuntimeProbeSnapshot.active,
     appendableQueueRuntimeProbeSnapshot.cleanSoakSec,
@@ -3438,8 +3453,8 @@ export default function MultiTrackPlayer({
         statusLabel: appendablePilotChecklistState.statusLabel,
       },
       flags: {
-        appendableQueuePilotEnabled,
-        appendableQueueMultistemPilotEnabled,
+        appendableQueuePilotEnabled: effectiveAppendableQueuePilotEnabled,
+        appendableQueueMultistemPilotEnabled: effectiveAppendableQueueMultistemPilotEnabled,
         appendableQueueStartupHeadPilotEnabled,
         appendableQueueContinuationChunksPilotEnabled,
       },
@@ -3473,8 +3488,8 @@ export default function MultiTrackPlayer({
     appendablePilotActivation.tempoControlUnlocked,
     appendablePilotChecklistState.status,
     appendablePilotChecklistState.statusLabel,
-    appendableQueueMultistemPilotEnabled,
-    appendableQueuePilotEnabled,
+    effectiveAppendableQueueMultistemPilotEnabled,
+    effectiveAppendableQueuePilotEnabled,
     appendableQueueStartupHeadPilotEnabled,
     appendableQueueContinuationChunksPilotEnabled,
     appendableQueueRuntimeProbeSnapshot,
@@ -4399,8 +4414,8 @@ export default function MultiTrackPlayer({
     const nextRouting = resolveAudioPilotRouting({
       trackCount: trackList.length,
       streamingBufferPilotEnabled,
-      appendableQueuePilotEnabled,
-      appendableQueueMultistemPilotEnabled,
+      appendableQueuePilotEnabled: effectiveAppendableQueuePilotEnabled,
+      appendableQueueMultistemPilotEnabled: effectiveAppendableQueueMultistemPilotEnabled,
       ringBufferPilotEnabled,
       appendableActivationConfigured: appendablePilotActivation.activationConfigured,
       appendableActivationAllowed: appendablePilotActivation.activationAllowed,
@@ -4418,8 +4433,8 @@ export default function MultiTrackPlayer({
     appendablePilotActivation.activationConfigured,
     appendablePilotActivation.activationMode,
     appendablePilotActivation.tempoControlUnlocked,
-    appendableQueueMultistemPilotEnabled,
-    appendableQueuePilotEnabled,
+    effectiveAppendableQueueMultistemPilotEnabled,
+    effectiveAppendableQueuePilotEnabled,
     isReady,
     ringBufferPilotEnabled,
     streamingBufferPilotEnabled,
@@ -4838,8 +4853,8 @@ export default function MultiTrackPlayer({
       const audioPilotRouting = resolveAudioPilotRouting({
         trackCount: trackList.length,
         streamingBufferPilotEnabled,
-        appendableQueuePilotEnabled,
-        appendableQueueMultistemPilotEnabled,
+        appendableQueuePilotEnabled: effectiveAppendableQueuePilotEnabled,
+        appendableQueueMultistemPilotEnabled: effectiveAppendableQueueMultistemPilotEnabled,
         ringBufferPilotEnabled,
         appendableActivationConfigured: appendablePilotActivation.activationConfigured,
         appendableActivationAllowed: appendablePilotActivation.activationAllowed,
@@ -4850,8 +4865,8 @@ export default function MultiTrackPlayer({
       const useRingBufferPilot = audioPilotRouting.useRingBufferPilot
       const useAppendableQualifiedRolloutAutoIngest = appendablePilotActivation.activationMode === "safe_rollout"
       const appendableManifestDiagnosticsRequested =
-        appendableQueuePilotEnabled &&
-        appendableQueueMultistemPilotEnabled &&
+        effectiveAppendableQueuePilotEnabled &&
+        effectiveAppendableQueueMultistemPilotEnabled &&
         !useStreamingPilot &&
         !useRingBufferPilot
       const appendableStartupManifestDiagnosticMatch = appendableManifestDiagnosticsRequested
@@ -5443,7 +5458,12 @@ export default function MultiTrackPlayer({
 
       let engineMode: EngineMode = "soundtouch"
       appendableQueueCoordinatorRef.current = null
-      if (appendableQueuePilotEnabled && !useStreamingPilot && buffers.length !== 1 && !useAppendableQueueMultistemPilot) {
+      if (
+        effectiveAppendableQueuePilotEnabled &&
+        !useStreamingPilot &&
+        buffers.length !== 1 &&
+        !useAppendableQueueMultistemPilot
+      ) {
         logAudioDebug("audio:appendable_queue_pilot_skipped", {
           requested: true,
           reason: "multistem_pilot_disabled",
@@ -5827,7 +5847,7 @@ export default function MultiTrackPlayer({
         startupChunkPilotEnabled: useStartupChunkPilot,
         startupChunkSplicePilotEnabled: useStartupChunkSplicePilot,
         startupChunkSplicePilotKey: startupChunkSplicePilotKey || null,
-        appendableQueuePilotEnabled,
+        appendableQueuePilotEnabled: effectiveAppendableQueuePilotEnabled,
         appendableActivationMode: appendablePilotActivation.activationMode,
         appendableTempoUnlocked: appendablePilotActivation.tempoControlUnlocked,
         ringBufferPilotEnabled,
@@ -6096,8 +6116,8 @@ export default function MultiTrackPlayer({
     appendablePilotActivation.activationConfigured,
     appendablePilotActivation.activationMode,
     appendablePilotActivation.tempoControlUnlocked,
-    appendableQueueMultistemPilotEnabled,
-    appendableQueuePilotEnabled,
+    effectiveAppendableQueueMultistemPilotEnabled,
+    effectiveAppendableQueuePilotEnabled,
     appendableQueueContinuationChunksPilotEnabled,
     appendableQueueStartupHeadPilotEnabled,
     disposeTrackAudioGraph,
@@ -11369,10 +11389,10 @@ export default function MultiTrackPlayer({
                             {t.streamingBufferFlag}: {streamingBufferPilotEnabled ? "on" : "off"}
                           </div>
                           <div>
-                            {t.appendableQueueFlag}: {appendableQueuePilotEnabled ? "on" : "off"}
+                            {t.appendableQueueFlag}: {effectiveAppendableQueuePilotEnabled ? "on" : "off"}
                           </div>
                           <div>
-                            appendable multistem flag: {appendableQueueMultistemPilotEnabled ? "on" : "off"}
+                            appendable multistem flag: {effectiveAppendableQueueMultistemPilotEnabled ? "on" : "off"}
                           </div>
                           <div>
                             appendable startup head flag: {appendableQueueStartupHeadPilotEnabled ? "on" : "off"}

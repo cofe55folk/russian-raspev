@@ -2681,3 +2681,22 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.161`:
    - operators no longer need to edit `localStorage` manually to trial a surfaced safe-rollout candidate
    - the next widening step can be exercised directly from the normal route diagnostics using the same state that production rollout targeting already consumes
+
+## 8.162 Safe rollout now auto-starts the appendable route for matched targets without manual appendable flags
+1. The next slice turns `safe_rollout` from an operator-only mode into a real scoped activation path.
+2. Before this change, a matched `safe_rollout` target still required both manual appendable flags to be enabled locally.
+3. This slice moves route gating to effective appendable flags:
+   - `safe_rollout` now counts as an implicit appendable request for route routing and diagnostics
+   - initial client routing can therefore enter the appendable path immediately when the current target is already matched for `safe_rollout`
+   - route snapshots, checklist gating, and diagnostics now report those effective appendable flags rather than only the raw local pilot toggles
+4. Route e2e was updated accordingly:
+   - safe-rollout scenarios now open the normal `/sound/...` route with only `rr_audio_appendable_queue_safe_rollout_targets`
+   - no manual `appendable queue` / `appendable multistem` localStorage flags are set for those tests anymore
+   - the same route still proves `tempo locked`, qualified continuation auto-ingest, and the existing fallback contract when manifest continuation quality is intentionally broken
+5. Verification completed locally:
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `52/52`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.162`:
+   - `safe_rollout` now behaves like a real route-level rollout gate for matched targets instead of a second layer on top of manual pilot flags
+   - widening appendable beyond operator-only testing no longer depends on editing both rollout targets and appendable flags in the same browser profile

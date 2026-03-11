@@ -544,7 +544,7 @@ test("manual appendable report verdict and notes survive reload and report downl
 })
 
 test("safe appendable rollout keeps route on appendable mode while tempo stays locked", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: SLUG })
   await openRuntimeProbe(page)
 
   await waitForPlayerText(page, "appendable activation scoped: on")
@@ -567,7 +567,7 @@ test("safe appendable rollout keeps route on appendable mode while tempo stays l
 })
 
 test("safe appendable rollout auto-enables qualified continuation ingest without manual startup flags", async ({ page }) => {
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: SLUG })
   await openRuntimeProbe(page)
 
   await waitForPlayerText(page, "appendable activation mode: safe_rollout")
@@ -615,7 +615,7 @@ test("safe appendable rollout keeps qualified ingest off when manifest continuat
     await route.fulfill({ response, json })
   })
 
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: SLUG })
   await openRuntimeProbe(page)
 
   await waitForPlayerText(page, "appendable activation mode: safe_rollout")
@@ -1515,7 +1515,7 @@ test("saving current diagnostics auto-fails the report when safe rollout remains
     await route.fulfill({ response, json })
   })
 
-  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, safeRolloutTargets: SLUG })
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: SLUG })
   await openRuntimeProbe(page)
 
   await waitForPlayerText(page, "appendable continuation qualification: fallback (source_chunk_count_mismatch)")
