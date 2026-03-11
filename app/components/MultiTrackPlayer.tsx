@@ -2459,6 +2459,9 @@ export default function MultiTrackPlayer({
   const [appendableRoutePilotReport, setAppendableRoutePilotReport] = useState<AppendableRoutePilotReport>(() =>
     createAppendableRoutePilotReport()
   )
+  const [appendableRoutePilotReportHydratedStorageKey, setAppendableRoutePilotReportHydratedStorageKey] = useState<
+    string | null
+  >(null)
   const appendableRoutePilotReportRef = useRef<AppendableRoutePilotReport>(appendableRoutePilotReport)
   const [appendableRouteQuickPilotRunning, setAppendableRouteQuickPilotRunning] = useState(false)
   const [appendableRouteSoakPilotRunning, setAppendableRouteSoakPilotRunning] = useState(false)
@@ -3324,14 +3327,20 @@ export default function MultiTrackPlayer({
       restoreAppendableRoutePilotReport(window.localStorage.getItem(appendableRoutePilotReportStorageKey)) ??
         createAppendableRoutePilotReport()
     )
+    setAppendableRoutePilotReportHydratedStorageKey(appendableRoutePilotReportStorageKey)
   }, [appendableRoutePilotReportStorageKey, commitAppendableRoutePilotReport])
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    if (appendableRoutePilotReportHydratedStorageKey !== appendableRoutePilotReportStorageKey) return
     try {
       window.localStorage.setItem(appendableRoutePilotReportStorageKey, JSON.stringify(appendableRoutePilotReport))
     } catch {}
-  }, [appendableRoutePilotReport, appendableRoutePilotReportStorageKey])
+  }, [
+    appendableRoutePilotReport,
+    appendableRoutePilotReportHydratedStorageKey,
+    appendableRoutePilotReportStorageKey,
+  ])
 
   const buildAppendableRoutePilotSnapshot = useCallback((): AppendableRoutePilotReportSnapshot => {
     const capturedAt = new Date().toISOString()

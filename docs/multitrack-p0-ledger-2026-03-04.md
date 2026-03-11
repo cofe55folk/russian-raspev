@@ -4408,3 +4408,30 @@ Comment for the next window:
 1. Contract-покрытие export path теперь симметрично: и `packet`, и plain `report` проверяются по реальному JSON payload.
 2. Harness-only `ERR_CONNECTION_REFUSED`/bootstrap races больше не должны маскироваться под appendable route regression в этом pack.
 3. Appendable debug API в route e2e теперь вызывается только после фактического входа в appendable runtime.
+
+## 9.106 Reload больше не перезаписывает сохранённый appendable route report дефолтным `pending`
+
+Что сделано:
+1. Следующий persistence-slice вскрыл уже не export-gap, а реальный reload bug:
+   - route report восстанавливался из `localStorage`
+   - но в тот же mount-cycle initial default report ещё мог успеть записаться обратно в тот же storage key
+   - из-за этого после reload сохранённый `fail/pass` verdict тихо деградировал в `pending`
+2. В `MultiTrackPlayer` добавлен hydration guard для appendable route report:
+   - report считается writable только после того, как hydration завершился для текущего storage key
+   - до этого save-effect больше не перетирает storage дефолтным объектом
+3. Route e2e дополнен реальной persistence-проверкой:
+   - после cumulative `qualification + stress` report сохраняется
+   - затем `/sound/...` route reload'ится
+   - после reload report обязан подняться с тем же сохранённым `capturedAt` и тем же `rollout` evidence
+4. Заодно в этом же slice усилен harness:
+   - helper для persistence-test умеет не очищать route report storage namespace между reload'ами
+   - settle timeout для safe-rollout readiness в route pack увеличен, чтобы WebKit bootstrap lag не выглядел как functional regression
+
+Проверка:
+1. `npm run build` — pass
+2. `npx tsc --noEmit` — pass после короткого `next dev` warm-up для `.next/dev/types`
+3. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `50/50`
+
+Итог после `9.106`:
+1. Reload теперь сохраняет уже накопленный appendable pilot verdict для route scope, а не сбрасывает его в дефолтный `pending`.
+2. Persistence contract закрыт не только export'ом, но и реальной rehydration semantics внутри route UI/runtime.
