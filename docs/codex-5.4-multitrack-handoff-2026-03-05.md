@@ -2621,3 +2621,17 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.158`:
    - reloading `/sound/...` no longer destroys a previously saved appendable pilot verdict for that route scope
    - route operators can trust that saved rollout evidence survives page reloads instead of reverting to a fresh `pending` shell
+
+## 8.159 Manual report overrides now survive reload/download, and the route probe helper is idempotent
+1. After `8.158`, the next adjacent gap was no longer auto-generated route evidence but manual reviewer state.
+2. This slice hardens two related pieces together:
+   - route e2e now verifies that a manual report verdict (`markPass`) plus reviewer notes survive reload and appear in the downloaded report JSON
+   - `openRuntimeProbe()` is now idempotent, so repeated calls reopen the diagnostics surface only when needed instead of accidentally toggling it closed mid-test
+3. Practical testing changes in the same slice:
+   - the new manual-persistence scenario drives `captureReport`, `markPass`, reload rehydration, and `downloadReport` through the debug API rather than fragile UI timing
+   - reload-oriented tests now read settled route state from the debug API after navigation instead of depending on the guest panel toggles being interactable at exactly one moment
+4. Verification completed locally:
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `52/52`
+5. Practical consequence after `8.159`:
+   - manual reviewer conclusions are now covered as persistent route-report state, not just auto-generated rollout evidence
+   - the route diagnostics helper can be reused inside longer reload/playback scenarios without introducing its own toggle-state flakes

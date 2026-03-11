@@ -4435,3 +4435,25 @@ Comment for the next window:
 Итог после `9.106`:
 1. Reload теперь сохраняет уже накопленный appendable pilot verdict для route scope, а не сбрасывает его в дефолтный `pending`.
 2. Persistence contract закрыт не только export'ом, но и реальной rehydration semantics внутри route UI/runtime.
+
+## 9.107 Manual report verdict/notes теперь тоже покрыты как persistent contract, а `openRuntimeProbe()` больше не флакает сам из-за toggle semantics
+
+Что сделано:
+1. После `9.106` оставался соседний persistent-layer gap:
+   - auto-generated qualification/stress evidence уже переживало reload
+   - но manual reviewer state (`mark pass/fail` + notes) ещё не было зафиксировано как отдельный contract
+2. Route e2e теперь закрывает и этот слой:
+   - manual notes задаются в report
+   - report capture + `markPass()` прогоняются через debug API
+   - после reload report обязан сохранить manual `pass`, notes и `capturedAt`
+   - downloaded report JSON после reload обязан экспортировать тот же manual verdict
+3. Заодно усилен сам route helper:
+   - `openRuntimeProbe()` теперь идемпотентен и больше не инвертирует panel state повторными blind toggle-clicks
+   - reload-oriented tests переведены на debug-state readback там, где UI bootstrap сам по себе шумный
+
+Проверка:
+1. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `52/52`
+
+Итог после `9.107`:
+1. Persistent route report теперь покрыт и для automatic evidence, и для manual reviewer overrides.
+2. Helper для открытия diagnostics больше не создаёт собственные flakes при повторном вызове внутри длинных playback/reload сценариев.
