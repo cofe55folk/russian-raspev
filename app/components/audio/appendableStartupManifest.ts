@@ -1,15 +1,24 @@
 "use client"
 
-type StartupManifestSource = {
+type StartupManifestContinuationPlanEntry = {
+  startSec?: number
+  durationSec?: number
+  label?: string
+}
+
+export type AppendableStartupManifestContinuationChunk = {
+  src: string
+  startSec?: number
+  durationSec?: number
+  label?: string | null
+}
+
+export type AppendableStartupManifestSource = {
   strategy?: "handoff" | "splice"
   src: string
   startupSrc: string
   startupDurationSec?: number
-  continuationChunks?: Array<{
-    src: string
-    startSec?: number
-    durationSec?: number
-  }>
+  continuationChunks?: AppendableStartupManifestContinuationChunk[]
   tailSrc?: string
   tailStartSec?: number
   tailDurationSec?: number
@@ -20,16 +29,22 @@ type StartupManifestSource = {
 
 type StartupManifestTrack = {
   slug: string
-  sources: StartupManifestSource[]
+  sources: AppendableStartupManifestSource[]
 }
 
 type StartupManifest = {
+  continuationChunks?: StartupManifestContinuationPlanEntry[]
   tracks?: StartupManifestTrack[]
 }
 
 export type AppendableStartupManifestMatch = {
   slug: string
-  sources: StartupManifestSource[]
+  continuationPlan: Array<{
+    startSec: number
+    durationSec: number
+    label: string | null
+  }>
+  sources: AppendableStartupManifestSource[]
 }
 
 const STARTUP_MANIFEST_PATH = "/audio-startup/startup-chunks-manifest.json"
@@ -63,6 +78,24 @@ export async function resolveAppendableStartupManifestMatch(
   if (!tracks.length) return null
   const manifest = await loadStartupManifest()
   const candidates = Array.isArray(manifest?.tracks) ? manifest.tracks : []
+  const continuationPlan = Array.isArray(manifest?.continuationChunks)
+    ? manifest.continuationChunks
+        .filter(
+          (entry): entry is { startSec?: number; durationSec?: number; label?: string } =>
+            !!entry &&
+            typeof entry.startSec === "number" &&
+            Number.isFinite(entry.startSec) &&
+            entry.startSec >= 0 &&
+            typeof entry.durationSec === "number" &&
+            Number.isFinite(entry.durationSec) &&
+            entry.durationSec > 0
+        )
+        .map((entry) => ({
+          startSec: entry.startSec as number,
+          durationSec: entry.durationSec as number,
+          label: typeof entry.label === "string" && entry.label.trim().length > 0 ? entry.label.trim() : null,
+        }))
+    : []
   const normalizedTrackSources = tracks.map((track) => normalizePublicAssetPath(track.src))
 
   for (const track of candidates) {
@@ -73,6 +106,7 @@ export async function resolveAppendableStartupManifestMatch(
     if (!matches) continue
     return {
       slug: typeof track.slug === "string" ? track.slug : "",
+      continuationPlan,
       sources: track.sources.map((source) => ({
         strategy: source.strategy ?? "splice",
         src: normalizePublicAssetPath(source.src),
@@ -81,13 +115,14 @@ export async function resolveAppendableStartupManifestMatch(
         continuationChunks: Array.isArray(source.continuationChunks)
           ? source.continuationChunks
               .filter(
-                (chunk): chunk is { src: string; startSec?: number; durationSec?: number } =>
+                (chunk): chunk is AppendableStartupManifestContinuationChunk =>
                   !!chunk && typeof chunk.src === "string" && chunk.src.trim().length > 0
               )
               .map((chunk) => ({
                 src: normalizePublicAssetPath(chunk.src),
                 startSec: chunk.startSec,
                 durationSec: chunk.durationSec,
+                label: typeof chunk.label === "string" && chunk.label.trim().length > 0 ? chunk.label.trim() : null,
               }))
           : undefined,
         tailSrc: typeof source.tailSrc === "string" ? normalizePublicAssetPath(source.tailSrc) : undefined,

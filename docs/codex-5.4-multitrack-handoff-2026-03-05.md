@@ -2237,3 +2237,46 @@ Suggested opening prompt for the next window:
    - appendable route now has a real `startup head -> packaged continuation -> background full fallback` proof point
    - this remains a manifest-scoped pilot on top of the current phase-one `postMessage PCM` data plane
    - the next ingest step after merge should expand controlled continuation packaging/qualification, not reopen swap-based handoff or MSE-style hybrid work
+
+## 8.145 Controlled continuation packaging/qualification is now explicit and lands real startup assets
+1. The next ingest slice after `8.144` turns continuation chunks from a loose per-source hint into an explicit packaging contract.
+2. New packaging/qualification rules in this slice:
+   - the manifest root-level `continuationChunks` plan is now treated as the canonical continuation packaging contract
+   - normal route appendable no longer enables continuation ingest just because some per-source chunk entries exist
+   - it now qualifies continuation ingest only when:
+     - the dedicated continuation flag is on
+     - every stem has continuation chunk entries
+     - every stem matches the canonical plan count/start/duration within tolerance
+     - startup-to-first-chunk and chunk-to-chunk coverage remain monotonic without gaps/overlaps beyond tolerance
+     - manifest sample-rate/channel metadata stays consistent across stems
+3. Runtime/reporting changes:
+   - route diagnostics now expose:
+     - `appendable continuation qualification`
+     - qualification reason when fallback happens
+     - available group count
+     - packaged continuation coverage end sec
+   - saved route pilot snapshots now persist those fields through `sourceProgress`
+4. Packaging scope also widened in this slice:
+   - continuation packaging is no longer a single `10s -> 18s` bridge only
+   - generator/manifest/assets now produce and describe two continuation groups:
+     - `10s-18s`
+     - `18s-26s`
+   - route appendable now plans `2` continuation groups for qualified track-sets instead of `1`
+5. Important operational correction in this slice:
+   - `public/audio-startup/**` had been living only as a local ignored layer in `.git/info/exclude`
+   - this slice is the one that actually lands:
+     - the generator
+     - the manifest
+     - the startup/continuation WAV assets
+   - after this step, continuation packaging is no longer “works only on the current machine”
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `22/22`
+   - `npm run build`
+7. Additional verification note:
+   - the existing `quick pilot with seek` helper was too aggressive under full-suite Chromium load and could end in `attention_required`
+   - this slice stabilizes that helper by giving appendable route playback/seek more time before evaluating the final pilot state
+8. Practical consequence after `8.145`:
+   - appendable continuation ingest is now explicitly qualified instead of implicitly assumed
+   - continuation packaging is now a real tracked asset layer rather than a local-only artifact
+   - the next rollout step can target qualified continuation track-sets without guessing which manifest entries are actually safe

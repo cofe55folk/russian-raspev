@@ -1,0 +1,134 @@
+{
+  "generatedAt": "2026-03-11T12:53:42.327Z",
+  "startupDurationSec": 10,
+  "tailStartSec": 7.5,
+  "tailDurationSec": 8,
+  "continuationChunks": [
+    {
+      "startSec": 10,
+      "durationSec": 8,
+      "label": "continuation-10s-8s"
+    },
+    {
+      "startSec": 18,
+      "durationSec": 8,
+      "label": "continuation-18s-8s"
+    }
+  ],
+  "tracks": [
+    {
+      "slug": "terek-ne-vo-daleche",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/terek-ne_vo_daleche/terek-ne_vo_daleche-01.mp3",
+          "startupSrc": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 712.072,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/terek-ne_vo_daleche/terek-ne_vo_daleche-02.mp3",
+          "startupSrc": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 712.072,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "terek-mne-mladcu-malym-spalos",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01.mp3",
+          "startupSrc": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 756.82,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02.mp3",
+          "startupSrc": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 756.82,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    }
+  ]
+}

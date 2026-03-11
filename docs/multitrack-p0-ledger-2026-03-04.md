@@ -3951,3 +3951,51 @@ Comment for the next window:
 1. Appendable route теперь имеет route-level proof point не только для `startup head -> full append`, но и для `startup head -> packaged continuation -> background full fallback`.
 2. Этот путь всё ещё manifest-scoped и живёт на текущем phase-one `postMessage PCM` transport.
 3. Следующий ingest milestone после merge должен расширять controlled continuation packaging/qualification, а не возвращаться к swap-based handoff, MSE или partial `decodeAudioData()`.
+
+## 9.93 Controlled continuation packaging/qualification now gates route-level continuation ingest
+
+Что сделано:
+1. Следующий ingest slice после `9.92` превратил continuation chunks из “пер-source подсказки” в явный packaging contract.
+2. Новый qualification layer теперь смотрит не просто на наличие chunk-файлов, а на то, что:
+   - root-level `continuationChunks` в manifest задаёт canonical plan
+   - каждый stem имеет continuation chunks
+   - count / `startSec` / `durationSec` совпадают с canonical plan в пределах tolerance
+   - от startup head к первому continuation chunk нет недопустимого gap/overlap
+   - между continuation groups coverage monotonic и без недопустимых gap/overlap
+   - manifest sample-rate/channel metadata across stems остаётся согласованным
+3. Route/runtime behavior после этого шага:
+   - если qualification проходит, startup-head route идёт в `startup_head_continuation_chunks`
+   - если qualification не проходит, route fallback’ится в обычный `startup_head_manifest`, не ломая весь appendable path
+4. Диагностика и snapshot state теперь явно показывают:
+   - `appendable continuation qualification`
+   - reason code при fallback
+   - available group count
+   - continuation coverage end sec
+5. Packaging layer в этом же шаге расширен:
+   - generator теперь делает не один, а два continuation groups:
+     - `10s-18s`
+     - `18s-26s`
+   - qualified route теперь планирует `2` continuation groups вместо `1`
+6. Самое важное operational исправление этого slice:
+   - `public/audio-startup/**` до этого жил только локально и был скрыт `.git/info/exclude`
+   - именно этот шаг впервые тащит в ветку:
+     - generator
+     - startup/continuation manifest
+     - startup WAV assets
+     - continuation WAV assets
+   - то есть continuation packaging больше не остаётся machine-local хвостом
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `22/22`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Один ранний `tsc` прогон упёрся не в типовую ошибку, а в race с `.next/dev/types` во время параллельного Playwright webServer; отдельный rerun стал зелёным.
+2. Один ранний Chromium full-suite прогон снова задел старый `quick pilot with seek` flake.
+3. В этом slice helper был стабилизирован более консервативными wait windows, после чего полный route-pack прошёл `22/22`.
+
+Итог после `9.93`:
+1. Continuation ingest теперь явно qualified/fallback-driven, а не implicit.
+2. Packaging path больше не зависит от локального ignored asset слоя.
+3. Следующий rollout step можно уже строить вокруг qualified continuation track-sets, а не вокруг ad-hoc manifest entries.
