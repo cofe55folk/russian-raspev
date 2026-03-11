@@ -4599,3 +4599,43 @@ Comment for the next window:
 Итог после `9.112`:
 1. Route diagnostics теперь умеет явно и обратимо применить весь текущий manifest-qualified safe-rollout cohort одним действием.
 2. Следующее widening можно строить уже не на ручном per-slug targeting, а на cohort-level operator flow, который совпадает с текущей manifest-qualified поверхностью.
+
+## 9.113 Route report теперь хранит явный transport qualification и требует его для финального rollout verdict
+
+Что сделано:
+1. Следующий slice после `9.112` по-прежнему не меняет playback engine и не вводит новый runtime primitive.
+2. Вместо этого он ужесточает сам route qualification layer:
+   - до этого transport/sample-rate telemetry уже был виден в runtime probe
+   - но saved report, downloaded report, packet export и reload rehydration не несли отдельного transport verdict
+   - а производный `rollout` вообще не учитывал transport как prerequisite
+3. В этом slice в route snapshot добавлен отдельный `transport` block:
+   - `dataPlaneMode`
+   - `controlPlaneMode`
+   - `sampleRates`
+   - `appendMessageCount`
+   - `passed`
+   - `reason`
+4. Текущая transport qualification semantics этого slice:
+   - transport считается qualified только когда runtime probe уже active
+   - `dataPlaneMode = postmessage_pcm`
+   - `controlPlaneMode = message_port`
+   - sample-rate matrix сведён к одной rate family
+   - append activity реально наблюдается (`appendMessageCount > 0`)
+5. `rollout` теперь тоже стал строже:
+   - `gate` по-прежнему проверяется первым
+   - но после `gateReady` route уже не может получить итоговый rollout pass без `transport.passed === true`
+   - только затем учитываются `qualification` и `stress`
+6. Contract layer обновлён соответственно:
+   - `captureReport()` теперь проверяет, что transport evidence реально присутствует на живом appendable route
+   - packet export, report download и reload rehydration подтверждают, что transport verdict переживает сериализацию
+   - cumulative rollout pass в e2e теперь считается валидным только при `transport.passed === true`
+
+Проверка:
+1. targeted report/rehydration transport pack Chromium + WebKit — `8/8`
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `56/56`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.113`:
+1. Route rollout evidence теперь хранит не только gate/qualification/stress, но и явный transport verdict.
+2. Следующее widening можно строить уже на persisted transport envelope, а не на ручном чтении сырых probe-полей из diagnostics.

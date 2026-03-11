@@ -430,6 +430,7 @@ test("appendable route captureReport returns the derived rollout verdict, not th
       __rrAppendableRoutePilotDebug?: {
         captureReport: () => {
           gate: { status: string }
+          transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
           rollout: { status: string; reason: string | null }
         }
         pause: () => void
@@ -443,10 +444,26 @@ test("appendable route captureReport returns the derived rollout verdict, not th
   const expectedRolloutStatus =
     (capturedSnapshot as {
       gate: { status: string }
+      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
       rollout: { status: string; reason: string | null }
     }).gate.status === "ready_for_manual_pilot"
       ? "pending"
       : "fail"
+  expect(
+    (capturedSnapshot as {
+      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+    }).transport.passed
+  ).toBe(true)
+  expect(
+    (capturedSnapshot as {
+      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+    }).transport.dataPlaneMode
+  ).toBe("postmessage_pcm")
+  expect(
+    (capturedSnapshot as {
+      transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+    }).transport.controlPlaneMode
+  ).toBe("message_port")
   expect((capturedSnapshot as { rollout: { status: string } }).rollout.status).toBe(expectedRolloutStatus)
   if (expectedRolloutStatus === "pending") {
     expect((capturedSnapshot as { rollout: { reason: string | null } }).rollout.reason).toBe("qualification:missing")
@@ -1192,6 +1209,13 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
       status: string
       snapshot: {
         gate: { status: string }
+        transport: {
+          passed: boolean | null
+          dataPlaneMode: string | null
+          controlPlaneMode: string | null
+          sampleRates: number[]
+          appendMessageCount: number
+        }
         qualification: { targetSoakSec: number | null; passed: boolean | null }
         stress: { seekSequenceSec: number[]; completedSeeks: number; passed: boolean | null }
         rollout: { status: string; reason: string | null }
@@ -1201,12 +1225,18 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
 
   expect(packet.report.snapshot).not.toBeNull()
   expect(packet.checklist.status).toBe(packet.report.snapshot?.gate.status)
+  expect(packet.report.snapshot?.transport.passed).toBe(true)
+  expect(packet.report.snapshot?.transport.dataPlaneMode).toBe("postmessage_pcm")
+  expect(packet.report.snapshot?.transport.controlPlaneMode).toBe("message_port")
+  expect(packet.report.snapshot?.transport.sampleRates.length ?? 0).toBeGreaterThan(0)
+  expect(packet.report.snapshot?.transport.appendMessageCount ?? 0).toBeGreaterThan(0)
   expect(packet.report.snapshot?.qualification.targetSoakSec).toBe(6)
   expect(packet.report.snapshot?.qualification.passed).not.toBeNull()
   expect(packet.report.snapshot?.stress.seekSequenceSec.length ?? 0).toBeGreaterThan(0)
   expect(packet.report.snapshot?.stress.completedSeeks).toBe(packet.report.snapshot?.stress.seekSequenceSec.length)
   const expectedRolloutStatus =
     packet.report.snapshot?.gate.status === "ready_for_manual_pilot" &&
+    packet.report.snapshot.transport.passed === true &&
     packet.report.snapshot.qualification.passed === true &&
     packet.report.snapshot.stress.passed === true
       ? "pass"
@@ -1257,6 +1287,13 @@ test("downloaded appendable report preserves cumulative rollout evidence after q
     snapshot: {
       trackScopeId: string
       gate: { status: string }
+      transport: {
+        passed: boolean | null
+        dataPlaneMode: string | null
+        controlPlaneMode: string | null
+        sampleRates: number[]
+        appendMessageCount: number
+      }
       qualification: { targetSoakSec: number | null; passed: boolean | null }
       stress: { seekSequenceSec: number[]; completedSeeks: number; passed: boolean | null }
       rollout: { status: string; reason: string | null }
@@ -1268,12 +1305,18 @@ test("downloaded appendable report preserves cumulative rollout evidence after q
   expect(report.trackScopeId.length).toBeGreaterThan(0)
   expect(report.trackScopeId).toBe(report.snapshot?.trackScopeId)
   expect(report.checklistStatus).toBe(report.snapshot?.gate.status)
+  expect(report.snapshot?.transport.passed).toBe(true)
+  expect(report.snapshot?.transport.dataPlaneMode).toBe("postmessage_pcm")
+  expect(report.snapshot?.transport.controlPlaneMode).toBe("message_port")
+  expect(report.snapshot?.transport.sampleRates.length ?? 0).toBeGreaterThan(0)
+  expect(report.snapshot?.transport.appendMessageCount ?? 0).toBeGreaterThan(0)
   expect(report.snapshot?.qualification.targetSoakSec).toBe(6)
   expect(report.snapshot?.qualification.passed).not.toBeNull()
   expect(report.snapshot?.stress.seekSequenceSec.length ?? 0).toBeGreaterThan(0)
   expect(report.snapshot?.stress.completedSeeks).toBe(report.snapshot?.stress.seekSequenceSec.length)
   const expectedRolloutStatus =
     report.snapshot?.gate.status === "ready_for_manual_pilot" &&
+    report.snapshot.transport.passed === true &&
     report.snapshot.qualification.passed === true &&
     report.snapshot.stress.passed === true
       ? "pass"
@@ -1310,7 +1353,13 @@ test("saved appendable route report rehydrates after reload with the same cumula
           trackScopeId: string
           report: {
             status: string
-            snapshot: { capturedAt: string; rollout: { status: string; reason: string | null } } | null
+            snapshot:
+              | {
+                  capturedAt: string
+                  transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+                  rollout: { status: string; reason: string | null }
+                }
+              | null
           }
         }>
       }
@@ -1328,6 +1377,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
 
   expect(persistedBeforeReload).not.toBeNull()
   expect(persistedBeforeReload?.report.snapshot).not.toBeNull()
+  expect(persistedBeforeReload?.report.snapshot?.transport.passed).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.transport.dataPlaneMode).toBe("postmessage_pcm")
+  expect(persistedBeforeReload?.report.snapshot?.transport.controlPlaneMode).toBe("message_port")
 
   const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
   const expectedCapturedAt = persistedBeforeReload?.report.snapshot?.capturedAt ?? ""
@@ -1338,7 +1390,11 @@ test("saved appendable route report rehydrates after reload with the same cumula
   let expectedStoredReport:
     | {
         status: string
-        snapshot: { capturedAt: string; rollout: { status: string; reason: string | null } }
+        snapshot: {
+          capturedAt: string
+          transport: { passed: boolean | null; dataPlaneMode: string | null; controlPlaneMode: string | null }
+          rollout: { status: string; reason: string | null }
+        }
       }
     | null = null
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -1349,12 +1405,20 @@ test("saved appendable route report rehydrates after reload with the same cumula
           status?: string
           snapshot?: {
             capturedAt?: string
+            transport?: {
+              passed?: boolean | null
+              dataPlaneMode?: string | null
+              controlPlaneMode?: string | null
+            }
             rollout?: { status?: string; reason?: string | null }
           }
         }
         if (
           typeof parsed.status === "string" &&
           parsed.snapshot?.capturedAt === expectedCapturedAt &&
+          parsed.snapshot?.transport?.passed === true &&
+          parsed.snapshot?.transport?.dataPlaneMode === "postmessage_pcm" &&
+          parsed.snapshot?.transport?.controlPlaneMode === "message_port" &&
           parsed.snapshot?.rollout?.status === expectedRolloutStatus &&
           (parsed.snapshot?.rollout?.reason ?? null) === expectedRolloutReason &&
           parsed.status === expectedStatus
@@ -1363,6 +1427,11 @@ test("saved appendable route report rehydrates after reload with the same cumula
             status: parsed.status,
             snapshot: {
               capturedAt: parsed.snapshot.capturedAt,
+              transport: {
+                passed: parsed.snapshot.transport.passed ?? null,
+                dataPlaneMode: parsed.snapshot.transport.dataPlaneMode ?? null,
+                controlPlaneMode: parsed.snapshot.transport.controlPlaneMode ?? null,
+              },
               rollout: {
                 status: parsed.snapshot.rollout.status,
                 reason: parsed.snapshot.rollout.reason ?? null,
@@ -1394,6 +1463,11 @@ test("saved appendable route report rehydrates after reload with the same cumula
                   status: string
                   snapshot: {
                     capturedAt: string
+                    transport: {
+                      passed: boolean | null
+                      dataPlaneMode: string | null
+                      controlPlaneMode: string | null
+                    }
                     rollout: { status: string; reason: string | null }
                   } | null
                 }
@@ -1407,6 +1481,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
             trackScopeId: state.trackScopeId,
             status: state.report.status,
             capturedAt: state.report.snapshot?.capturedAt ?? null,
+            transportPassed: state.report.snapshot?.transport.passed ?? null,
+            dataPlaneMode: state.report.snapshot?.transport.dataPlaneMode ?? null,
+            controlPlaneMode: state.report.snapshot?.transport.controlPlaneMode ?? null,
             rolloutStatus: state.report.snapshot?.rollout.status ?? null,
             rolloutReason: state.report.snapshot?.rollout.reason ?? null,
           }
@@ -1418,6 +1495,9 @@ test("saved appendable route report rehydrates after reload with the same cumula
       trackScopeId: expectedTrackScopeId,
       status: expectedStoredReport?.status ?? expectedStatus,
       capturedAt: expectedStoredReport?.snapshot.capturedAt ?? expectedCapturedAt,
+      transportPassed: expectedStoredReport?.snapshot.transport.passed ?? true,
+      dataPlaneMode: expectedStoredReport?.snapshot.transport.dataPlaneMode ?? "postmessage_pcm",
+      controlPlaneMode: expectedStoredReport?.snapshot.transport.controlPlaneMode ?? "message_port",
       rolloutStatus: expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus,
       rolloutReason: expectedStoredReport?.snapshot.rollout.reason ?? expectedRolloutReason,
     })
@@ -1432,6 +1512,11 @@ test("saved appendable route report rehydrates after reload with the same cumula
             snapshot: {
               capturedAt: string
               trackScopeId: string
+              transport: {
+                passed: boolean | null
+                dataPlaneMode: string | null
+                controlPlaneMode: string | null
+              }
               rollout: { status: string; reason: string | null }
             } | null
           }
@@ -1455,6 +1540,15 @@ test("saved appendable route report rehydrates after reload with the same cumula
     expectedStoredReport?.snapshot.capturedAt ?? expectedCapturedAt
   )
   expect(persistedAfterReload?.report.snapshot?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.snapshot?.transport.passed).toBe(
+    expectedStoredReport?.snapshot.transport.passed ?? true
+  )
+  expect(persistedAfterReload?.report.snapshot?.transport.dataPlaneMode).toBe(
+    expectedStoredReport?.snapshot.transport.dataPlaneMode ?? "postmessage_pcm"
+  )
+  expect(persistedAfterReload?.report.snapshot?.transport.controlPlaneMode).toBe(
+    expectedStoredReport?.snapshot.transport.controlPlaneMode ?? "message_port"
+  )
   expect(persistedAfterReload?.report.snapshot?.rollout.status).toBe(
     expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus
   )
