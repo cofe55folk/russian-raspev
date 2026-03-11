@@ -599,6 +599,64 @@ test("appendable route debug api can run a qualification pilot flow", async ({ p
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
+test("appendable route debug api can run a stress pilot flow", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(
+          () =>
+            typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runStressPilot?: unknown } })
+              .__rrAppendableRoutePilotDebug?.runStressPilot === "function"
+        ),
+      { timeout: 10000 }
+    )
+    .toBe(true)
+
+  const state = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runStressPilot: (holdSec?: number | null) => Promise<unknown>
+        pause: () => void
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runStressPilot(1)
+  })
+
+  expect(state).not.toBeNull()
+  expect((state as { audioMode?: string } | null)?.audioMode).toBe("appendable_queue_worklet")
+  const stressReport = (state as {
+    report: {
+      status: string
+      snapshot: {
+        stress: {
+          holdPerSeekSec: number | null
+          seekSequenceSec: number[]
+          completedSeeks: number
+          passed: boolean | null
+          reason: string | null
+        }
+      }
+    }
+  }).report
+  expect(stressReport.snapshot.stress.holdPerSeekSec).toBe(1)
+  expect(stressReport.snapshot.stress.seekSequenceSec.length).toBeGreaterThan(0)
+  expect(stressReport.snapshot.stress.completedSeeks).toBe(stressReport.snapshot.stress.seekSequenceSec.length)
+  expect(stressReport.snapshot.stress.passed).toBe(stressReport.status === "pass")
+  if (stressReport.status === "pass") {
+    expect(stressReport.snapshot.stress.reason).toBeNull()
+  } else {
+    expect(stressReport.snapshot.stress.reason).not.toBeNull()
+  }
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
@@ -652,6 +710,25 @@ test("qualification pilot diagnostics can be saved from the debug area", async (
 
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("qualification pilot:")
+  await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pass|fail/)
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("stress pilot diagnostics can be saved from the debug area", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.getByTestId("appendable-route-debug-run-stress-pilot-save").click()
+  const download = await downloadPromise
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("stress pilot:")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
   await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pass|fail/)
 

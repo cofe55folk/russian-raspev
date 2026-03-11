@@ -4240,3 +4240,51 @@ Comment for the next window:
 1. У appendable route теперь есть не только soak evidence, но и отдельный qualification verdict.
 2. Saved packet умеет явно сказать, выдержал ли route longer-soak target.
 3. Следующий автономный slice можно строить уже поверх stress/qualification expansion, а не поверх базовой route диагностики.
+
+## 9.100 Route diagnostics теперь имеют отдельный stress pilot с scripted seek-sequence и явным stress verdict
+
+Что сделано:
+1. Следующий slice после `9.99` снова не меняет playback core и не меняет rollout routing; он расширяет именно route diagnostics/debug contract.
+2. До этого шага route diagnostics уже имели:
+   - quick pilot
+   - soak pilot
+   - qualification pilot
+   - saved packet с gate/probe/source/qualification данными
+   но не имели отдельного scripted stress pass поверх нескольких route seek’ов.
+3. Теперь появился dedicated stress layer:
+   - debug API экспортирует `runStressPilot(holdSec?)`
+   - в guest-panel debug controls появилась кнопка `Run stress pilot + save diagnostics`
+   - saved report snapshot теперь хранит `stress` блок с полями:
+     - `holdPerSeekSec`
+     - `seekSequenceSec`
+     - `completedSeeks`
+     - `passed`
+     - `reason`
+4. Текущая stress semantics этого slice:
+   - default per-seek hold = `2.5s`
+   - текущий scripted seek sequence = `[18, 46]`
+   - route запускает playback, проходит весь seek-script, выдерживает hold после каждого seek и только потом собирает settled verdict
+   - `pass` ставится только если:
+     - gate = `ready_for_manual_pilot`
+     - runtime остаётся clean
+     - весь seek sequence действительно завершён
+   - иначе report сохраняется как `fail` с явным stress reason
+5. Что видно после патча:
+   - diagnostics теперь различают steady-state qualification и scripted post-seek stress survival
+   - packet/export теперь несёт явный scripted stress verdict, а не требует ручной сборки картины из логов
+   - route e2e теперь отдельно покрывает и direct stress API, и save-from-UI stress flow
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `40/40`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не меняет playback engine.
+2. Этот шаг не меняет rollout targeting.
+3. Этот шаг добавляет scripted stress verdict поверх уже существующего soak/qualification diagnostics path.
+
+Итог после `9.100`:
+1. У appendable route теперь есть не только soak и qualification evidence, но и отдельный stress verdict.
+2. Saved packet умеет явно сказать, пережил ли route scripted seek-sequence.
+3. Следующий автономный slice можно строить уже поверх более широких rollout/stress gates, а не поверх базовой debug-механики.
