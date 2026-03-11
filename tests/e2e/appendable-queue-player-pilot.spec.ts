@@ -495,6 +495,48 @@ test("appendable route debug api can run a quick pilot flow with seek", async ({
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
+test("appendable route debug api can run a soak pilot flow", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(
+          () => typeof (window as Window & { __rrAppendableRoutePilotDebug?: { runSoakPilot?: unknown } }).__rrAppendableRoutePilotDebug?.runSoakPilot === "function"
+        ),
+      { timeout: 10000 }
+    )
+    .toBe(true)
+
+  const state = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & { __rrAppendableRoutePilotDebug?: {
+      runSoakPilot: (durationSec?: number | null) => Promise<unknown>
+      pause: () => void
+    } }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runSoakPilot(6)
+  })
+
+  expect(state).not.toBeNull()
+  expect(state).toMatchObject({
+    audioMode: "appendable_queue_worklet",
+    checklist: { status: "ready_for_manual_pilot" },
+    report: {
+      status: "pass",
+      snapshot: {
+        gate: {
+          status: "ready_for_manual_pilot",
+        },
+      },
+    },
+  })
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
@@ -510,6 +552,25 @@ test("current appendable diagnostics can be saved from the debug area without qu
 
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("сохранено текущее diagnostics")
+  await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pass")
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("soak pilot diagnostics can be saved from the debug area", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
+  await openRuntimeProbe(page)
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.getByTestId("appendable-route-debug-run-soak-pilot-save").click()
+  const download = await downloadPromise
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("soak pilot:")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
   await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pass")
 

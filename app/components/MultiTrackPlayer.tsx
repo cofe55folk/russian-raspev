@@ -190,6 +190,7 @@ type AppendableRoutePilotDebugApi = {
   downloadPacket: () => void
   getState: () => AppendableRoutePilotDebugState
   runQuickPilot: (seekSec?: number | null) => Promise<AppendableRoutePilotDebugState>
+  runSoakPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
 }
 type NavHandoffState = {
   trackScopeId: string
@@ -435,6 +436,7 @@ const APPENDABLE_QUEUE_RUNTIME_PROBE_INTERVAL_MS = 2000
 const APPENDABLE_QUEUE_RUNTIME_PROBE_LOG_INTERVAL_MS = 8000
 const APPENDABLE_QUEUE_RUNTIME_PROBE_DROP_DELTA_SEC = 0.22
 const APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC = 3
+const APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC = 8
 const SEEK_SMOOTH_DEBOUNCE_MS = 28
 const SEEK_SMOOTH_CLOSE_RAMP_SEC = 0.008
 const SEEK_SMOOTH_OPEN_RAMP_SEC = 0.03
@@ -2157,6 +2159,7 @@ export default function MultiTrackPlayer({
     createAppendableRoutePilotReport()
   )
   const [appendableRouteQuickPilotRunning, setAppendableRouteQuickPilotRunning] = useState(false)
+  const [appendableRouteSoakPilotRunning, setAppendableRouteSoakPilotRunning] = useState(false)
   const [appendableRouteQuickPilotMessage, setAppendableRouteQuickPilotMessage] = useState<string | null>(null)
   const [ringBufferPilotEnabled, setRingBufferPilotEnabled] = useState(
     () =>
@@ -7880,6 +7883,86 @@ export default function MultiTrackPlayer({
     ]
   )
 
+  const runAppendableRouteSoakPilot = useCallback(
+    async (durationSec: number | null = APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC, options?: { downloadPacket?: boolean }) => {
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms)
+        })
+      const readState = () =>
+        (typeof window !== "undefined" ? window.__rrAppendableRoutePilotDebug?.getState() : null) ??
+        getAppendableRoutePilotDebugState()
+      const safeDurationSec =
+        typeof durationSec === "number" && Number.isFinite(durationSec)
+          ? Math.max(1, Math.min(60, durationSec))
+          : APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC
+
+      setAppendableRouteSoakPilotRunning(true)
+      setAppendableRouteQuickPilotMessage(
+        uiLang === "ru"
+          ? `идет soak pilot (${safeDurationSec.toFixed(1)}s)...`
+          : `soak pilot running (${safeDurationSec.toFixed(1)}s)...`
+      )
+      try {
+        await play("route_soak_pilot")
+        await wait(safeDurationSec * 1000)
+        let finalState = readState()
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          finalState = readState()
+          if (
+            finalState.checklist.status === "ready_for_manual_pilot" ||
+            finalState.checklist.status === "blocked_by_targeting" ||
+            finalState.checklist.status === "attention_required"
+          ) {
+            break
+          }
+          await wait(250)
+        }
+        const settledSnapshot = buildAppendableRoutePilotSnapshot()
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(
+          {
+            ...settledSnapshot,
+            gate: {
+              status: finalState.checklist.status,
+              statusLabel: finalState.checklist.statusLabel,
+            },
+          },
+          { autoStatus: true }
+        )
+        setAppendableRoutePilotReport(nextReport)
+        finalState = {
+          ...finalState,
+          report: cloneAppendableRoutePilotReport(nextReport),
+        }
+        if (options?.downloadPacket) {
+          downloadAppendableRoutePilotPacket(nextReport)
+        }
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru"
+            ? `soak pilot: ${finalState.checklist.statusLabel}`
+            : `soak pilot: ${finalState.checklist.statusLabel}`
+        )
+        return finalState
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "soak_pilot_failed"
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru" ? `soak pilot error: ${message}` : `soak pilot error: ${message}`
+        )
+        throw error
+      } finally {
+        setAppendableRouteSoakPilotRunning(false)
+      }
+    },
+    [
+      buildAppendableRoutePilotReportWithSnapshot,
+      buildAppendableRoutePilotSnapshot,
+      downloadAppendableRoutePilotPacket,
+      getAppendableRoutePilotDebugState,
+      play,
+      uiLang,
+    ]
+  )
+
   const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
     const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot, { autoStatus: true })
@@ -7898,6 +7981,10 @@ export default function MultiTrackPlayer({
   const saveAppendableRouteQuickPilotDiagnostics = useCallback(async () => {
     await runAppendableRouteQuickPilot(12, { downloadPacket: true })
   }, [runAppendableRouteQuickPilot])
+
+  const saveAppendableRouteSoakPilotDiagnostics = useCallback(async () => {
+    await runAppendableRouteSoakPilot(APPENDABLE_ROUTE_SOAK_PILOT_DURATION_SEC, { downloadPacket: true })
+  }, [runAppendableRouteSoakPilot])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -7929,6 +8016,7 @@ export default function MultiTrackPlayer({
       },
       getState: () => getAppendableRoutePilotDebugState(),
       runQuickPilot: (seekSec?: number | null) => runAppendableRouteQuickPilot(seekSec ?? null),
+      runSoakPilot: (durationSec?: number | null) => runAppendableRouteSoakPilot(durationSec ?? null),
     }
     return () => {
       window.__rrAppendableRoutePilotDebug = undefined
@@ -7943,6 +8031,7 @@ export default function MultiTrackPlayer({
     play,
     resetAppendableRoutePilotReport,
     runAppendableRouteQuickPilot,
+    runAppendableRouteSoakPilot,
     saveCurrentAppendableRouteDiagnostics,
     seekTo,
   ])
@@ -11034,6 +11123,23 @@ export default function MultiTrackPlayer({
                                 : uiLang === "ru"
                                   ? "Запустить quick pilot + сохранить"
                                   : "Run quick pilot + save diagnostics"}
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="appendable-route-debug-run-soak-pilot-save"
+                              disabled={appendableRouteSoakPilotRunning}
+                              onClick={() => {
+                                void saveAppendableRouteSoakPilotDiagnostics()
+                              }}
+                              className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {appendableRouteSoakPilotRunning
+                                ? uiLang === "ru"
+                                  ? "идет soak pilot..."
+                                  : "soak pilot running..."
+                                : uiLang === "ru"
+                                  ? "Запустить soak pilot + сохранить"
+                                  : "Run soak pilot + save diagnostics"}
                             </button>
                             <button
                               type="button"

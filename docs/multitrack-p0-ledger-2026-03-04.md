@@ -4154,3 +4154,43 @@ Comment for the next window:
 1. Route appendable теперь не считается rollout-ready на первом clean heartbeat.
 2. Diagnostics различают `still soaking` и `ready`, а не смешивают их.
 3. Следующий автономный slice можно уже делать вокруг более длинного soak/stress evidence, а не вокруг минимального readiness threshold.
+
+## 9.98 Route soak pilot теперь собирает более длинное route evidence и сохраняет уже settled packet без ручной последовательности
+
+Что сделано:
+1. Следующий slice после `9.97` не меняет playback core, а усиливает route-level evidence capture.
+2. До этого шага у route diagnostics было по сути два режима:
+   - сохранить current diagnostics сразу
+   - запустить quick pilot, который хорошо закрывал seek/activation-проверку, но не давал отдельного более длинного steady-state soak capture
+3. Теперь появился отдельный route soak pilot:
+   - debug API экспортирует `runSoakPilot(durationSec?)`
+   - в guest-panel debug controls появилась кнопка `Run soak pilot + save diagnostics`
+   - default duration этого pilot = `8.0s`
+   - допустимый duration жёстко ограничен диапазоном `1s..60s`
+4. Что делает soak pilot после патча:
+   - стартует playback на том же appendable route path
+   - держит playback живым в течение запрошенного soak-window
+   - перечитывает debug state, пока checklist не дойдёт до terminal gate:
+     - `ready_for_manual_pilot`
+     - `blocked_by_targeting`
+     - `attention_required`
+   - затем пересобирает saved report/packet уже из settled gate и auto-classify делает `pass`/`fail`
+5. Что теперь видно в route/debug слое:
+   - diagnostics status явно показывает `soak pilot: ...`
+   - packet export теперь может фиксировать более длинное route evidence без ручной цепочки `play -> wait -> save`
+   - debug API и UI используют один и тот же settled soak-report flow
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `appendable-queue-player-pilot.spec.ts` Chromium + WebKit — `32/32`
+3. `npm run build` — pass
+
+Что важно не перепутать:
+1. Этот шаг не меняет playback engine.
+2. Этот шаг не меняет rollout targeting.
+3. Этот шаг добавляет только более длинный capture/evidence path для уже существующего appendable route.
+
+Итог после `9.98`:
+1. У appendable route теперь есть не только quick pilot и мгновенный snapshot, но и отдельный longer soak capture.
+2. Saved packet теперь может отражать sustained outcome, а не только моментальный срез.
+3. Следующий автономный slice можно уже строить поверх реального soak/stress qualification, а не поверх ручной диагностики.
