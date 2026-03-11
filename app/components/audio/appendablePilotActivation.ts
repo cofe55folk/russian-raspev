@@ -62,6 +62,37 @@ function uniqueTargets(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => normalizeActivationTarget(value)).filter(Boolean)))
 }
 
+function readClientStoredTargets(storageKey: string): string[] {
+  if (typeof window === "undefined") return []
+  return parseActivationTargets(window.localStorage.getItem(storageKey))
+}
+
+function writeClientStoredTargets(storageKey: string, targets: string[]): string[] {
+  if (typeof window === "undefined") return []
+  const nextTargets = uniqueTargets(targets)
+  if (nextTargets.length) {
+    window.localStorage.setItem(storageKey, nextTargets.join(","))
+  } else {
+    window.localStorage.removeItem(storageKey)
+  }
+  return nextTargets
+}
+
+export function addClientAppendableSafeRolloutTarget(target: string): string[] {
+  return writeClientStoredTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY, [
+    ...readClientStoredTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY),
+    target,
+  ])
+}
+
+export function removeClientAppendableSafeRolloutTarget(target: string): string[] {
+  const normalizedTarget = normalizeActivationTarget(target)
+  return writeClientStoredTargets(
+    APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY,
+    readClientStoredTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY).filter((entry) => entry !== normalizedTarget)
+  )
+}
+
 export function resolveClientAppendablePilotActivation({
   trackScopeId,
   activationTargets = [],
@@ -76,9 +107,7 @@ export function resolveClientAppendablePilotActivation({
   const safeRolloutConfiguredTargets = uniqueTargets([
     ...parseActivationTargets(process.env.NEXT_PUBLIC_AUDIO_APPENDABLE_QUEUE_SAFE_ROLLOUT_TARGETS),
     ...readPreviewFlagTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_PREVIEW_PREFIX),
-    ...(typeof window !== "undefined"
-      ? parseActivationTargets(window.localStorage.getItem(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY))
-      : []),
+    ...readClientStoredTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY),
   ])
   const configuredTargets = uniqueTargets([...targetedPilotConfiguredTargets, ...safeRolloutConfiguredTargets])
   const currentTargets = uniqueTargets([trackScopeId, ...activationTargets])

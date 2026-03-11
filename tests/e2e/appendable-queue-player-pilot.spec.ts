@@ -216,8 +216,20 @@ test("appendable route pilot stays off when the current track set is not targete
   })
   expect(captured?.sourceProgress.safeRolloutCandidateQualified).toBe(true)
   expect(captured?.sourceProgress.safeRolloutCandidateTarget).toBe(SLUG)
-  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
-  await expect(page.getByRole("slider", { name: "Pitch" })).toBeEnabled()
+  await page.getByTestId("appendable-route-safe-rollout-target-toggle").click()
+  await expect
+    .poll(
+      async () => await page.evaluate(() => localStorage.getItem("rr_audio_appendable_queue_safe_rollout_targets")),
+      { timeout: 10000 }
+    )
+    .toBe(SLUG)
+  await openRuntimeProbe(page)
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, "appendable activation allowed: on")
+  await waitForPlayerText(page, `appendable activation match: ${SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeDisabled()
+  await expect(page.getByRole("slider", { name: "Pitch" })).toBeDisabled()
 })
 
 test("multistem appendable pilot stays off without the dedicated multistem flag", async ({ page }) => {

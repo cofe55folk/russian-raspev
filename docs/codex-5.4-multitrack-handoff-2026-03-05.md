@@ -2657,3 +2657,27 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.160`:
    - the next rollout widening step no longer depends on remembering which manifest-backed routes are already safe candidates
    - operators can read the recommendation directly from the normal route diagnostics without enabling startup-head flags or reconstructing manifest qualification by hand
+
+## 8.161 Route diagnostics can now add or remove the current safe-rollout candidate directly
+1. The next slice after `8.160` still does not widen rollout automatically and still does not touch the playback core.
+2. Instead, it closes the operator-action gap that remained after surfacing safe-rollout candidates:
+   - when the current route is already continuation-qualified
+   - but appendable is still blocked only by targeting
+   - the diagnostics surface can now add or remove that exact route slug from the client-side `safe_rollout` target list directly
+3. Implementation details in this slice:
+   - `appendablePilotActivation` now exposes client helpers to read, write, add, and remove `rr_audio_appendable_queue_safe_rollout_targets`
+   - `MultiTrackPlayer` now tracks client activation-storage revisions so route activation state re-resolves immediately after that local change
+   - the route diagnostics toolbar now shows a dedicated add/remove button only when the current route is already surfaced as a safe-rollout candidate
+   - the same route can therefore move from `blocked by targeting` to `safe_rollout` without manual `localStorage` editing
+4. Route e2e was extended accordingly:
+   - the blocked-route scenario now clicks the new diagnostics action
+   - waits for the stored `safe_rollout` target list to contain the current slug
+   - reopens the runtime probe after route re-init
+   - and proves the route then enters `appendable activation mode: safe_rollout` with `tempo policy: locked`
+5. Verification completed locally:
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `52/52`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.161`:
+   - operators no longer need to edit `localStorage` manually to trial a surfaced safe-rollout candidate
+   - the next widening step can be exercised directly from the normal route diagnostics using the same state that production rollout targeting already consumes
