@@ -132,10 +132,19 @@ async function waitForChecklistStatus(page: Page, needle: string) {
 }
 
 async function openRuntimeProbe(page: Page) {
-  await page.getByTestId("guest-panel-toggle").click()
+  const guestPanelToggle = page.getByTestId("guest-panel-toggle")
   const checklistToggle = page.getByTestId("recording-checklist-toggle")
+  if (!(await checklistToggle.isVisible().catch(() => false))) {
+    await expect(guestPanelToggle).toBeVisible({ timeout: 15000 })
+    await guestPanelToggle.click()
+  }
   await expect(checklistToggle).toBeVisible({ timeout: 15000 })
-  await checklistToggle.click()
+  const report = page.getByTestId("appendable-route-pilot-report")
+  if (!(await report.isVisible().catch(() => false))) {
+    await checklistToggle.click()
+  }
+  await expect(page.getByTestId("appendable-route-checklist")).toBeVisible({ timeout: 15000 })
+  await expect(report).toBeVisible({ timeout: 15000 })
 }
 
 async function waitForAppendablePilotDebugMethod(page: Page, methodName: string) {
@@ -331,6 +340,173 @@ test("appendable route captureReport returns the derived rollout verdict, not th
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
   })
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("manual appendable report verdict and notes survive reload and report download", async ({ page }) => {
+  const manualNotes = "manual-pass-persists"
+
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    preserveStoredReport: true,
+  })
+  await openRuntimeProbe(page)
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const api = (window as Window & {
+            __rrAppendableRoutePilotDebug?: { getState: () => { audioMode: string } }
+          }).__rrAppendableRoutePilotDebug
+          return api?.getState().audioMode ?? null
+        }),
+      { timeout: 10000 }
+    )
+    .toBe("appendable_queue_worklet")
+
+  await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        play: () => Promise<void>
+        getState: () => { playing: boolean }
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.play()
+    return api.getState()
+  })
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const state = (window as Window & {
+            __rrAppendableRoutePilotDebug?: {
+              getState: () => {
+                checklist: { status: string }
+                runtimeProbe: { active: boolean; readyThresholdSec: number | null }
+              }
+            }
+          }).__rrAppendableRoutePilotDebug?.getState()
+          if (!state) return null
+          return [
+            state.runtimeProbe.active ? "active" : "idle",
+            typeof state.runtimeProbe.readyThresholdSec === "number"
+              ? state.runtimeProbe.readyThresholdSec.toFixed(3)
+              : "—",
+            state.checklist.status,
+          ].join("|")
+        }),
+      { timeout: 45000 }
+    )
+    .toMatch(/active\|3\.000\|(soak_in_progress|ready_for_manual_pilot|attention_required)/)
+
+  await openRuntimeProbe(page)
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const api = (window as Window & {
+            __rrAppendableRoutePilotDebug?: { getState: () => { audioMode: string } }
+          }).__rrAppendableRoutePilotDebug
+          return api?.getState().audioMode ?? null
+        }),
+      { timeout: 10000 }
+    )
+    .toBe("appendable_queue_worklet")
+  await page.getByTestId("appendable-route-pilot-report-notes").fill(manualNotes)
+  await evaluateWithRetry(page, () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        captureReport: () => { capturedAt: string }
+        markPass: () => void
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    api.captureReport()
+    api.markPass()
+    return true
+  })
+  let expectedCapturedAt: string | null = null
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      expectedCapturedAt = await page.evaluate((nextNotes) => {
+        const api = (window as Window & {
+          __rrAppendableRoutePilotDebug?: {
+            getState: () => {
+              report: {
+                status: string
+                notes: string
+                snapshot: { capturedAt: string } | null
+              }
+            }
+          }
+        }).__rrAppendableRoutePilotDebug
+        const report = api?.getState().report
+        if (!report || report.status !== "pass" || report.notes !== nextNotes || !report.snapshot?.capturedAt) return null
+        return report.snapshot.capturedAt
+      }, manualNotes)
+    } catch {
+      expectedCapturedAt = null
+    }
+    if (expectedCapturedAt) break
+    await page.waitForTimeout(250)
+  }
+  expect(expectedCapturedAt).not.toBeNull()
+
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const api = (window as Window & {
+            __rrAppendableRoutePilotDebug?: {
+              getState: () => {
+                audioMode: string
+                report: {
+                  status: string
+                  notes: string
+                  snapshot: { capturedAt: string } | null
+                }
+              }
+            }
+          }).__rrAppendableRoutePilotDebug
+          if (!api) return null
+          const state = api.getState()
+          return {
+            audioMode: state.audioMode,
+            status: state.report.status,
+            notes: state.report.notes,
+            capturedAt: state.report.snapshot?.capturedAt ?? null,
+          }
+        }),
+      { timeout: 10000 }
+    )
+    .toMatchObject({
+      audioMode: "appendable_queue_worklet",
+      status: "pass",
+      notes: manualNotes,
+      capturedAt: expectedCapturedAt ?? null,
+    })
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadReport: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadReport()
+  })
+  const download = await downloadPromise
+  const report = await readJsonDownload<{
+    status: string
+    notes: string
+    snapshot: { capturedAt: string } | null
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-")
+  expect(report.status).toBe("pass")
+  expect(report.notes).toBe(manualNotes)
+  expect(report.snapshot?.capturedAt).toBe(expectedCapturedAt)
 })
 
 test("safe appendable rollout keeps route on appendable mode while tempo stays locked", async ({ page }) => {
@@ -1068,19 +1244,46 @@ test("saved appendable route report rehydrates after reload with the same cumula
   await waitForPlayerRouteReachable(page, 10000)
   await page.reload({ waitUntil: "domcontentloaded" })
   await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
-  await openRuntimeProbe(page)
-  await waitForAppendablePilotDebugMethod(page, "getState")
-
-  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute(
-    "data-status",
-    expectedStoredReport?.status ?? expectedStatus
-  )
-  await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).toContainText(
-    expectedStoredReport?.snapshot.capturedAt ?? expectedCapturedAt
-  )
-  await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText(
-    `rollout: ${expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus}`
-  )
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const api = (window as Window & {
+            __rrAppendableRoutePilotDebug?: {
+              getState: () => {
+                audioMode: string
+                trackScopeId: string
+                report: {
+                  status: string
+                  snapshot: {
+                    capturedAt: string
+                    rollout: { status: string; reason: string | null }
+                  } | null
+                }
+              }
+            }
+          }).__rrAppendableRoutePilotDebug
+          if (!api) return null
+          const state = api.getState()
+          return {
+            audioMode: state.audioMode,
+            trackScopeId: state.trackScopeId,
+            status: state.report.status,
+            capturedAt: state.report.snapshot?.capturedAt ?? null,
+            rolloutStatus: state.report.snapshot?.rollout.status ?? null,
+            rolloutReason: state.report.snapshot?.rollout.reason ?? null,
+          }
+        }),
+      { timeout: 10000 }
+    )
+    .toMatchObject({
+      audioMode: "appendable_queue_worklet",
+      trackScopeId: expectedTrackScopeId,
+      status: expectedStoredReport?.status ?? expectedStatus,
+      capturedAt: expectedStoredReport?.snapshot.capturedAt ?? expectedCapturedAt,
+      rolloutStatus: expectedStoredReport?.snapshot.rollout.status ?? expectedRolloutStatus,
+      rolloutReason: expectedStoredReport?.snapshot.rollout.reason ?? expectedRolloutReason,
+    })
 
   const persistedAfterReload = await evaluateWithRetry(page, () => {
     const api = (window as Window & {
