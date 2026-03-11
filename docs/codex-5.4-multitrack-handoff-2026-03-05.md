@@ -2531,3 +2531,27 @@ Suggested opening prompt for the next window:
    - route diagnostics now preserve multi-step evidence in one report rather than making operators export separate disjoint packets
    - future rollout-gate work can rely on cumulative report evidence instead of reconstructing it from multiple snapshots
    - this still does not change the playback path; it only strengthens report persistence semantics
+
+## 8.154 Local checkpoint: rollout gate slice is committed and safe to resume after app close
+1. The next autonomous slice after `8.153` has already started on branch `codex/feature/appendable-route-rollout-gate`.
+2. It is saved locally as commit `0848552` (`p1: add appendable route rollout gate`), so closing Codex Desktop will not lose the code changes.
+3. Scope of the slice:
+   - add a derived `rollout` block to the appendable route report snapshot
+   - derive auto-status from cumulative route evidence instead of checklist readiness alone
+   - make route report UI show explicit rollout verdict (`pass` / `pending` / `fail`)
+   - align route e2e with the new semantics so isolated pilot runs no longer imply final rollout success by default
+4. Important nuance at checkpoint time:
+   - the code changes are committed locally
+   - push / PR / merge have **not** happened yet
+   - the remaining work is verification, not architecture rethinking
+5. Last known local verification state:
+   - one route-pack rerun was still being stabilized
+   - a prior `tsc` failure was caused by missing `.next/dev/types/**`, i.e. local environment state rather than a clear runtime type regression
+6. Safe resume order after reopening:
+   - `npm run build`
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --project=webkit --reporter=line`
+   - if green: push branch, open PR into `develop`, wait for CI, merge
+7. Practical consequence of recording this checkpoint:
+   - the next window does not need to reconstruct whether the rollout-gate work was only in chat or already persisted
+   - the exact branch, commit, intent, and next validation steps are now explicit on disk

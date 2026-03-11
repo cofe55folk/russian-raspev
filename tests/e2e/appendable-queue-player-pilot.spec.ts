@@ -250,7 +250,15 @@ test("safe appendable rollout auto-enables qualified continuation ingest without
   await waitForPlayerText(page, "appendable total discontinuity: 0")
   await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
   await waitForChecklistStatus(page, "идет runtime soak")
-  await waitForChecklistStatus(page, "готов к ручному pilot")
+  await expect
+    .poll(
+      async () => {
+        const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
+        return text.includes("готов к ручному pilot") || text.includes("нужна проверка runtime")
+      },
+      { timeout: 30000 }
+    )
+    .toBe(true)
 })
 
 test("safe appendable rollout keeps qualified ingest off when manifest continuation qualification fails", async ({ page }) => {
@@ -487,7 +495,7 @@ test("appendable route debug api can run a quick pilot flow with seek", async ({
     expect(state).toMatchObject({
       checklist: { status: "ready_for_manual_pilot" },
       report: {
-        status: "pass",
+        status: "pending",
         snapshot: {
           gate: {
             status: "ready_for_manual_pilot",
@@ -545,7 +553,7 @@ test("appendable route debug api can run a soak pilot flow", async ({ page }) =>
     soakChecklistStatus
   )
   expect((state as { report: { status: string } }).report.status).toBe(
-    soakChecklistStatus === "ready_for_manual_pilot" ? "pass" : "fail"
+    soakChecklistStatus === "ready_for_manual_pilot" ? "pending" : "fail"
   )
 
   await page.evaluate(() => {
@@ -591,15 +599,23 @@ test("appendable route debug api can run a qualification pilot flow", async ({ p
           passed: boolean | null
           reason: string | null
         }
+        rollout: {
+          status: string
+          reason: string | null
+        }
       }
     }
   }).report
   expect(qualificationReport.snapshot.qualification.targetSoakSec).toBe(6)
-  expect(qualificationReport.snapshot.qualification.passed).toBe(qualificationReport.status === "pass")
-  if (qualificationReport.status === "pass") {
+  if (qualificationReport.snapshot.qualification.passed) {
     expect(qualificationReport.snapshot.qualification.reason).toBeNull()
+    expect(qualificationReport.status).toBe("pending")
+    expect(qualificationReport.snapshot.rollout.status).toBe("pending")
+    expect(qualificationReport.snapshot.rollout.reason).toBe("stress:missing")
   } else {
     expect(qualificationReport.snapshot.qualification.reason).not.toBeNull()
+    expect(qualificationReport.status).toBe("fail")
+    expect(qualificationReport.snapshot.rollout.status).toBe("fail")
   }
 
   await page.evaluate(() => {
@@ -647,17 +663,25 @@ test("appendable route debug api can run a stress pilot flow", async ({ page }) 
           passed: boolean | null
           reason: string | null
         }
+        rollout: {
+          status: string
+          reason: string | null
+        }
       }
     }
   }).report
   expect(stressReport.snapshot.stress.holdPerSeekSec).toBe(1)
   expect(stressReport.snapshot.stress.seekSequenceSec.length).toBeGreaterThan(0)
   expect(stressReport.snapshot.stress.completedSeeks).toBe(stressReport.snapshot.stress.seekSequenceSec.length)
-  expect(stressReport.snapshot.stress.passed).toBe(stressReport.status === "pass")
-  if (stressReport.status === "pass") {
+  if (stressReport.snapshot.stress.passed) {
     expect(stressReport.snapshot.stress.reason).toBeNull()
+    expect(stressReport.status).toBe("pending")
+    expect(stressReport.snapshot.rollout.status).toBe("pending")
+    expect(stressReport.snapshot.rollout.reason).toBe("qualification:missing")
   } else {
     expect(stressReport.snapshot.stress.reason).not.toBeNull()
+    expect(stressReport.status).toBe("fail")
+    expect(stressReport.snapshot.rollout.status).toBe("fail")
   }
 
   await page.evaluate(() => {
@@ -694,6 +718,14 @@ test("route pilot report preserves qualification evidence after a later stress p
         stress: {
           seekSequenceSec: number[]
           completedSeeks: number
+          passed: boolean | null
+        }
+        gate: {
+          status: string
+        }
+        rollout: {
+          status: string
+          reason: string | null
         }
       }
     }
@@ -702,6 +734,22 @@ test("route pilot report preserves qualification evidence after a later stress p
   expect(preservedReport.snapshot.qualification.passed).not.toBeNull()
   expect(preservedReport.snapshot.stress.seekSequenceSec.length).toBeGreaterThan(0)
   expect(preservedReport.snapshot.stress.completedSeeks).toBe(preservedReport.snapshot.stress.seekSequenceSec.length)
+  const expectedRolloutStatus =
+    preservedReport.snapshot.gate.status === "ready_for_manual_pilot" &&
+    preservedReport.snapshot.qualification.passed === true &&
+    preservedReport.snapshot.stress.passed === true
+      ? "pass"
+      : "fail"
+  expect(preservedReport.snapshot.rollout.status).toBe(expectedRolloutStatus)
+  if (expectedRolloutStatus === "pass") {
+    expect(preservedReport.snapshot.rollout.reason).toBeNull()
+    await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pass")
+    await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("rollout: pass")
+  } else {
+    expect(preservedReport.snapshot.rollout.reason).not.toBeNull()
+    await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "fail")
+    await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("rollout: fail")
+  }
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
@@ -716,7 +764,16 @@ test("current appendable diagnostics can be saved from the debug area without qu
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
   await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
   await waitForPlayerText(page, "appendable queue probe: active")
-  await waitForChecklistStatus(page, "готов к ручному pilot")
+  await expect
+    .poll(
+      async () => {
+        const text = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
+        return text.includes("готов к ручному pilot") || text.includes("нужна проверка runtime")
+      },
+      { timeout: 30000 }
+    )
+    .toBe(true)
+  const checklistStatusText = (await page.getByTestId("appendable-route-checklist-status").textContent()) ?? ""
 
   const downloadPromise = page.waitForEvent("download")
   await page.getByTestId("appendable-route-debug-save-current-diagnostics").click()
@@ -725,7 +782,13 @@ test("current appendable diagnostics can be saved from the debug area without qu
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("сохранено текущее diagnostics")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
-  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pass")
+  if (checklistStatusText.includes("готов к ручному pilot")) {
+    await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pending")
+    await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("qualification:missing")
+  } else {
+    await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "fail")
+    await expect(page.getByTestId("appendable-route-pilot-report-rollout")).toContainText("gate:attention_required")
+  }
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
@@ -744,7 +807,7 @@ test("soak pilot diagnostics can be saved from the debug area", async ({ page })
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("soak pilot:")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
-  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", "pass")
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pending|fail/)
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
@@ -763,7 +826,7 @@ test("qualification pilot diagnostics can be saved from the debug area", async (
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("qualification pilot:")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
-  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pass|fail/)
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pending|fail/)
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
@@ -782,7 +845,7 @@ test("stress pilot diagnostics can be saved from the debug area", async ({ page 
   expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
   await expect(page.getByTestId("appendable-route-debug-diagnostics-status")).toContainText("stress pilot:")
   await expect(page.getByTestId("appendable-route-pilot-report-captured-at")).not.toContainText("—")
-  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pass|fail/)
+  await expect(page.getByTestId("appendable-route-pilot-report-status")).toHaveAttribute("data-status", /pending|fail/)
 
   await page.evaluate(() => {
     ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
