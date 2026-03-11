@@ -2720,3 +2720,29 @@ Suggested opening prompt for the next window:
 6. Practical consequence after `8.163`:
    - appendable continuation packaging is no longer tied only to the original Terek routes
    - the next rollout step can widen over a broader, codec-diverse set of manifest-qualified multistem tracks
+
+## 8.164 Route diagnostics can now apply the full manifest-qualified safe-rollout cohort in one action
+1. The next slice still does not alter the playback engine and still does not widen rollout silently.
+2. Instead, it closes the remaining operator gap after `8.163`:
+   - the startup manifest now implies four qualified route slugs
+   - but route diagnostics still only had a per-current-route safe-rollout toggle
+   - operators therefore had to repeat the same local action slug by slug even though the manifest already defined the cohort
+3. This slice adds a cohort-wide action on top of the existing per-route targeting tools:
+   - `appendableStartupManifest` now exposes a helper that lists normalized manifest-qualified slugs
+   - `appendablePilotActivation` now exposes a bulk helper that appends multiple client-side `safe_rollout` targets at once
+   - the route diagnostics toolbar now includes `Apply full qualified safe rollout cohort`
+   - clicking it stores the full manifest-backed cohort in `rr_audio_appendable_queue_safe_rollout_targets` and re-resolves activation immediately
+4. Route e2e was extended accordingly:
+   - the new contract starts on the default Terek route with rollout still blocked by targeting
+   - clicks the new cohort action
+   - verifies that localStorage now contains the full four-slug manifest cohort
+   - then navigates to `tomsk-bogoslovka-po-moryam`
+   - and proves the secondary route enters `appendable activation mode: safe_rollout` with `tempo locked` and `startup_head_continuation_chunks`
+5. Verification completed locally:
+   - targeted cohort route test on Chromium + WebKit: `2/2`
+   - `appendable-queue-player-pilot.spec.ts` on Chromium + WebKit: `56/56`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.164`:
+   - route diagnostics can now widen safe rollout over the entire manifest-qualified cohort without manual per-slug storage editing
+   - the next widening step can be exercised as one operator action while still remaining explicit and reversible

@@ -85,6 +85,13 @@ export function addClientAppendableSafeRolloutTarget(target: string): string[] {
   ])
 }
 
+export function addClientAppendableSafeRolloutTargets(targets: string[]): string[] {
+  return writeClientStoredTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY, [
+    ...readClientStoredTargets(APPENDABLE_QUEUE_SAFE_ROLLOUT_STORAGE_KEY),
+    ...targets,
+  ])
+}
+
 export function removeClientAppendableSafeRolloutTarget(target: string): string[] {
   const normalizedTarget = normalizeActivationTarget(target)
   return writeClientStoredTargets(

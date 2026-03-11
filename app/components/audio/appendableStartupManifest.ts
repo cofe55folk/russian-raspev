@@ -137,3 +137,15 @@ export async function resolveAppendableStartupManifestMatch(
 
   return null
 }
+
+export async function listAppendableStartupManifestSlugs(): Promise<string[]> {
+  const manifest = await loadStartupManifest()
+  const candidates = Array.isArray(manifest?.tracks) ? manifest.tracks : []
+  return Array.from(
+    new Set(
+      candidates
+        .map((track) => (typeof track.slug === "string" ? track.slug.trim().toLowerCase() : ""))
+        .filter(Boolean)
+    )
+  )
+}
