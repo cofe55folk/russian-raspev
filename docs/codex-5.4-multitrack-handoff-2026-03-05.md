@@ -3315,3 +3315,35 @@ Suggested opening prompt for the next window:
 7. Practical consequence after `8.180`:
    - the repeated route-side pitch proof chain is now complete across all current persistence/export surfaces
    - the next autonomous route-level window no longer needs to ask whether packet surfaces lag behind the latest repeated proof
+
+## 8.181 Broader route-side pitch matrix now keeps the latest edge proof across reload and both export surfaces
+1. After `8.180`, the remaining autonomous gap was no longer about single-step or two-step repeated semantics.
+2. The next realistic route-side question was broader control churn:
+   - run three different `runPitchShadowPilot(...)` steps in one normal-route session
+   - cross both positive and negative `pitch` targets
+   - finish on an upper-edge pitch request that clamps to the supported `12 semitones`
+3. This slice added explicit executable coverage for exactly that matrix:
+   - step 1: `tempo=1.04`, `pitch=4`
+   - step 2: `tempo=0.92`, `pitch=-7`
+   - step 3: `tempo=1.12`, `pitch=12.8` which should settle and persist as `pitch=12`
+4. The contract now proven on the normal `/sound/...` route is:
+   - reload/hydration keeps the third, latest proof
+   - direct `downloadReport()` keeps the same third proof
+   - direct `downloadPacket()` keeps the same third proof
+   - `saveCurrentDiagnostics()` packet export keeps the same third proof
+5. Practical meaning:
+   - route-side pitch qualification is now proven beyond the earlier two-step repeated case
+   - latest-proof semantics survive a broader control-change matrix, including an upper-edge pitch clamp
+   - the hidden route shadow path is no longer only validated for “change once or twice”, but for a more realistic operator sequence
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "three-step edge pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest three-step edge route proof on the normal route|downloaded pitch shadow packet preserves the latest three-step edge route proof on the normal route|save-current diagnostics preserves the latest three-step edge pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "three-step edge pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest three-step edge route proof on the normal route|downloaded pitch shadow packet preserves the latest three-step edge route proof on the normal route|save-current diagnostics preserves the latest three-step edge pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium three-step edge matrix route proof → `4/4`
+   - WebKit three-step edge matrix route proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.181`:
+   - broader route-side pitch matrices no longer have to start by re-proving latest-proof persistence
+   - the next autonomous route-level window can move toward longer hold/seek/background-style pitch scenarios instead of more export-surface bookkeeping
