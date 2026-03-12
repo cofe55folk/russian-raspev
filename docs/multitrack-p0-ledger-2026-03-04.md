@@ -4943,3 +4943,39 @@ Recommendation order после review:
 1. WebKit proof для isolated `sab_ring` теперь существует как явный spec, а не как неформальная договорённость.
 2. `SAB` transport qualification больше не ограничен только `dataPlaneMode`; у команды теперь есть watermark/overflow/observed-lead evidence.
 3. Следующее окно может уже либо расширять packaging cohort, либо вести более жёсткий Safari/WebKit widening, не переизобретая базовый qualification harness.
+
+## 9.121 Manifest-qualified continuation cohort расширен с `6` до `10` route, а safe-rollout coverage получил новые Talbakul/Kemerov contracts
+
+Что сделано:
+1. Следующий slice после `9.120` снова расширил packaging cohort через уже существующий generator/runtime path, без смены appendable architecture.
+2. В `scripts/generate-startup-chunks.mjs` добавлены ещё четыре multistem route:
+   - `balman-ya-kachu-kolco`
+   - `talbakul-poteryala-ya-kolechko`
+   - `omsk-talbakul-alenkiy-cvetochek`
+   - `kemerov-varyuhino-gulenka`
+3. После регенерации startup/continuation/tail assets и `startup-chunks-manifest.json` manifest-qualified surface вырос с `6` до `10` slug’ов.
+4. Route coverage тоже widened, а не только manifest:
+   - full qualified safe-rollout cohort test теперь ждёт уже все `10` slug’ов
+   - отдельные route contracts теперь доказывают `safe_rollout -> startup_head_continuation_chunks` на:
+     - `talbakul-poteryala-ya-kolechko`
+     - `kemerov-varyuhino-gulenka`
+
+Почему этот набор полезен:
+1. Он даёт не просто “ещё несколько slug’ов”, а более широкий operational mix:
+   - ещё один Balman set
+   - ещё один Talbakul/Omsk family set
+   - ещё один 2-stem Kemerov route
+2. То есть cohort становится менее сконцентрированным вокруг исходной Terek/Tomsk/Balman шестерки.
+3. Следующие widening decisions теперь можно принимать на более широком manifest-backed наборе, а не на почти одном семейства маршрутов.
+
+Проверка:
+1. `node scripts/generate-startup-chunks.mjs` — manifest/assets regenerated
+2. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "appendable route diagnostics can apply the full qualified safe-rollout cohort|safe appendable rollout also auto-enables qualified continuation ingest on the talbakul route|safe appendable rollout also auto-enables qualified continuation ingest on the kemerov route"` — `3/3`
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `31/31`
+4. `npx tsc --noEmit` — pass
+5. `npm run build` — pass
+
+Итог после `9.121`:
+1. Manifest-qualified appendable continuation cohort теперь покрывает уже `10` реальных route.
+2. Safe-rollout operator flow подтверждён не только на старом наборе, но и на новых Talbakul/Kemerov representatives.
+3. Следующее окно можно уже тратить либо на ещё более реальный widening, либо на `independent pitch inside worklet`, не возвращаясь к packaging groundwork.

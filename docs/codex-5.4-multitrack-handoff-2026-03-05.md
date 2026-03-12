@@ -3020,3 +3020,32 @@ Suggested opening prompt for the next window:
    - the next Safari/WebKit widening step can target explicit spec names instead of vague manual checklists
    - `sab_ring` qualification now has quality telemetry, not only binary activation evidence
    - route reports can now preserve the exact watermark/overflow envelope seen during a pilot run
+
+## 8.173 Continuation packaging now covers ten manifest-qualified multistem routes, including new Talbakul/Omsk/Kemerov/Balman cohorts
+1. This slice widens the manifest-qualified appendable cohort again after the earlier jump to six routes.
+2. `scripts/generate-startup-chunks.mjs` now also packages:
+   - `balman-ya-kachu-kolco`
+   - `talbakul-poteryala-ya-kolechko`
+   - `omsk-talbakul-alenkiy-cvetochek`
+   - `kemerov-varyuhino-gulenka`
+3. After regeneration, `startup-chunks-manifest.json` now carries ten qualified route slugs instead of six.
+4. The generated startup/continuation/tail WAV asset set was widened accordingly for those four routes.
+5. Route coverage was extended in two ways:
+   - the full safe-rollout cohort test now asserts the expanded ten-slug manifest set
+   - new route contracts prove `safe_rollout -> startup_head_continuation_chunks` on:
+     - `talbakul-poteryala-ya-kolechko`
+     - `kemerov-varyuhino-gulenka`
+6. This keeps the cohort growth pragmatic:
+   - one new 3-stem `m4a` route family is covered (`talbakul`)
+   - one new 2-stem `mp3` route family is covered (`kemerov`)
+   - the manifest also absorbs the additional Balman/Omsk sets without changing appendable semantics
+7. Verification completed locally:
+   - `node scripts/generate-startup-chunks.mjs`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "appendable route diagnostics can apply the full qualified safe-rollout cohort|safe appendable rollout also auto-enables qualified continuation ingest on the talbakul route|safe appendable rollout also auto-enables qualified continuation ingest on the kemerov route"` → `3/3`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `31/31`
+   - `npx tsc --noEmit`
+   - `npm run build`
+8. Practical consequence after `8.173`:
+   - the appendable packaging cohort is no longer concentrated mostly in the original Terek/Tomsk/Balman cluster
+   - safe-rollout widening can now target a broader ten-route manifest-backed set
+   - the next slice can either widen further or shift focus to pitch/transport behavior without reopening packaging basics
