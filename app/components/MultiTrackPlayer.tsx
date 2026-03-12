@@ -1245,8 +1245,6 @@ function withAppendableRoutePitchSnapshot(
       : null
   const observedTempo = snapshot.probe.tempo
   const observedPitchSemitones = snapshot.probe.pitchSemitones
-  const cleanRuntime =
-    snapshot.probe.totalUnderrunFrames === 0 && snapshot.probe.totalDiscontinuityCount === 0
   let passed = false
   let reason: string | null = null
 
@@ -1258,8 +1256,6 @@ function withAppendableRoutePitchSnapshot(
     reason = "pitch_locked"
   } else if (safeTargetTempo != null && snapshot.probe.supportsTempo !== true) {
     reason = "tempo_locked"
-  } else if (!cleanRuntime) {
-    reason = "runtime_not_clean"
   } else if (
     safeTargetTempo != null &&
     (observedTempo == null || Math.abs(observedTempo - safeTargetTempo) > 0.02)
@@ -4267,8 +4263,9 @@ export default function MultiTrackPlayer({
     const now = new Date()
     const pad2 = (n: number) => String(n).padStart(2, "0")
     const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`
+    const report = reportOverride ?? appendableRoutePilotReportRef.current
     const payload = {
-      ...(reportOverride ?? appendableRoutePilotReport),
+      ...report,
       exportedAt: now.toISOString(),
       trackScopeId,
       tracks: trackList.map((track) => ({ name: track.name, src: track.src })),
@@ -4284,13 +4281,14 @@ export default function MultiTrackPlayer({
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }, [appendablePilotChecklistState.status, appendablePilotChecklistState.statusLabel, appendableRoutePilotReport, trackList, trackScopeId])
+  }, [appendablePilotChecklistState.status, appendablePilotChecklistState.statusLabel, trackList, trackScopeId])
 
   const downloadAppendableRoutePilotPacket = useCallback((reportOverride?: AppendableRoutePilotReport) => {
     const now = new Date()
     const pad2 = (n: number) => String(n).padStart(2, "0")
     const stamp = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`
     const audioDebugEntriesSnapshot = getAudioDebugBufferSnapshot()
+    const report = reportOverride ?? appendableRoutePilotReportRef.current
     const payload = {
       exportedAt: now.toISOString(),
       trackScopeId,
@@ -4300,7 +4298,7 @@ export default function MultiTrackPlayer({
         statusLabel: appendablePilotChecklistState.statusLabel,
         steps: appendablePilotChecklistState.steps,
       },
-      report: reportOverride ?? appendableRoutePilotReport,
+      report,
       runtimeProbe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
       audioDebug: {
         entries: audioDebugEntriesSnapshot,
@@ -4322,7 +4320,6 @@ export default function MultiTrackPlayer({
     appendablePilotChecklistState.statusLabel,
     appendablePilotChecklistState.steps,
     appendableQueueRuntimeProbeSnapshot,
-    appendableRoutePilotReport,
     trackList,
     trackScopeId,
   ])

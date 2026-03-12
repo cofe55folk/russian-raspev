@@ -2226,6 +2226,258 @@ test("pitch shadow report evidence rehydrates after reload on the normal route",
   })
 })
 
+test("downloaded pitch shadow packet preserves route proof on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const expectedReportBeforeDownload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          report: {
+            status: string
+            snapshot:
+              | {
+                  gate: { status: string }
+                  flags: { appendableQueueShadowPitchEnabled: boolean }
+                  activation: { pitchShadowActive: boolean }
+                  transport: {
+                    supportsIndependentPitch: boolean | null
+                    tempo: number | null
+                    pitchSemitones: number | null
+                  }
+                  pitch: {
+                    scenario: string | null
+                    shadowEnabled: boolean
+                    supportsIndependentPitch: boolean | null
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                  rollout: { status: string; reason: string | null }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return (await api.runPitchShadowPilot(1.06, 4, 1000)).report
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadPacket")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadPacket: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadPacket()
+  })
+  const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot:
+        | {
+            gate: { status: string }
+            flags: { appendableQueueShadowPitchEnabled: boolean }
+            activation: { pitchShadowActive: boolean }
+            transport: {
+              supportsIndependentPitch: boolean | null
+              tempo: number | null
+              pitchSemitones: number | null
+            }
+            pitch: {
+              scenario: string | null
+              shadowEnabled: boolean
+              supportsIndependentPitch: boolean | null
+              targetTempo: number | null
+              observedTempo: number | null
+              targetPitchSemitones: number | null
+              observedPitchSemitones: number | null
+              passed: boolean | null
+              reason: string | null
+            }
+            rollout: { status: string; reason: string | null }
+          }
+        | null
+    }
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  expect(expectedReportBeforeDownload?.snapshot).not.toBeNull()
+  expect(packet.report.snapshot).not.toBeNull()
+  expect(packet.checklist.status).toBe(expectedReportBeforeDownload?.snapshot?.gate.status ?? "pending")
+  expect(packet.report.status).toBe(expectedReportBeforeDownload?.status ?? "pending")
+  expect(packet.report.snapshot?.flags.appendableQueueShadowPitchEnabled).toBe(true)
+  expect(packet.report.snapshot?.activation.pitchShadowActive).toBe(true)
+  expect(packet.report.snapshot?.transport.supportsIndependentPitch).toBe(
+    expectedReportBeforeDownload?.snapshot?.transport.supportsIndependentPitch ?? null
+  )
+  expect(packet.report.snapshot?.transport.tempo).toBe(expectedReportBeforeDownload?.snapshot?.transport.tempo ?? null)
+  expect(packet.report.snapshot?.transport.pitchSemitones).toBe(
+    expectedReportBeforeDownload?.snapshot?.transport.pitchSemitones ?? null
+  )
+  expect(packet.report.snapshot?.pitch.scenario).toBe(expectedReportBeforeDownload?.snapshot?.pitch.scenario ?? null)
+  expect(packet.report.snapshot?.pitch.shadowEnabled).toBe(true)
+  expect(packet.report.snapshot?.pitch.supportsIndependentPitch).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.supportsIndependentPitch ?? null
+  )
+  expect(packet.report.snapshot?.pitch.targetTempo).toBe(expectedReportBeforeDownload?.snapshot?.pitch.targetTempo ?? null)
+  expect(packet.report.snapshot?.pitch.observedTempo).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.observedTempo ?? null
+  )
+  expect(packet.report.snapshot?.pitch.targetPitchSemitones).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.targetPitchSemitones ?? null
+  )
+  expect(packet.report.snapshot?.pitch.observedPitchSemitones).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.observedPitchSemitones ?? null
+  )
+  expect(packet.report.snapshot?.pitch.passed).toBe(expectedReportBeforeDownload?.snapshot?.pitch.passed ?? null)
+  expect(packet.report.snapshot?.pitch.reason).toBe(expectedReportBeforeDownload?.snapshot?.pitch.reason ?? null)
+  expect(packet.report.snapshot?.rollout.status).toBe(expectedReportBeforeDownload?.snapshot?.rollout.status ?? "pending")
+  expect(packet.report.snapshot?.rollout.reason ?? null).toBe(
+    expectedReportBeforeDownload?.snapshot?.rollout.reason ?? null
+  )
+})
+
+test("downloaded pitch shadow report preserves route proof on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const expectedReportBeforeDownload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          report: {
+            status: string
+            snapshot:
+              | {
+                  trackScopeId: string
+                  gate: { status: string }
+                  flags: { appendableQueueShadowPitchEnabled: boolean }
+                  activation: { pitchShadowActive: boolean }
+                  transport: {
+                    supportsIndependentPitch: boolean | null
+                    tempo: number | null
+                    pitchSemitones: number | null
+                  }
+                  pitch: {
+                    scenario: string | null
+                    shadowEnabled: boolean
+                    supportsIndependentPitch: boolean | null
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                  rollout: { status: string; reason: string | null }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return (await api.runPitchShadowPilot(1.06, 4, 1000)).report
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadReport")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadReport: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadReport()
+  })
+  const download = await downloadPromise
+  const report = await readJsonDownload<{
+    status: string
+    trackScopeId: string
+    checklistStatus: string
+    snapshot:
+      | {
+          trackScopeId: string
+          gate: { status: string }
+          flags: { appendableQueueShadowPitchEnabled: boolean }
+          activation: { pitchShadowActive: boolean }
+          transport: {
+            supportsIndependentPitch: boolean | null
+            tempo: number | null
+            pitchSemitones: number | null
+          }
+          pitch: {
+            scenario: string | null
+            shadowEnabled: boolean
+            supportsIndependentPitch: boolean | null
+            targetTempo: number | null
+            observedTempo: number | null
+            targetPitchSemitones: number | null
+            observedPitchSemitones: number | null
+            passed: boolean | null
+            reason: string | null
+          }
+          rollout: { status: string; reason: string | null }
+        }
+      | null
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-")
+  expect(expectedReportBeforeDownload?.snapshot).not.toBeNull()
+  expect(report.snapshot).not.toBeNull()
+  expect(report.status).toBe(expectedReportBeforeDownload?.status ?? "pending")
+  expect(report.trackScopeId).toBe(expectedReportBeforeDownload?.snapshot?.trackScopeId ?? SLUG)
+  expect(report.checklistStatus).toBe(expectedReportBeforeDownload?.snapshot?.gate.status ?? "pending")
+  expect(report.snapshot?.flags.appendableQueueShadowPitchEnabled).toBe(true)
+  expect(report.snapshot?.activation.pitchShadowActive).toBe(true)
+  expect(report.snapshot?.transport.supportsIndependentPitch).toBe(
+    expectedReportBeforeDownload?.snapshot?.transport.supportsIndependentPitch ?? null
+  )
+  expect(report.snapshot?.transport.tempo).toBe(expectedReportBeforeDownload?.snapshot?.transport.tempo ?? null)
+  expect(report.snapshot?.transport.pitchSemitones).toBe(
+    expectedReportBeforeDownload?.snapshot?.transport.pitchSemitones ?? null
+  )
+  expect(report.snapshot?.pitch.scenario).toBe(expectedReportBeforeDownload?.snapshot?.pitch.scenario ?? null)
+  expect(report.snapshot?.pitch.shadowEnabled).toBe(true)
+  expect(report.snapshot?.pitch.supportsIndependentPitch).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.supportsIndependentPitch ?? null
+  )
+  expect(report.snapshot?.pitch.targetTempo).toBe(expectedReportBeforeDownload?.snapshot?.pitch.targetTempo ?? null)
+  expect(report.snapshot?.pitch.observedTempo).toBe(expectedReportBeforeDownload?.snapshot?.pitch.observedTempo ?? null)
+  expect(report.snapshot?.pitch.targetPitchSemitones).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.targetPitchSemitones ?? null
+  )
+  expect(report.snapshot?.pitch.observedPitchSemitones).toBe(
+    expectedReportBeforeDownload?.snapshot?.pitch.observedPitchSemitones ?? null
+  )
+  expect(report.snapshot?.pitch.passed).toBe(expectedReportBeforeDownload?.snapshot?.pitch.passed ?? null)
+  expect(report.snapshot?.pitch.reason).toBe(expectedReportBeforeDownload?.snapshot?.pitch.reason ?? null)
+  expect(report.snapshot?.rollout.status).toBe(expectedReportBeforeDownload?.snapshot?.rollout.status ?? "pending")
+  expect(report.snapshot?.rollout.reason ?? null).toBe(expectedReportBeforeDownload?.snapshot?.rollout.reason ?? null)
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)

@@ -3223,3 +3223,41 @@ Suggested opening prompt for the next window:
 11. Practical consequence after `8.177`:
    - the previous “old postmessage route stress instability” note is no longer blocking route-player regression work on this host
    - the next autonomous window can move on to new route-level qualification or other appendable work, instead of re-debugging this test/save-current loop again
+
+## 8.178 Normal-route pitch-shadow downloads now preserve the latest committed proof, and pitch verdicts are no longer coupled to transport cleanliness
+1. The next route-level slice stayed inside the existing hidden `/sound/...` pitch-shadow path.
+2. No rollout behavior changed:
+   - `safe_rollout` still keeps `tempo: off / pitch: off`
+   - this slice only tightened the diagnostics/report contract around the normal-route shadow proof
+3. A real race existed in the route download path:
+   - `downloadReport()` and `downloadPacket()` defaulted to the React state copy of `appendableRoutePilotReport`
+   - immediately after `runPitchShadowPilot()` that state could lag behind the latest committed ref-backed report
+   - as a result, direct downloads could miss the freshest route-side pitch proof even though the debug API had already committed it
+4. That default download path now reads from `appendableRoutePilotReportRef.current` when no explicit override is provided.
+5. A second route-level semantics fix was needed for stable pitch proof:
+   - the `pitch` block had been failing whenever runtime transport was not perfectly clean, even though transport already has its own counters/verdicts
+   - route-side pitch proof is now scoped to what it actually needs to prove:
+     - shadow flag active
+     - independent pitch support available
+     - tempo/pitch controls converge to the requested values
+   - underrun/discontinuity cleanliness remains in the `transport` block instead of making the `pitch` block fail for an unrelated reason
+6. Practical consequence:
+   - normal-route pitch shadow proof is now composable with the rest of the report
+   - direct `downloadPacket()` / `downloadReport()` immediately after `runPitchShadowPilot()` preserve the latest committed route-side pitch evidence
+   - pitch qualification and transport qualification are now separate evidence layers instead of one block masking the other
+7. New executable route-side proof entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|pitch shadow report evidence rehydrates after reload on the normal route|downloaded pitch shadow packet preserves route proof on the normal route|downloaded pitch shadow report preserves route proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|pitch shadow report evidence rehydrates after reload on the normal route|downloaded pitch shadow packet preserves route proof on the normal route|downloaded pitch shadow report preserves route proof on the normal route"`
+8. Verification completed locally:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|pitch shadow report evidence rehydrates after reload on the normal route|downloaded pitch shadow packet preserves route proof on the normal route|downloaded pitch shadow report preserves route proof on the normal route"` → `4/4`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|pitch shadow report evidence rehydrates after reload on the normal route|downloaded pitch shadow packet preserves route proof on the normal route|downloaded pitch shadow report preserves route proof on the normal route"` → `4/4`
+   - `npx tsc --noEmit`
+   - `npm run build`
+9. Practical consequence after `8.178`:
+   - route-side pitch evidence now survives all three surfaces that matter:
+     - immediate debug result
+     - persisted reload/hydration
+     - direct report/packet downloads
+   - the next autonomous route-level window no longer needs to re-check whether normal-route pitch proof disappears during export
