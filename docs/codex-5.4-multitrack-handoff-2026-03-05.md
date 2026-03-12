@@ -3524,3 +3524,36 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.186`:
    - route-side pitch shadow evidence now retains not only the final pitch verdict, but also explicit foreground-loss telemetry through reload and export surfaces
    - the next autonomous route-level step is no longer about persistence/report shape; it is genuinely about platform-dependent background/interruption/session behavior
+
+## 8.187 Route-side lifecycle persistence now records pagehide/pageshow explicitly and keeps the latest pitch proof through reload
+1. After `8.186`, the next autonomous slice was the narrowest true lifecycle step before background/interruption policy work:
+   - make route-side evidence explicit about `pagehide` / `pageshow`, not just generic focus telemetry
+   - ensure the latest hidden pitch-shadow proof survives an actual reload lifecycle boundary rather than being replaced by an older proof or a freshly reset pending snapshot
+2. `MultiTrackPlayer` route diagnostics now extend the persisted `visibility` snapshot with:
+   - `pageHideCount`
+   - `pageShowCount`
+   - `window:pagehide` / `window:pageshow` as explicit lifecycle events
+3. Route-side persistence behavior was tightened in two important runtime ways:
+   - `pagehide` now performs an explicit route-report storage write, so lifecycle exit persists the latest committed route evidence instead of relying on React state flush timing
+   - direct report commits now update the route-report ref synchronously for object snapshots, so a just-produced pitch-shadow proof is available to lifecycle persistence immediately
+4. The visibility/lifecycle harness was also stabilized:
+   - route snapshot building now reads the visibility ref directly, which removes accidental feedback between visibility state updates and report-building dependencies
+   - the synthetic initial `pageshow` bootstrap is now one-shot per track scope instead of re-firing on every effect rebind
+   - this prevents pathological `pageShowCount` growth and keeps lifecycle evidence meaningful
+5. The focused reload proof on the normal `/sound/...` route was tightened accordingly:
+   - pre-reload, the third focus-aware pitch proof still has to be the live latest proof
+   - post-reload, persisted state must retain that same final proof
+   - persisted state must also retain explicit `pageHideCount >= 1` and `pageShowCount >= 1`
+6. New executable entrypoints for this lifecycle-specific checkpoint:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+7. Verification completed locally:
+   - Chromium lifecycle reload proof → `1/1`
+   - WebKit lifecycle reload proof → `1/1`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.187`:
+   - route-side persisted evidence now distinguishes real reload lifecycle boundaries from generic focus churn
+   - the latest pitch-shadow proof no longer regresses to an older proof on reload because lifecycle persistence now sees the latest committed report
+   - the next autonomous step can move into true background/interruption/session behavior instead of further fixing reload bookkeeping

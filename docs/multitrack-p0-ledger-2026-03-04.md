@@ -5568,3 +5568,50 @@ Residual note по verification:
 1. Route-side pitch shadow evidence теперь хранит не только final verdict, но и явный foreground-loss / focus-return telemetry contract.
 2. Cheap route-side persistence block на этом уровне фактически закрыт.
 3. Следующий автономный класс задач уже действительно platform-dependent: visibility/background/interruption/session behavior, а не ещё один report-shape extension.
+
+## 9.135 Route-side reload lifecycle теперь фиксирует `pagehide/pageshow` и больше не теряет latest pitch proof
+
+Что оставалось после `9.134`:
+1. Persisted route evidence уже умел хранить focus/visibility telemetry.
+2. Но reload boundary всё ещё не была выражена явно как lifecycle contract:
+   - не было отдельных `pageHideCount` / `pageShowCount`
+   - route-side reload proof мог вернуться не с latest pitch proof, а с более старым report snapshot, если lifecycle persistence догоняла React state слишком поздно
+
+Что добавлено:
+1. В `app/components/MultiTrackPlayer.tsx` route visibility snapshot расширен lifecycle-полями:
+   - `pageHideCount`
+   - `pageShowCount`
+   - `window:pagehide`
+   - `window:pageshow`
+2. Route-side lifecycle persistence усилен технически:
+   - `pagehide` теперь делает явный storage write для appendable route report
+   - object-style `commitAppendableRoutePilotReport(nextReport)` теперь обновляет report ref синхронно, а не только внутри React state updater
+   - это убирает race, где reload успевал сохранить не latest pitch proof, а предыдущий snapshot
+3. Visibility/report plumbing стабилизирован дополнительно:
+   - build snapshot теперь берёт visibility из ref, а не из state-captured closure
+   - synthetic bootstrap `pageshow` стал one-shot на `trackScopeId`, поэтому `pageShowCount` больше не раздувается на repeated effect rebind
+4. `tests/e2e/appendable-queue-player-pilot.spec.ts` получил узкий lifecycle-specific proof:
+   - focus-aware route matrix по-прежнему строит три pitch shadow шага
+   - затем reload обязан восстановить именно финальный шаг `1.09 / +6`
+   - и одновременно показать `pageHideCount >= 1`, `pageShowCount >= 1`
+
+Почему это важно:
+1. Это первый route-level checkpoint, который уже различает просто focus churn и настоящий reload lifecycle boundary.
+2. Persisted route evidence теперь хранит не только факт foreground-loss, но и сам reload transition.
+3. Route-side hidden pitch shadow proof больше не регрессирует к более старому proof после reload.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+
+Проверка:
+1. Chromium lifecycle reload proof — `1/1`
+2. WebKit lifecycle reload proof — `1/1`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.135`:
+1. Route-side reload lifecycle теперь явно отражён в persisted report через `pagehide/pageshow`.
+2. Latest pitch shadow proof сохраняется через reload корректно и больше не откатывается к предыдущему шагу из-за timing race.
+3. Следующий автономный слой работы действительно смещается из bookkeeping в platform-dependent background/interruption/session behavior.

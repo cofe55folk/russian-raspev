@@ -169,6 +169,8 @@ type AppendableRouteVisibilityState = "visible" | "hidden"
 type AppendableRouteVisibilityEvent =
   | "window:blur"
   | "window:focus"
+  | "window:pagehide"
+  | "window:pageshow"
   | "document:hidden"
   | "document:visible"
 type AppendableRouteVisibilitySnapshot = {
@@ -176,6 +178,8 @@ type AppendableRouteVisibilitySnapshot = {
   lostForeground: boolean
   blurCount: number
   focusCount: number
+  pageHideCount: number
+  pageShowCount: number
   visibilityHiddenCount: number
   visibilityVisibleCount: number
   hiddenWhilePlayingCount: number
@@ -851,6 +855,8 @@ function createAppendableRouteVisibilitySnapshot(): AppendableRouteVisibilitySna
     lostForeground: false,
     blurCount: 0,
     focusCount: 0,
+    pageHideCount: 0,
+    pageShowCount: 0,
     visibilityHiddenCount: 0,
     visibilityVisibleCount: 0,
     hiddenWhilePlayingCount: 0,
@@ -938,6 +944,8 @@ function cloneAppendableRouteVisibilitySnapshot(
     lostForeground: snapshot.lostForeground,
     blurCount: snapshot.blurCount,
     focusCount: snapshot.focusCount,
+    pageHideCount: snapshot.pageHideCount,
+    pageShowCount: snapshot.pageShowCount,
     visibilityHiddenCount: snapshot.visibilityHiddenCount,
     visibilityVisibleCount: snapshot.visibilityVisibleCount,
     hiddenWhilePlayingCount: snapshot.hiddenWhilePlayingCount,
@@ -972,6 +980,8 @@ function hasAppendableRouteVisibilityEvidence(snapshot: AppendableRouteVisibilit
     snapshot.lostForeground ||
     snapshot.blurCount > 0 ||
     snapshot.focusCount > 0 ||
+    snapshot.pageHideCount > 0 ||
+    snapshot.pageShowCount > 0 ||
     snapshot.visibilityHiddenCount > 0 ||
     snapshot.visibilityVisibleCount > 0 ||
     snapshot.hiddenWhilePlayingCount > 0 ||
@@ -1159,6 +1169,8 @@ function mergeAppendableRouteVisibilitySnapshot(
     lostForeground: snapshot.lostForeground || previousSnapshot.lostForeground,
     blurCount: Math.max(snapshot.blurCount, previousSnapshot.blurCount),
     focusCount: Math.max(snapshot.focusCount, previousSnapshot.focusCount),
+    pageHideCount: Math.max(snapshot.pageHideCount, previousSnapshot.pageHideCount),
+    pageShowCount: Math.max(snapshot.pageShowCount, previousSnapshot.pageShowCount),
     visibilityHiddenCount: Math.max(snapshot.visibilityHiddenCount, previousSnapshot.visibilityHiddenCount),
     visibilityVisibleCount: Math.max(snapshot.visibilityVisibleCount, previousSnapshot.visibilityVisibleCount),
     hiddenWhilePlayingCount: Math.max(snapshot.hiddenWhilePlayingCount, previousSnapshot.hiddenWhilePlayingCount),
@@ -1793,6 +1805,16 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                         Number.isFinite(parsed.snapshot.visibility.focusCount)
                           ? parsed.snapshot.visibility.focusCount
                           : 0,
+                      pageHideCount:
+                        typeof parsed.snapshot.visibility.pageHideCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.pageHideCount)
+                          ? parsed.snapshot.visibility.pageHideCount
+                          : 0,
+                      pageShowCount:
+                        typeof parsed.snapshot.visibility.pageShowCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.pageShowCount)
+                          ? parsed.snapshot.visibility.pageShowCount
+                          : 0,
                       visibilityHiddenCount:
                         typeof parsed.snapshot.visibility.visibilityHiddenCount === "number" &&
                         Number.isFinite(parsed.snapshot.visibility.visibilityHiddenCount)
@@ -1816,6 +1838,8 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                       lastEvent:
                         parsed.snapshot.visibility.lastEvent === "window:blur" ||
                         parsed.snapshot.visibility.lastEvent === "window:focus" ||
+                        parsed.snapshot.visibility.lastEvent === "window:pagehide" ||
+                        parsed.snapshot.visibility.lastEvent === "window:pageshow" ||
                         parsed.snapshot.visibility.lastEvent === "document:hidden" ||
                         parsed.snapshot.visibility.lastEvent === "document:visible"
                           ? parsed.snapshot.visibility.lastEvent
@@ -3333,6 +3357,10 @@ export default function MultiTrackPlayer({
   const [appendableRouteVisibilitySnapshot, setAppendableRouteVisibilitySnapshot] = useState<AppendableRouteVisibilitySnapshot>(
     () => createAppendableRouteVisibilitySnapshot()
   )
+  const appendableRouteVisibilitySnapshotRef = useRef<AppendableRouteVisibilitySnapshot>(
+    createAppendableRouteVisibilitySnapshot()
+  )
+  const appendableRouteVisibilityInitialPageShowRecordedRef = useRef(false)
   const [appendableRoutePilotReport, setAppendableRoutePilotReport] = useState<AppendableRoutePilotReport>(() =>
     createAppendableRoutePilotReport()
   )
@@ -4252,6 +4280,9 @@ export default function MultiTrackPlayer({
         | AppendableRoutePilotReport
         | ((current: AppendableRoutePilotReport) => AppendableRoutePilotReport)
     ) => {
+      if (typeof next !== "function") {
+        appendableRoutePilotReportRef.current = next
+      }
       setAppendableRoutePilotReport((current) => {
         const resolved = typeof next === "function" ? next(current) : next
         appendableRoutePilotReportRef.current = resolved
@@ -4283,10 +4314,24 @@ export default function MultiTrackPlayer({
   ])
 
   useEffect(() => {
-    setAppendableRouteVisibilitySnapshot(createAppendableRouteVisibilitySnapshot())
+    appendableRouteVisibilitySnapshotRef.current = appendableRouteVisibilitySnapshot
+  }, [appendableRouteVisibilitySnapshot])
+
+  useEffect(() => {
+    const nextVisibilitySnapshot = createAppendableRouteVisibilitySnapshot()
+    appendableRouteVisibilitySnapshotRef.current = nextVisibilitySnapshot
+    appendableRouteVisibilityInitialPageShowRecordedRef.current = false
+    setAppendableRouteVisibilitySnapshot(nextVisibilitySnapshot)
   }, [trackScopeId])
 
-  const buildAppendableRoutePilotSnapshot = useCallback((): AppendableRoutePilotReportSnapshot => {
+  const persistAppendableRoutePilotReportToStorage = useCallback((report: AppendableRoutePilotReport) => {
+    if (typeof window === "undefined") return
+    try {
+      window.localStorage.setItem(appendableRoutePilotReportStorageKey, JSON.stringify(report))
+    } catch {}
+  }, [appendableRoutePilotReportStorageKey])
+
+  const buildAppendableRoutePilotSnapshot = useCallback((visibilityOverride?: AppendableRouteVisibilitySnapshot): AppendableRoutePilotReportSnapshot => {
     const capturedAt = new Date().toISOString()
     const probe = cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot)
     if (probe.supportsTempo == null) {
@@ -4333,7 +4378,9 @@ export default function MultiTrackPlayer({
       transport: createAppendableRouteTransportSnapshot(),
       qualification: createAppendableRouteQualificationSnapshot(),
       stress: createAppendableRouteStressSnapshot(),
-      visibility: cloneAppendableRouteVisibilitySnapshot(appendableRouteVisibilitySnapshot),
+      visibility: cloneAppendableRouteVisibilitySnapshot(
+        visibilityOverride ?? appendableRouteVisibilitySnapshotRef.current
+      ),
       pitch: createAppendableRoutePitchSnapshot(),
       rollout: createAppendableRouteRolloutSnapshot(),
     }
@@ -4360,7 +4407,6 @@ export default function MultiTrackPlayer({
     appendableRoutePitchShadowActive,
     appendableQueueRuntimeProbeSnapshot,
     appendableQueueSourceProgressSnapshot,
-    appendableRouteVisibilitySnapshot,
     trackScopeId,
   ])
 
@@ -7943,27 +7989,43 @@ export default function MultiTrackPlayer({
     }
   }, [activeEngineMode, isPlaying])
 
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") return
+  const commitAppendableRouteVisibilitySnapshot = useCallback((snapshot: AppendableRouteVisibilitySnapshot) => {
+    appendableRouteVisibilitySnapshotRef.current = snapshot
+    setAppendableRouteVisibilitySnapshot(snapshot)
+  }, [])
 
-    const recordVisibilityEvent = (event: "window:blur" | "window:focus" | "document:visibility") => {
+  const recordAppendableRouteVisibilityEvent = useCallback(
+    (
+      event: "window:blur" | "window:focus" | "window:pagehide" | "window:pageshow" | "document:visibility",
+      options?: { persistReport?: boolean }
+    ) => {
+      if (typeof document === "undefined") return
       const visibilityState: AppendableRouteVisibilityState = document.visibilityState === "hidden" ? "hidden" : "visible"
       const persistedEvent: AppendableRouteVisibilityEvent =
         event === "document:visibility" ? `document:${visibilityState}` : event
-      setAppendableRouteVisibilitySnapshot((current) => ({
+      const current = appendableRouteVisibilitySnapshotRef.current
+      const nextSnapshot: AppendableRouteVisibilitySnapshot = {
         currentState: visibilityState,
-        lostForeground: current.lostForeground || event === "window:blur" || visibilityState === "hidden",
+        lostForeground:
+          current.lostForeground ||
+          event === "window:blur" ||
+          event === "window:pagehide" ||
+          visibilityState === "hidden",
         blurCount: current.blurCount + (event === "window:blur" ? 1 : 0),
         focusCount: current.focusCount + (event === "window:focus" ? 1 : 0),
+        pageHideCount: current.pageHideCount + (event === "window:pagehide" ? 1 : 0),
+        pageShowCount: current.pageShowCount + (event === "window:pageshow" ? 1 : 0),
         visibilityHiddenCount: current.visibilityHiddenCount + (persistedEvent === "document:hidden" ? 1 : 0),
         visibilityVisibleCount: current.visibilityVisibleCount + (persistedEvent === "document:visible" ? 1 : 0),
         hiddenWhilePlayingCount:
           current.hiddenWhilePlayingCount + (persistedEvent === "document:hidden" && isPlayingRef.current ? 1 : 0),
         focusWhilePlayingCount:
-          current.focusWhilePlayingCount + (event === "window:focus" && isPlayingRef.current ? 1 : 0),
+          current.focusWhilePlayingCount +
+          ((event === "window:focus" || event === "window:pageshow") && isPlayingRef.current ? 1 : 0),
         lastEvent: persistedEvent,
         lastEventAt: new Date().toISOString(),
-      }))
+      }
+      commitAppendableRouteVisibilitySnapshot(nextSnapshot)
       logAudioDebug("audio:focus_state", {
         event: persistedEvent,
         currentSec: Number(positionSecRef.current.toFixed(3)),
@@ -7971,33 +8033,73 @@ export default function MultiTrackPlayer({
         playing: isPlayingRef.current,
         mode: activeEngineMode,
       })
-    }
+      const canPersistLifecycleReport =
+        event === "window:pagehide" ||
+        appendableRoutePilotReportHydratedStorageKey === appendableRoutePilotReportStorageKey
+      if (options?.persistReport && canPersistLifecycleReport) {
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(buildAppendableRoutePilotSnapshot(nextSnapshot), {
+          autoStatus: true,
+        })
+        commitAppendableRoutePilotReport(nextReport)
+        persistAppendableRoutePilotReportToStorage(nextReport)
+      }
+    },
+    [
+      activeEngineMode,
+      buildAppendableRoutePilotReportWithSnapshot,
+      buildAppendableRoutePilotSnapshot,
+      appendableRoutePilotReportHydratedStorageKey,
+      appendableRoutePilotReportStorageKey,
+      commitAppendableRoutePilotReport,
+      commitAppendableRouteVisibilitySnapshot,
+      persistAppendableRoutePilotReportToStorage,
+    ]
+  )
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return
 
     const handleBlur = () => {
-      recordVisibilityEvent("window:blur")
+      recordAppendableRouteVisibilityEvent("window:blur")
     }
 
     const handleFocus = () => {
-      recordVisibilityEvent("window:focus")
+      recordAppendableRouteVisibilityEvent("window:focus")
+    }
+
+    const handlePageHide = () => {
+      recordAppendableRouteVisibilityEvent("window:pagehide", { persistReport: true })
+    }
+
+    const handlePageShow = () => {
+      recordAppendableRouteVisibilityEvent("window:pageshow", { persistReport: true })
     }
 
     const handleVisibilityChange = () => {
-      recordVisibilityEvent("document:visibility")
+      recordAppendableRouteVisibilityEvent("document:visibility")
     }
 
-    setAppendableRouteVisibilitySnapshot((current) => ({
-      ...current,
+    commitAppendableRouteVisibilitySnapshot({
+      ...appendableRouteVisibilitySnapshotRef.current,
       currentState: document.visibilityState === "hidden" ? "hidden" : "visible",
-    }))
+    })
+    if (!appendableRouteVisibilityInitialPageShowRecordedRef.current) {
+      appendableRouteVisibilityInitialPageShowRecordedRef.current = true
+      recordAppendableRouteVisibilityEvent("window:pageshow", { persistReport: true })
+    }
     window.addEventListener("blur", handleBlur)
     window.addEventListener("focus", handleFocus)
+    window.addEventListener("pagehide", handlePageHide)
+    window.addEventListener("pageshow", handlePageShow)
     document.addEventListener("visibilitychange", handleVisibilityChange)
     return () => {
       window.removeEventListener("blur", handleBlur)
       window.removeEventListener("focus", handleFocus)
+      window.removeEventListener("pagehide", handlePageHide)
+      window.removeEventListener("pageshow", handlePageShow)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [activeEngineMode])
+  }, [commitAppendableRouteVisibilitySnapshot, recordAppendableRouteVisibilityEvent])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -9307,6 +9409,11 @@ export default function MultiTrackPlayer({
   }
 
   const getAppendableRoutePilotDebugState = useCallback((): AppendableRoutePilotDebugState => {
+    const effectiveReport =
+      typeof window !== "undefined" && appendableRoutePilotReportHydratedStorageKey !== appendableRoutePilotReportStorageKey
+        ? restoreAppendableRoutePilotReport(window.localStorage.getItem(appendableRoutePilotReportStorageKey)) ??
+          appendableRoutePilotReportRef.current
+        : appendableRoutePilotReportRef.current
     return {
       trackScopeId,
       playing: isPlayingRef.current,
@@ -9318,13 +9425,15 @@ export default function MultiTrackPlayer({
       },
       runtimeProbe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
-      report: cloneAppendableRoutePilotReport(appendableRoutePilotReportRef.current),
+      report: cloneAppendableRoutePilotReport(effectiveReport),
     }
   }, [
     activeEngineMode,
     appendablePilotChecklistState.status,
     appendablePilotChecklistState.statusLabel,
     appendablePilotChecklistState.steps,
+    appendableRoutePilotReportHydratedStorageKey,
+    appendableRoutePilotReportStorageKey,
     appendableQueueRuntimeProbeSnapshot,
     appendableQueueSourceProgressSnapshot,
     trackScopeId,
@@ -13018,7 +13127,9 @@ export default function MultiTrackPlayer({
                                 {appendableRoutePilotReport.snapshot.visibility.focusCount} / hidden=
                                 {appendableRoutePilotReport.snapshot.visibility.visibilityHiddenCount} / visible=
                                 {appendableRoutePilotReport.snapshot.visibility.visibilityVisibleCount} / hidden_playing=
-                                {appendableRoutePilotReport.snapshot.visibility.hiddenWhilePlayingCount}
+                                {appendableRoutePilotReport.snapshot.visibility.hiddenWhilePlayingCount} / pagehide=
+                                {appendableRoutePilotReport.snapshot.visibility.pageHideCount} / pageshow=
+                                {appendableRoutePilotReport.snapshot.visibility.pageShowCount}
                                 {appendableRoutePilotReport.snapshot.visibility.lastEvent
                                   ? ` / last=${appendableRoutePilotReport.snapshot.visibility.lastEvent}`
                                   : ""}
