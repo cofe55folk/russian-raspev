@@ -5184,3 +5184,60 @@ Residual note по verification:
 1. Предыдущий residual про old postmessage route stress больше не блокирует route-player regression loop именно как test/save-current проблема на этом хосте.
 2. Этот slice доказывает корректность artifact preservation и debug/report consistency, а не “идеальный transport без underrun при любом stress”.
 3. Следующее автономное окно можно снова тратить на новый appendable groundwork или qualification widening, а не на повторный ремонт этого regression harness.
+
+## 9.126 Normal-route pitch-shadow downloads теперь сохраняют последний committed proof, а pitch verdict больше не зависит от transport cleanliness
+
+Что было следующим узким слоем:
+1. После `9.125` route-player regression снова стал зелёным, поэтому следующий самостоятельный шаг уже не трогал общий harness.
+2. Взяли более узкий normal-route contract:
+   - hidden pitch-shadow path на `/sound/...`
+   - persistence/download surface после `runPitchShadowPilot()`
+   - без widening rollout policy
+
+Что оказалось проблемой:
+1. `downloadReport()` и `downloadPacket()` по умолчанию брали `appendableRoutePilotReport` из React state.
+2. Сразу после `runPitchShadowPilot()` эта state-копия могла отставать от уже committed ref-backed report.
+3. В результате direct downloads рисковали сохранить не самый свежий route-side pitch proof.
+4. Параллельно выяснилось, что `pitch` block в report слишком жёстко зависел от transport cleanliness:
+   - если transport уже нёс discontinuity counters, `pitch.passed` становился `false`
+   - хотя transport verdict уже и так отдельно сохраняет underrun/discontinuity evidence
+
+Что изменено:
+1. `app/components/MultiTrackPlayer.tsx`
+   - default path для `downloadAppendableRoutePilotReport()` и `downloadAppendableRoutePilotPacket()` теперь читает `appendableRoutePilotReportRef.current`
+   - `pitch` block route report больше не валится из-за общего transport cleanliness
+   - теперь route-side pitch proof проверяет только свой собственный контракт:
+     - shadow flag active
+     - independent pitch support
+     - convergence к requested tempo/pitch values
+2. `tests/e2e/appendable-queue-player-pilot.spec.ts`
+   - добавлен direct packet proof после `runPitchShadowPilot()`
+   - добавлен direct report proof после `runPitchShadowPilot()`
+   - оба сравнивают downloaded artifact с latest committed route report evidence
+
+Почему это полезно:
+1. Теперь есть три разных подтверждённых surface одного и того же route-side pitch proof:
+   - immediate debug result
+   - reload/hydration persistence
+   - direct JSON download
+2. `pitch` и `transport` больше не мешают друг другу на уровне verdict semantics:
+   - transport отвечает за runtime cleanliness
+   - pitch отвечает за support + control convergence
+3. Это делает route-shadow qualification полезнее для следующих окон: можно отдельно смотреть на transport risk и отдельно на pitch support/convergence, не теряя один сигнал из-за другого.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|pitch shadow report evidence rehydrates after reload on the normal route|downloaded pitch shadow packet preserves route proof on the normal route|downloaded pitch shadow report preserves route proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|pitch shadow report evidence rehydrates after reload on the normal route|downloaded pitch shadow packet preserves route proof on the normal route|downloaded pitch shadow report preserves route proof on the normal route"`
+
+Проверка:
+1. Chromium targeted route-shadow download/persistence proof — `4/4`
+2. WebKit targeted route-shadow download/persistence proof — `4/4`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.126`:
+1. Route-side pitch proof теперь не теряется при direct export.
+2. Route reports/downloads читают latest committed pitch-shadow evidence, а не случайный lagging render snapshot.
+3. Следующее автономное окно уже не обязано возвращаться к вопросу “не исчезает ли pitch proof при выгрузке report/packet”.
