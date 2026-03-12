@@ -5174,6 +5174,11 @@ Residual note по verification:
 3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"` — `4/4`
 4. `npx tsc --noEmit` — pass
 5. `npm run build` — pass
+6. `PR #49` повторил уже знакомый infra pattern:
+   - GitHub `validate` — pass
+   - GitHub `admin-analytics-contracts` — pass
+   - `Vercel Preview` — fail
+7. Значит этот slice ещё раз подтверждает старую рабочую трактовку: `Vercel Preview` пока остаётся repeatable preview-noise, а не доказанной app regression именно в route-player stabilization.
 
 Итог после `9.125`:
 1. Предыдущий residual про old postmessage route stress больше не блокирует route-player regression loop именно как test/save-current проблема на этом хосте.

@@ -3210,10 +3210,16 @@ Suggested opening prompt for the next window:
    - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"` → `4/4`
    - `npx tsc --noEmit`
    - `npm run build`
-9. Important nuance for future windows:
+9. External CI note from `PR #49`:
+   - both GitHub workflows passed on the PR:
+     - `validate`
+     - `admin-analytics-contracts`
+   - `Vercel Preview` failed again on the same PR
+   - this is now one more repeat of the already documented preview-noise pattern, not a new signal that the route-player stabilization slice broke app-level build correctness
+10. Important nuance for future windows:
    - this slice proves artifact preservation/reporting correctness and route-harness stability
    - it does not claim that stressed `postmessage_pcm` transport always stays at `0 underruns`
    - if transport-quality policy needs to get stricter later, that should happen in transport/qualification gates, not by reintroducing a false packet-download invariant
-10. Practical consequence after `8.177`:
+11. Practical consequence after `8.177`:
    - the previous “old postmessage route stress instability” note is no longer blocking route-player regression work on this host
    - the next autonomous window can move on to new route-level qualification or other appendable work, instead of re-debugging this test/save-current loop again
