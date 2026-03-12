@@ -3557,3 +3557,74 @@ Suggested opening prompt for the next window:
    - route-side persisted evidence now distinguishes real reload lifecycle boundaries from generic focus churn
    - the latest pitch-shadow proof no longer regresses to an older proof on reload because lifecycle persistence now sees the latest committed report
    - the next autonomous step can move into true background/interruption/session behavior instead of further fixing reload bookkeeping
+
+## 8.188 Route-side background-aware pitch proof now persists hidden/pagehide/pageshow evidence across reload and export surfaces
+1. After `8.187`, the next autonomous step still below product-level Safari policy was to move from focus churn to deterministic background-like lifecycle churn:
+   - explicit `document:hidden`
+   - explicit `pagehide`
+   - explicit `pageshow`
+   - explicit foreground return
+2. To make that executable on CI without claiming OS-level background semantics, route debug tooling now exposes a debug-only synthetic lifecycle cycle:
+   - hidden-state visibility event
+   - `pagehide` persistence edge
+   - delayed `pageshow`
+   - visible-state restore plus focus return
+3. The new background-aware route pitch matrix now covers:
+   - pitch proof `1.04 / +2`
+   - synthetic background lifecycle cycle
+   - pitch proof `0.96 / -1`
+   - second synthetic background lifecycle cycle
+   - final pitch proof `1.08 / +5`
+4. The contract now proven on the normal `/sound/...` route is:
+   - reload/hydration preserves that final `1.08 / +5` proof
+   - direct `downloadReport()` preserves the same proof
+   - direct `downloadPacket()` preserves the same proof
+   - `saveCurrentDiagnostics()` preserves the same proof
+   - persisted route evidence now retains `visibilityHiddenCount`, `visibilityVisibleCount`, `hiddenWhilePlayingCount`, `pageHideCount`, and `pageShowCount`
+5. Important harness note:
+   - this is a debug-only synthetic lifecycle nudge, not a claim that CI is reproducing real OS backgrounding
+   - the value of the slice is that route persistence, report merging, and export surfaces now handle hidden/pagehide/pageshow transitions deterministically across Chromium and WebKit
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "background-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest background-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest background-aware route proof on the normal route|save-current diagnostics preserves the latest background-aware pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "background-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest background-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest background-aware route proof on the normal route|save-current diagnostics preserves the latest background-aware pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium background-aware route proof → `4/4`
+   - WebKit background-aware route proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.188`:
+   - route-side evidence now covers deterministic hidden/pagehide/pageshow churn, not only focus loss
+   - the next autonomous route-level slice can move from pure background-like lifecycle churn into interruption-adjacent pause/foreground-resume behavior
+
+## 8.189 Route-side pause-hidden-resume proof now survives reload as an interruption-adjacent checkpoint
+1. After `8.188`, the smallest next step toward interruption territory was not full audio-session policy work, but a narrower interruption-adjacent route proof:
+   - pause playback
+   - push the route through the synthetic hidden/pagehide/pageshow cycle
+   - resume playback
+   - require the next pitch proof to become the persisted latest proof
+2. The new pause-hidden-resume route matrix covers:
+   - initial pitch proof `1.01 / +2`
+   - explicit `pause()`
+   - synthetic hidden/pagehide/pageshow cycle
+   - explicit `play()`
+   - final pitch proof `1.03 / +4`
+3. The contract now proven is narrower than full interruption/session behavior, but still meaningful:
+   - reload/hydration preserves the final `1.03 / +4` proof after the pause-hidden-resume cycle
+   - persisted route evidence still retains hidden/pagehide/pageshow counters after resume
+4. This slice deliberately stops short of claiming real platform interruption parity:
+   - it does not assert actual `AudioContext.interrupted`
+   - it does not change Safari/iPhone session policy
+   - it simply proves that route persistence and latest-proof semantics remain coherent after a pause-background-resume style lifecycle sequence
+5. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+6. Verification completed locally:
+   - Chromium pause-hidden-resume route proof → `1/1`
+   - WebKit pause-hidden-resume route proof → `1/1`
+   - `npx tsc --noEmit`
+7. Practical consequence after `8.189`:
+   - route-side qualification now has an interruption-adjacent checkpoint without yet crossing into product-level audio-session decisions
+   - the next truly new autonomous layer is platform-dependent background/interruption behavior beyond synthetic lifecycle nudges
