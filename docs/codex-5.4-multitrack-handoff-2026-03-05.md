@@ -2932,3 +2932,28 @@ Suggested opening prompt for the next window:
    - SAB is no longer only a readiness/report concept inside the appendable stack
    - the next SAB-focused window can move toward real COI route or lab qualification instead of starting from zero transport plumbing
    - current non-COI rollout behavior remains green because `postmessage_pcm` fallback was kept intact through the refactor
+
+## 8.170 The appendable lab now runs in a real cross-origin isolated environment for SAB qualification
+1. This slice is intentionally lab-only.
+2. It does not change the normal `/sound/...` route rollout path and does not yet switch the active appendable PCM lane there.
+3. Instead, `next.config.ts` now adds:
+   - `Cross-Origin-Opener-Policy: same-origin`
+   - `Cross-Origin-Embedder-Policy: require-corp`
+   - only for `/appendable-queue-lab`
+4. Practical consequence for the lab harness:
+   - `crossOriginIsolated` is now expected to be `true`
+   - `sabReady` is now expected to be `true`
+   - `preferredDataPlaneMode` is now expected to be `sab_ring_preferred`
+   - the active lane on this branch still remains `dataPlaneMode = postmessage_pcm`, because the actual SAB transport migration is a later runtime slice
+5. This is important context for future windows:
+   - the team now has a real isolated browser harness for SAB work
+   - not just a readiness dashboard that says SAB would be preferred if headers existed
+   - but this still should not be confused with broad route rollout or production-facing transport qualification
+6. Verification completed locally:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` → pass
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `8/8`
+   - `npx tsc --noEmit`
+   - `npm run build`
+7. Practical consequence after `8.170`:
+   - the next SAB-focused window can validate real isolated-browser behavior on the existing lab page without first redoing COI/header plumbing
+   - the normal route surface remains unchanged and can continue to serve as the non-COI fallback reference

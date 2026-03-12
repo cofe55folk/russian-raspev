@@ -4827,3 +4827,37 @@ Recommendation order после review:
 1. Appendable stack теперь имеет уже не только SAB readiness diagnostics, но и реальный optional SAB PCM lane implementation.
 2. Следующий SAB window больше не обязан начинать с нуля transport plumbing; он может идти уже в сторону real COI route qualification / lab activation.
 3. При этом current fallback route contract не потерян: `postmessage_pcm` lane остаётся зелёным и полностью совместимым с текущим non-COI rollout environment.
+
+## 9.118 `/appendable-queue-lab` теперь запускается в cross-origin isolated окружении и реально показывает SAB-ready diagnostics
+
+Что сделано:
+1. Следующий slice после `9.117` не меняет current `/sound/...` rollout path и не включает `sab_ring` на обычном route.
+2. Изменение намеренно узкое и лабораторное:
+   - в `next.config.ts` добавлены `Cross-Origin-Opener-Policy: same-origin`
+   - и `Cross-Origin-Embedder-Policy: require-corp`
+   - только для `/appendable-queue-lab`
+3. Это переводит lab harness в реальное cross-origin isolated окружение, а не только в hypothetical readiness surface.
+4. Lab contract обновлён под новый expected state:
+   - `crossOriginIsolated = true`
+   - `sabReady = true`
+   - `preferredDataPlaneMode = sab_ring_preferred`
+   - при этом current active lane на develop всё ещё остаётся `dataPlaneMode = postmessage_pcm`, потому что actual SAB transport migration живёт отдельным следующим runtime slice
+
+Что это означает practically:
+1. У команды теперь есть реальный isolated browser harness для следующего SAB transport этапа.
+2. Это уже не просто “браузер мог бы поддерживать SAB при правильных headers”, а конкретная lab page, где readiness действительно поднимается.
+3. Но это ещё не означает broad rollout change:
+   - обычный `/sound/...` route остаётся в прежнем non-COI режиме
+   - route transport qualification semantics не менялись
+   - lab isolation пока не переносилась на production-facing route surface
+
+Проверка:
+1. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `8/8`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.118`:
+1. Appendable lab теперь может служить реальным COI qualification harness для будущего SAB lane, а не только readiness dashboard.
+2. Следующий SAB-focused slice сможет валидировать actual isolated-browser behavior уже на существующей lab page, не начиная с header plumbing заново.
+3. Current production-facing route surface при этом не затронут и продолжает жить в прежнем fallback-friendly режиме.
