@@ -5033,3 +5033,51 @@ Recommendation order после review:
 1. Репозиторий теперь уже содержит реальный worklet-local pitch groundwork для appendable path.
 2. Safari/WebKit qualification matrix зафиксирован не только текстом, но и точными spec entrypoints, которые можно запускать без повторной интерпретации handoff notes.
 3. Следующее окно может либо widen’ить pitch criteria/range, либо переносить qualification на более реальный route surface, не начиная этот контракт с нуля.
+
+## 9.123 Lab pitch qualification теперь выражен как реальная matrix с численными gates, а повторяющийся `Vercel Preview` fail зафиксирован как пока не диагностированный deploy-side noise
+
+Что сделано:
+1. Этот slice не менял normal `/sound/...` rollout path и не выводил pitch за пределы isolated lab.
+2. Вместо этого existing lab-gated pitch contract из `9.122` поднят до полноценного qualification surface:
+   - добавлен bounded cross-browser proof для `tempo + pitch`
+   - добавлен Chromium-only semitone matrix на `-12 / -7 / -4 / +4 / +7 / +12`
+   - добавлен Chromium-only `tempo + pitch + soak + interruption` stress path
+3. В tests теперь зашиты явные numerical gates, а не только логическое “играет / не играет”:
+   - `stemDriftSec < 0.04`
+   - `transportDriftSec < 0.08`
+   - `totalUnderrunFrames = 0`
+   - `totalDiscontinuityCount = 0`
+   - `totalOverflowDropCount = 0`
+   - `totalOverflowDroppedFrames = 0`
+   - bounded budget для `lowWater` breaches на control-change matrix
+4. Отдельно зафиксирована полезная интерпретация telemetry:
+   - `highWater` breach counts не используются как hard pass/fail gate
+   - они остаются diagnostic signal
+   - для pitch-switch qualification более полезен bounded `lowWater` budget, а не требование literal zero на каждом шаге
+
+Исполняемые spec entrypoints:
+1. Cross-browser activation + pitch proof:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry|lab-gated worklet-local pitch changes preserve sab_ring sync|bounded tempo-plus-pitch proof preserves sab_ring sync across browsers"`
+2. Chromium full pitch matrix:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "pitch matrix across +/-4 +/-7 +/-12 stays inside explicit qualification gates|tempo-plus-pitch matrix survives soak and interruption qualification gates"`
+3. Chromium full lab regression:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium`
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "pitch matrix across +/-4 +/-7 +/-12 stays inside explicit qualification gates|tempo-plus-pitch matrix survives soak and interruption qualification gates"` — `2/2`
+3. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry|lab-gated worklet-local pitch changes preserve sab_ring sync|bounded tempo-plus-pitch proof preserves sab_ring sync across browsers"` — `6/6`
+4. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `15/15`
+
+Наблюдение по infrastructure:
+1. На двух предыдущих PR подряд `Vercel Preview` падал при зелёных:
+   - local `next build`
+   - `validate`
+   - `admin-analytics-contracts`
+2. Публичная Vercel deployment page не дала полезного build-step error текста.
+3. Пока это нужно трактовать как repeatable preview/deploy-side noise, а не как подтверждённую app regression. Если позже появится воспроизводимая deploy-specific причина, этот вывод надо пересмотреть.
+
+Итог после `9.123`:
+1. Lab pitch qualification больше не абстрактный “future idea”, а конкретная matrix с pass/fail gates.
+2. WebKit получил явный bounded `tempo + pitch` proof, а Chromium — полный semitone/tempo matrix.
+3. Следующее окно может уже переносить тот же contract на route-shadow/report surfaces, не тратя время заново на lab-level gate definition.
