@@ -1026,6 +1026,63 @@ function cloneAppendableRouteRolloutSnapshot(snapshot: AppendableRouteRolloutSna
   }
 }
 
+function preferLatestNullableNumber(current: number | null, previous: number | null): number | null {
+  return current != null ? current : previous
+}
+
+function mergeMaxNullableNumber(current: number | null, previous: number | null): number | null {
+  if (current == null) return previous
+  if (previous == null) return current
+  return Math.max(current, previous)
+}
+
+function mergeMinNullableNumber(current: number | null, previous: number | null): number | null {
+  if (current == null) return previous
+  if (previous == null) return current
+  return Math.min(current, previous)
+}
+
+function mergeAppendableRouteTransportSnapshot(
+  snapshot: AppendableRouteTransportSnapshot,
+  previousSnapshot: AppendableRouteTransportSnapshot | null
+): AppendableRouteTransportSnapshot {
+  if (!previousSnapshot) return cloneAppendableRouteTransportSnapshot(snapshot)
+  return {
+    supportsTempo: snapshot.supportsTempo ?? previousSnapshot.supportsTempo,
+    supportsIndependentPitch: snapshot.supportsIndependentPitch ?? previousSnapshot.supportsIndependentPitch,
+    tempo: preferLatestNullableNumber(snapshot.tempo, previousSnapshot.tempo),
+    pitchSemitones: preferLatestNullableNumber(snapshot.pitchSemitones, previousSnapshot.pitchSemitones),
+    dataPlaneMode: snapshot.dataPlaneMode ?? previousSnapshot.dataPlaneMode,
+    controlPlaneMode: snapshot.controlPlaneMode ?? previousSnapshot.controlPlaneMode,
+    preferredDataPlaneMode: snapshot.preferredDataPlaneMode ?? previousSnapshot.preferredDataPlaneMode,
+    sabCapable: snapshot.sabCapable ?? previousSnapshot.sabCapable,
+    sabReady: snapshot.sabReady ?? previousSnapshot.sabReady,
+    crossOriginIsolated: snapshot.crossOriginIsolated ?? previousSnapshot.crossOriginIsolated,
+    sabRequirement: snapshot.sabRequirement ?? previousSnapshot.sabRequirement,
+    sampleRates: snapshot.sampleRates.length ? snapshot.sampleRates.slice() : previousSnapshot.sampleRates.slice(),
+    appendMessageCount: Math.max(snapshot.appendMessageCount, previousSnapshot.appendMessageCount),
+    appendedMiB: mergeMaxNullableNumber(snapshot.appendedMiB, previousSnapshot.appendedMiB),
+    minLeadSec: preferLatestNullableNumber(snapshot.minLeadSec, previousSnapshot.minLeadSec),
+    maxLeadSec: preferLatestNullableNumber(snapshot.maxLeadSec, previousSnapshot.maxLeadSec),
+    minObservedLeadSec: mergeMinNullableNumber(snapshot.minObservedLeadSec, previousSnapshot.minObservedLeadSec),
+    maxObservedLeadSec: mergeMaxNullableNumber(snapshot.maxObservedLeadSec, previousSnapshot.maxObservedLeadSec),
+    minLowWaterSec: mergeMinNullableNumber(snapshot.minLowWaterSec, previousSnapshot.minLowWaterSec),
+    maxHighWaterSec: mergeMaxNullableNumber(snapshot.maxHighWaterSec, previousSnapshot.maxHighWaterSec),
+    minRefillTriggerSec: mergeMinNullableNumber(snapshot.minRefillTriggerSec, previousSnapshot.minRefillTriggerSec),
+    totalUnderrunFrames: Math.max(snapshot.totalUnderrunFrames, previousSnapshot.totalUnderrunFrames),
+    totalDiscontinuityCount: Math.max(snapshot.totalDiscontinuityCount, previousSnapshot.totalDiscontinuityCount),
+    totalLowWaterBreachCount: Math.max(snapshot.totalLowWaterBreachCount, previousSnapshot.totalLowWaterBreachCount),
+    totalHighWaterBreachCount: Math.max(snapshot.totalHighWaterBreachCount, previousSnapshot.totalHighWaterBreachCount),
+    totalOverflowDropCount: Math.max(snapshot.totalOverflowDropCount, previousSnapshot.totalOverflowDropCount),
+    totalOverflowDroppedFrames: Math.max(
+      snapshot.totalOverflowDroppedFrames,
+      previousSnapshot.totalOverflowDroppedFrames
+    ),
+    passed: snapshot.passed ?? previousSnapshot.passed,
+    reason: snapshot.reason ?? previousSnapshot.reason,
+  }
+}
+
 function mergeAppendableRoutePilotEvidenceSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot,
   previousSnapshot: AppendableRoutePilotReportSnapshot | null
@@ -1034,7 +1091,7 @@ function mergeAppendableRoutePilotEvidenceSnapshot(
   return {
     ...snapshot,
     transport: hasAppendableRouteTransportEvidence(snapshot.transport)
-      ? cloneAppendableRouteTransportSnapshot(snapshot.transport)
+      ? mergeAppendableRouteTransportSnapshot(snapshot.transport, previousSnapshot.transport)
       : cloneAppendableRouteTransportSnapshot(previousSnapshot.transport),
     qualification: hasAppendableRouteQualificationEvidence(snapshot.qualification)
       ? cloneAppendableRouteQualificationSnapshot(snapshot.qualification)
@@ -9087,7 +9144,7 @@ export default function MultiTrackPlayer({
       },
       runtimeProbe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
-      report: cloneAppendableRoutePilotReport(appendableRoutePilotReport),
+      report: cloneAppendableRoutePilotReport(appendableRoutePilotReportRef.current),
     }
   }, [
     activeEngineMode,
@@ -9096,7 +9153,6 @@ export default function MultiTrackPlayer({
     appendablePilotChecklistState.steps,
     appendableQueueRuntimeProbeSnapshot,
     appendableQueueSourceProgressSnapshot,
-    appendableRoutePilotReport,
     trackScopeId,
   ])
 

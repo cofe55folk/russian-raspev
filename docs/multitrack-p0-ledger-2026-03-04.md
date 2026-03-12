@@ -5135,3 +5135,47 @@ Residual note по verification:
 1. Pitch evidence больше не ограничен isolated lab; теперь есть и normal route shadow surface.
 2. Report persistence умеет сохранять route-side pitch proof, не меняя rollout policy.
 3. Следующее окно может либо отдельно чинить old postmessage route stress instability, либо продолжать widening pitch evidence уже поверх зафиксированного route-shadow contract.
+
+## 9.125 Route-player diagnostics теперь корректно сохраняют cumulative evidence, а полный Chromium regression sweep снова зелёный
+
+Что оказалось на деле:
+1. Residual note из `9.124` распался на два разных класса проблемы:
+   - старые cumulative packet/report спеки проверяли неверный инвариант: не сохранение уже видимого route evidence, а искусственное требование `underrun = 0`
+   - route-player harness допускал ложные reload/startup падения при холодном `next dev` boot (`ECONNREFUSED` / `fetch failed`) из-за слишком короткого readiness окна
+2. Отдельно WebKit показал ещё один реальный route-side bug:
+   - `saveCurrentDiagnostics()` мог перезаписать уже накопленное transport evidence более слабым/stale snapshot
+   - `window.__rrAppendableRoutePilotDebug.getState().report` сразу после `runStressPilot()` мог отдать устаревший React state вместо уже committed report
+
+Что изменено:
+1. `tests/e2e/appendable-queue-player-pilot.spec.ts`
+   - cumulative packet/report tests теперь сравнивают saved artifacts с live cumulative route report перед download
+   - больше нет ложного hardcoded-требования, что stressed `postmessage_pcm` route обязательно должен иметь `totalUnderrunFrames = 0`, чтобы packet/report считались корректными
+   - `waitForPlayerRouteReachable(...)` получил практический minimum startup budget и retry-поведение для transient booting-state ошибок
+2. `app/components/MultiTrackPlayer.tsx`
+   - transport evidence теперь merge’ится field-wise, а не blindly replace
+   - monotonic counters (`appendMessageCount`, `totalUnderrunFrames`, `totalDiscontinuityCount`, `totalLowWaterBreachCount`, `totalHighWaterBreachCount`, `totalOverflowDropCount`, `totalOverflowDroppedFrames`) больше не регрессируют при повторном `saveCurrentDiagnostics()`
+   - `getState().report` теперь читает `appendableRoutePilotReportRef`, а не потенциально отстающий React render snapshot
+
+Почему это важно:
+1. Route diagnostics/download surface теперь действительно сохраняет cumulative route evidence, а не может случайно “ослабить” его повторным сохранением.
+2. WebKit gap между `runStressPilot()` и `saveCurrentDiagnostics()` закрыт на уровне debug/report contract, а не workaround’ом в тесте.
+3. Полный route-player regression proof на этом хосте снова пригоден как инженерный сигнал, а не как смесь из ложного test invariant и startup race.
+
+Исполняемые spec entrypoints:
+1. Chromium full route-player regression:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1`
+2. Cross-browser readiness + cumulative-evidence proof:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"`
+
+Проверка:
+1. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1` — `34/34`
+2. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"` — `4/4`
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"` — `4/4`
+4. `npx tsc --noEmit` — pass
+5. `npm run build` — pass
+
+Итог после `9.125`:
+1. Предыдущий residual про old postmessage route stress больше не блокирует route-player regression loop именно как test/save-current проблема на этом хосте.
+2. Этот slice доказывает корректность artifact preservation и debug/report consistency, а не “идеальный transport без underrun при любом stress”.
+3. Следующее автономное окно можно снова тратить на новый appendable groundwork или qualification widening, а не на повторный ремонт этого regression harness.
