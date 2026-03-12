@@ -5241,3 +5241,38 @@ Residual note по verification:
 1. Route-side pitch proof теперь не теряется при direct export.
 2. Route reports/downloads читают latest committed pitch-shadow evidence, а не случайный lagging render snapshot.
 3. Следующее автономное окно уже не обязано возвращаться к вопросу “не исчезает ли pitch proof при выгрузке report/packet”.
+
+## 9.127 Repeated route-side pitch shadow proof теперь сохраняет именно последний шаг, а не первый попавшийся snapshot
+
+Что было следующим маленьким шагом:
+1. После `9.126` single-step route-side pitch proof уже стабильно переживал reload и export.
+2. Следующий вопрос был уже не про “вообще сохраняется ли proof”, а про более реалистичный operator flow:
+   - один pitch shadow proof
+   - затем второй proof с другими `tempo/pitch`
+   - и после этого reload/export должны не потерять именно второй, последний результат
+
+Что добавлено:
+1. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появились две новые route-level qualification проверки:
+   - latest repeated pitch shadow proof rehydrates after reload on the normal route
+   - downloaded pitch shadow report preserves the latest repeated route proof on the normal route
+2. Обе проверки прогоняют два разных `runPitchShadowPilot(...)` подряд и проверяют, что persisted/exported proof отражает второй шаг (`tempo=0.98`, `pitch=-3`), а не первый.
+
+Почему это важно:
+1. Route-side pitch qualification теперь не привязан к наивной модели “одна проверка на сессию”.
+2. Persisted route report и direct export теперь доказаны и для более реалистичного repeated-control flow.
+3. Это прямой groundwork перед любым более широким route-side pitch matrix: сначала нужно было убедиться, что latest-proof semantics вообще стабильны.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "latest repeated pitch shadow proof rehydrates after reload on the normal route|downloaded pitch shadow report preserves the latest repeated route proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "latest repeated pitch shadow proof rehydrates after reload on the normal route|downloaded pitch shadow report preserves the latest repeated route proof on the normal route"`
+
+Проверка:
+1. Chromium repeated route-shadow persistence/export proof — `2/2`
+2. WebKit repeated route-shadow persistence/export proof — `2/2`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.127`:
+1. Route-side pitch proof теперь стабилен не только для single-step, но и для repeated-shadow workflow.
+2. Следующее автономное окно можно тратить уже на более широкую route-side pitch matrix или longer control-change scenarios, а не на вопрос “сохраняется ли последний proof”.
