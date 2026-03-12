@@ -17,7 +17,11 @@ import {
   type AppendablePilotActivationState,
 } from "./audio/appendablePilotActivation"
 import { resolveAudioPilotRouting, type AudioPilotEngineMode } from "./audio/audioPilotRouting"
-import { listAppendableStartupManifestSlugs, resolveAppendableStartupManifestMatch } from "./audio/appendableStartupManifest"
+import {
+  listAppendableStartupManifestSlugs,
+  resolveAppendableStartupManifestMatch,
+  type AppendableContinuationBoundaryFingerprint,
+} from "./audio/appendableStartupManifest"
 import {
   qualifyAppendableContinuationChunks,
   type AppendableContinuationQualificationReason,
@@ -124,6 +128,9 @@ type AppendableQueueSourceProgressSnapshot = {
   continuationChunkGroupsPlanned: number
   continuationChunkGroupsDecoded: number
   continuationChunkGroupsAppended: number
+  continuationFingerprintGroupsVerified: number
+  continuationPoisonedGroupIndex: number | null
+  continuationPoisonReason: string | null
   continuationCoverageEndSec: number | null
   minSourceBufferedUntilSec: number | null
   maxSourceBufferedUntilSec: number | null
@@ -278,6 +285,11 @@ type AppendableStartupHeadStemRuntimeState = {
   fullAppended: boolean
   continuationChunkFrames: number
 }
+type AppendableContinuationRuntimePoisonReason =
+  | "missing_boundary_metadata"
+  | "decoded_frame_mismatch"
+  | "boundary_fingerprint_mismatch"
+  | "continuation_decode_failed"
 type AppendableStartupHeadRuntimeState = {
   mode: "full_buffer" | "startup_head_manifest" | "startup_head_continuation_chunks"
   manifestSlug: string | null
@@ -288,6 +300,9 @@ type AppendableStartupHeadRuntimeState = {
   continuationChunkGroupsPlanned: number
   continuationChunkGroupsDecoded: number
   continuationChunkGroupsAppended: number
+  continuationFingerprintGroupsVerified: number
+  continuationPoisonedGroupIndex: number | null
+  continuationPoisonReason: AppendableContinuationRuntimePoisonReason | null
   continuationCoverageEndSec: number | null
   stems: AppendableStartupHeadStemRuntimeState[]
 }
@@ -494,6 +509,7 @@ const APPENDABLE_ROUTE_QUALIFICATION_PILOT_DURATION_SEC = 6
 const APPENDABLE_ROUTE_QUALIFICATION_GRACE_SEC = 0.5
 const APPENDABLE_ROUTE_STRESS_PILOT_HOLD_SEC = 2.5
 const APPENDABLE_ROUTE_STRESS_PILOT_SEEK_SEQUENCE_SEC = [18, 46]
+const APPENDABLE_CONTINUATION_BOUNDARY_FINGERPRINT_WINDOW_FRAMES = 128
 const SEEK_SMOOTH_DEBOUNCE_MS = 28
 const SEEK_SMOOTH_CLOSE_RAMP_SEC = 0.008
 const SEEK_SMOOTH_OPEN_RAMP_SEC = 0.03
@@ -513,6 +529,67 @@ const TELEPROMPTER_AUTOCOLLECT_ENV_ENABLED = process.env.NEXT_PUBLIC_TELEPROMPTE
 
 function readOptionalBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null
+}
+
+function quantizeDecodedPcm16Sample(sample: number): number {
+  const clamped = Math.max(-1, Math.min(1, sample))
+  return Math.max(-0x8000, Math.min(0x7fff, Math.round(clamped * 0x8000)))
+}
+
+function hashAppendableBoundaryFrameWindow(channels: Float32Array[], startFrame: number, frameLength: number): string {
+  let hash = 2166136261 >>> 0
+  const safeStartFrame = Math.max(0, Math.floor(startFrame))
+  const safeEndFrame = safeStartFrame + Math.max(0, Math.floor(frameLength))
+  for (const channel of channels) {
+    for (let frameIndex = safeStartFrame; frameIndex < safeEndFrame; frameIndex += 1) {
+      const quantized = quantizeDecodedPcm16Sample(channel[frameIndex] ?? 0)
+      hash ^= quantized & 0xffff
+      hash = Math.imul(hash, 16777619) >>> 0
+    }
+  }
+  return hash.toString(16).padStart(8, "0")
+}
+
+function computeAppendableBoundaryFingerprint(
+  audioBuffer: AudioBuffer,
+  windowFrames = APPENDABLE_CONTINUATION_BOUNDARY_FINGERPRINT_WINDOW_FRAMES
+): AppendableContinuationBoundaryFingerprint {
+  const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, channelIndex) =>
+    audioBuffer.getChannelData(channelIndex)
+  )
+  const safeWindowFrames = Math.max(1, Math.min(audioBuffer.length, Math.floor(windowFrames)))
+  return {
+    windowFrames: safeWindowFrames,
+    firstHash: hashAppendableBoundaryFrameWindow(channels, 0, safeWindowFrames),
+    lastHash: hashAppendableBoundaryFrameWindow(
+      channels,
+      Math.max(0, audioBuffer.length - safeWindowFrames),
+      safeWindowFrames
+    ),
+  }
+}
+
+function boundaryFingerprintMatches(
+  expected: AppendableContinuationBoundaryFingerprint | null | undefined,
+  actual: AppendableContinuationBoundaryFingerprint
+): boolean {
+  if (!expected) return false
+  return (
+    expected.windowFrames === actual.windowFrames &&
+    expected.firstHash === actual.firstHash &&
+    expected.lastHash === actual.lastHash
+  )
+}
+
+function isAppendableContinuationRuntimePoisonReason(
+  value: unknown
+): value is AppendableContinuationRuntimePoisonReason {
+  return (
+    value === "missing_boundary_metadata" ||
+    value === "decoded_frame_mismatch" ||
+    value === "boundary_fingerprint_mismatch" ||
+    value === "continuation_decode_failed"
+  )
 }
 
 function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProbeSnapshot {
@@ -589,6 +666,9 @@ function createAppendableQueueSourceProgressSnapshot(): AppendableQueueSourcePro
     continuationChunkGroupsPlanned: 0,
     continuationChunkGroupsDecoded: 0,
     continuationChunkGroupsAppended: 0,
+    continuationFingerprintGroupsVerified: 0,
+    continuationPoisonedGroupIndex: null,
+    continuationPoisonReason: null,
     continuationCoverageEndSec: null,
     minSourceBufferedUntilSec: null,
     maxSourceBufferedUntilSec: null,
@@ -616,6 +696,9 @@ function cloneAppendableQueueSourceProgressSnapshot(
     continuationChunkGroupsPlanned: snapshot.continuationChunkGroupsPlanned,
     continuationChunkGroupsDecoded: snapshot.continuationChunkGroupsDecoded,
     continuationChunkGroupsAppended: snapshot.continuationChunkGroupsAppended,
+    continuationFingerprintGroupsVerified: snapshot.continuationFingerprintGroupsVerified,
+    continuationPoisonedGroupIndex: snapshot.continuationPoisonedGroupIndex,
+    continuationPoisonReason: snapshot.continuationPoisonReason,
     continuationCoverageEndSec: snapshot.continuationCoverageEndSec,
     minSourceBufferedUntilSec: snapshot.minSourceBufferedUntilSec,
     maxSourceBufferedUntilSec: snapshot.maxSourceBufferedUntilSec,
@@ -653,6 +736,9 @@ function readAppendableQueueSourceProgressSnapshot(
       safeRolloutCandidateTarget: preflight?.safeRolloutCandidateTarget ?? null,
       continuationChunkGroupsAvailable: preflight?.availableGroupCount ?? 0,
       continuationChunkGroupsPlanned: preflight?.plannedGroupCount ?? 0,
+      continuationFingerprintGroupsVerified: 0,
+      continuationPoisonedGroupIndex: null,
+      continuationPoisonReason: null,
       continuationCoverageEndSec:
         typeof preflight?.coverageEndSec === "number" && Number.isFinite(preflight.coverageEndSec)
           ? Number(preflight.coverageEndSec.toFixed(3))
@@ -689,6 +775,9 @@ function readAppendableQueueSourceProgressSnapshot(
     continuationChunkGroupsPlanned: runtime?.continuationChunkGroupsPlanned ?? preflight?.plannedGroupCount ?? 0,
     continuationChunkGroupsDecoded: runtime?.continuationChunkGroupsDecoded ?? 0,
     continuationChunkGroupsAppended: runtime?.continuationChunkGroupsAppended ?? 0,
+    continuationFingerprintGroupsVerified: runtime?.continuationFingerprintGroupsVerified ?? 0,
+    continuationPoisonedGroupIndex: runtime?.continuationPoisonedGroupIndex ?? null,
+    continuationPoisonReason: runtime?.continuationPoisonReason ?? null,
     continuationCoverageEndSec:
       typeof runtime?.continuationCoverageEndSec === "number" && Number.isFinite(runtime.continuationCoverageEndSec)
         ? Number(runtime.continuationCoverageEndSec.toFixed(3))
@@ -5282,6 +5371,8 @@ export default function MultiTrackPlayer({
                   startSec: number
                   durationSec: number
                   label: string | null
+                  expectedFrames: number
+                  boundaryFingerprint: AppendableContinuationBoundaryFingerprint | null
                 }>
               }
             >
@@ -5356,6 +5447,8 @@ export default function MultiTrackPlayer({
                       startSec: chunk.startSec,
                       durationSec: chunk.durationSec,
                       label: chunk.label,
+                      expectedFrames: chunk.expectedFrames,
+                      boundaryFingerprint: chunk.boundaryFingerprint,
                     }))
                 : []
             const sourceController = createManualAppendablePcmSource({
@@ -5403,6 +5496,9 @@ export default function MultiTrackPlayer({
             continuationChunkGroupsPlanned,
             continuationChunkGroupsDecoded: 0,
             continuationChunkGroupsAppended: 0,
+            continuationFingerprintGroupsVerified: 0,
+            continuationPoisonedGroupIndex: null,
+            continuationPoisonReason: null,
             continuationCoverageEndSec: continuationQualification.coverageEndSec,
             stems,
           }
@@ -5737,6 +5833,9 @@ export default function MultiTrackPlayer({
               continuationChunkGroupsPlanned: continuationPreflight.plannedGroupCount,
               continuationChunkGroupsDecoded: 0,
               continuationChunkGroupsAppended: 0,
+              continuationFingerprintGroupsVerified: 0,
+              continuationPoisonedGroupIndex: null,
+              continuationPoisonReason: null,
               continuationCoverageEndSec: continuationPreflight.coverageEndSec,
               stems: [],
             }
@@ -5857,11 +5956,31 @@ export default function MultiTrackPlayer({
                         )
                       )
                       if (cancelled) return
-                      decodedGroup.forEach((decoded, index) => {
+                      const verifiedGroup = decodedGroup.map((decoded, index) => {
                         const stem = appendableStartupHeadInit.stems[index]
                         const continuationMeta = stem?.continuationChunks[groupIndex]
-                        if (!stem || !continuationMeta) return
+                        if (!stem || !continuationMeta) {
+                          throw new Error("missing_boundary_metadata")
+                        }
                         const continuationBuffer = decoded.buffer
+                        if (
+                          typeof continuationMeta.expectedFrames !== "number" ||
+                          !Number.isFinite(continuationMeta.expectedFrames) ||
+                          continuationMeta.expectedFrames <= 0 ||
+                          !continuationMeta.boundaryFingerprint
+                        ) {
+                          throw new Error("missing_boundary_metadata")
+                        }
+                        if (continuationBuffer.length !== continuationMeta.expectedFrames) {
+                          throw new Error("decoded_frame_mismatch")
+                        }
+                        const actualBoundaryFingerprint = computeAppendableBoundaryFingerprint(
+                          continuationBuffer,
+                          continuationMeta.boundaryFingerprint.windowFrames
+                        )
+                        if (!boundaryFingerprintMatches(continuationMeta.boundaryFingerprint, actualBoundaryFingerprint)) {
+                          throw new Error("boundary_fingerprint_mismatch")
+                        }
                         const startFrame = Math.max(
                           stem.sourceController.getState().bufferedUntilFrame,
                           Math.floor(continuationMeta.startSec * continuationBuffer.sampleRate)
@@ -5872,7 +5991,16 @@ export default function MultiTrackPlayer({
                           continuationBuffer.length,
                           { final: false }
                         )
-                        if (!continuationChunk) return
+                        if (!continuationChunk) {
+                          throw new Error("continuation_decode_failed")
+                        }
+                        return {
+                          stem,
+                          continuationChunk,
+                          startFrame,
+                        }
+                      })
+                      verifiedGroup.forEach(({ stem, continuationChunk, startFrame }) => {
                         stem.sourceController.appendChunk({
                           ...continuationChunk,
                           startFrame,
@@ -5883,6 +6011,10 @@ export default function MultiTrackPlayer({
                       if (runtime) {
                         runtime.continuationChunkGroupsDecoded = Math.max(runtime.continuationChunkGroupsDecoded, groupIndex + 1)
                         runtime.continuationChunkGroupsAppended = Math.max(runtime.continuationChunkGroupsAppended, groupIndex + 1)
+                        runtime.continuationFingerprintGroupsVerified = Math.max(
+                          runtime.continuationFingerprintGroupsVerified,
+                          groupIndex + 1
+                        )
                       }
                       appendableQueueCoordinatorRef.current?.tick({ force: true })
                       setAppendableQueueSourceProgressSnapshot(
@@ -5896,12 +6028,29 @@ export default function MultiTrackPlayer({
                         manifestSlug: appendableStartupHeadInit.manifestSlug,
                         groupIndex,
                         tracks: decodedGroup.length,
+                        fingerprintGroupsVerified:
+                          appendableStartupHeadRuntimeRef.current?.continuationFingerprintGroupsVerified ?? groupIndex + 1,
                       })
                     } catch (error) {
+                      const poisonReason =
+                        error instanceof Error && isAppendableContinuationRuntimePoisonReason(error.message)
+                          ? error.message
+                          : "continuation_decode_failed"
+                      if (runtime) {
+                        runtime.continuationPoisonedGroupIndex = groupIndex
+                        runtime.continuationPoisonReason = poisonReason
+                      }
+                      setAppendableQueueSourceProgressSnapshot(
+                        readAppendableQueueSourceProgressSnapshot(
+                          appendableQueueCoordinatorRef.current,
+                          appendableStartupHeadRuntimeRef.current,
+                          appendableContinuationPreflightRef.current
+                        )
+                      )
                       logAudioDebug("appendable_queue:continuation_chunk_group_failed", {
                         manifestSlug: appendableStartupHeadInit.manifestSlug,
                         groupIndex,
-                        reason: error instanceof Error ? error.message : "unknown continuation chunk decode error",
+                        reason: poisonReason,
                       })
                       break
                     }
@@ -11753,6 +11902,13 @@ export default function MultiTrackPlayer({
                             {appendableQueueSourceProgressSnapshot.continuationChunkGroupsPlanned} appended
                           </div>
                           <div>
+                            appendable continuation fingerprints: {appendableQueueSourceProgressSnapshot.continuationFingerprintGroupsVerified}/
+                            {appendableQueueSourceProgressSnapshot.continuationChunkGroupsPlanned} verified
+                            {appendableQueueSourceProgressSnapshot.continuationPoisonReason
+                              ? ` / poisoned@${appendableQueueSourceProgressSnapshot.continuationPoisonedGroupIndex ?? "—"} (${appendableQueueSourceProgressSnapshot.continuationPoisonReason})`
+                              : ""}
+                          </div>
+                          <div>
                             appendable continuation coverage sec: {formatOptionalFixed(appendableQueueSourceProgressSnapshot.continuationCoverageEndSec)} / available groups:{" "}
                             {appendableQueueSourceProgressSnapshot.continuationChunkGroupsAvailable}
                           </div>
@@ -12137,6 +12293,14 @@ export default function MultiTrackPlayer({
                                 {appendableRoutePilotReport.snapshot.sourceProgress.continuationChunkGroupsPlanned} decoded /{" "}
                                 {appendableRoutePilotReport.snapshot.sourceProgress.continuationChunkGroupsAppended}/
                                 {appendableRoutePilotReport.snapshot.sourceProgress.continuationChunkGroupsPlanned} appended
+                              </div>
+                              <div>
+                                source fingerprints:{" "}
+                                {appendableRoutePilotReport.snapshot.sourceProgress.continuationFingerprintGroupsVerified}/
+                                {appendableRoutePilotReport.snapshot.sourceProgress.continuationChunkGroupsPlanned} verified
+                                {appendableRoutePilotReport.snapshot.sourceProgress.continuationPoisonReason
+                                  ? ` / poisoned@${appendableRoutePilotReport.snapshot.sourceProgress.continuationPoisonedGroupIndex ?? "—"} (${appendableRoutePilotReport.snapshot.sourceProgress.continuationPoisonReason})`
+                                  : ""}
                               </div>
                               <div>
                                 source continuation coverage: {formatOptionalFixed(appendableRoutePilotReport.snapshot.sourceProgress.continuationCoverageEndSec)} / available groups:{" "}

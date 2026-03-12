@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-11T21:59:04.535Z",
+  "generatedAt": "2026-03-12T05:08:42.612Z",
   "startupDurationSec": 10,
   "tailStartSec": 7.5,
   "tailDurationSec": 8,
@@ -33,13 +33,25 @@
               "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "6ce164f5",
+                "lastHash": "392b679d"
+              }
             },
             {
               "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-01-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "5c345fae",
+                "lastHash": "6681a5c7"
+              }
             }
           ],
           "channels": 2,
@@ -59,13 +71,25 @@
               "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "e6a1d1c5",
+                "lastHash": "f3276525"
+              }
             },
             {
               "src": "public/audio-startup/terek-ne_vo_daleche/terek-ne_vo_daleche-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "ad5b601c",
+                "lastHash": "b68e1dfb"
+              }
             }
           ],
           "channels": 2,
@@ -90,13 +114,25 @@
               "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "4f1705ac",
+                "lastHash": "c1da78de"
+              }
             },
             {
               "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-01-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "75aecba5",
+                "lastHash": "8f31ab5a"
+              }
             }
           ],
           "channels": 2,
@@ -116,13 +152,25 @@
               "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "854f4b97",
+                "lastHash": "20fc645f"
+              }
             },
             {
               "src": "public/audio-startup/terek-mne_mladcu_35k/terek-mne_mladcu_35k-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "37b119a6",
+                "lastHash": "e6a1d1c5"
+              }
             }
           ],
           "channels": 2,
@@ -147,13 +195,25 @@
               "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "ebbf09f0",
+                "lastHash": "848c5fdd"
+              }
             },
             {
               "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-01-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "041c050c",
+                "lastHash": "cef179a6"
+              }
             }
           ],
           "channels": 2,
@@ -173,13 +233,25 @@
               "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "29e83dd6",
+                "lastHash": "a7dad94c"
+              }
             },
             {
               "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "76e159cc",
+                "lastHash": "43660c7b"
+              }
             }
           ],
           "channels": 2,
@@ -199,13 +271,25 @@
               "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "45093556",
+                "lastHash": "ba6708bf"
+              }
             },
             {
               "src": "public/audio-startup/tomsk-bogoslovka-po-moryam/tomsk-bogoslovka-po-moryam-03-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "c9db353b",
+                "lastHash": "8e0db368"
+              }
             }
           ],
           "channels": 2,
@@ -230,13 +314,25 @@
               "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "b25d8ba3",
+                "lastHash": "cf1f044a"
+              }
             },
             {
               "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-01-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "27862b05",
+                "lastHash": "9343ce79"
+              }
             }
           ],
           "channels": 2,
@@ -256,13 +352,25 @@
               "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "4579d0ae",
+                "lastHash": "01ae9db5"
+              }
             },
             {
               "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "df058cfb",
+                "lastHash": "bbedcddf"
+              }
             }
           ],
           "channels": 2,
@@ -282,13 +390,25 @@
               "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "9f2af66a",
+                "lastHash": "e39ad3ec"
+              }
             },
             {
               "src": "public/audio-startup/balman-vechor_devku/balman-vechor_devku-03-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "86a11631",
+                "lastHash": "e92c697e"
+              }
             }
           ],
           "channels": 2,
@@ -313,13 +433,25 @@
               "src": "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-01-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "264391bb",
+                "lastHash": "08f31324"
+              }
             },
             {
               "src": "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-01-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "47ba17e1",
+                "lastHash": "59d2847d"
+              }
             }
           ],
           "channels": 2,
@@ -339,13 +471,25 @@
               "src": "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-02-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "5162adff",
+                "lastHash": "a0090844"
+              }
             },
             {
               "src": "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "d3ff7330",
+                "lastHash": "8abecda9"
+              }
             }
           ],
           "channels": 2,
@@ -365,13 +509,25 @@
               "src": "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-03-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "b88fd5b9",
+                "lastHash": "1569c049"
+              }
             },
             {
               "src": "public/audio-startup/balman-ty_zorya_moya/balman-ty_zorya_moya-03-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "b5e14382",
+                "lastHash": "d565b58c"
+              }
             }
           ],
           "channels": 2,
@@ -396,13 +552,25 @@
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-01-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "91ffbe49",
+                "lastHash": "344e395d"
+              }
             },
             {
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-01-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "a172e9b0",
+                "lastHash": "cb2b1035"
+              }
             }
           ],
           "channels": 2,
@@ -422,13 +590,25 @@
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-02-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "b6abbeec",
+                "lastHash": "a91c9f83"
+              }
             },
             {
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "79d44121",
+                "lastHash": "7160be9b"
+              }
             }
           ],
           "channels": 2,
@@ -448,13 +628,25 @@
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-03-continuation-10s-8s.wav",
               "startSec": 10,
               "durationSec": 8,
-              "label": "continuation-10s-8s"
+              "label": "continuation-10s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "97ad0848",
+                "lastHash": "d4f8f4c3"
+              }
             },
             {
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-03-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
-              "label": "continuation-18s-8s"
+              "label": "continuation-18s-8s",
+              "expectedFrames": 352800,
+              "boundaryFingerprint": {
+                "windowFrames": 128,
+                "firstHash": "88076a95",
+                "lastHash": "e48e72dc"
+              }
             }
           ],
           "channels": 2,

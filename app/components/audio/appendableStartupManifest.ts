@@ -6,11 +6,19 @@ type StartupManifestContinuationPlanEntry = {
   label?: string
 }
 
+export type AppendableContinuationBoundaryFingerprint = {
+  windowFrames: number
+  firstHash: string
+  lastHash: string
+}
+
 export type AppendableStartupManifestContinuationChunk = {
   src: string
   startSec?: number
   durationSec?: number
   label?: string | null
+  expectedFrames?: number
+  boundaryFingerprint?: AppendableContinuationBoundaryFingerprint | null
 }
 
 export type AppendableStartupManifestSource = {
@@ -123,6 +131,28 @@ export async function resolveAppendableStartupManifestMatch(
                 startSec: chunk.startSec,
                 durationSec: chunk.durationSec,
                 label: typeof chunk.label === "string" && chunk.label.trim().length > 0 ? chunk.label.trim() : null,
+                expectedFrames:
+                  typeof chunk.expectedFrames === "number" &&
+                  Number.isFinite(chunk.expectedFrames) &&
+                  chunk.expectedFrames > 0
+                    ? Math.max(1, Math.floor(chunk.expectedFrames))
+                    : undefined,
+                boundaryFingerprint:
+                  chunk.boundaryFingerprint &&
+                  typeof chunk.boundaryFingerprint === "object" &&
+                  typeof chunk.boundaryFingerprint.windowFrames === "number" &&
+                  Number.isFinite(chunk.boundaryFingerprint.windowFrames) &&
+                  chunk.boundaryFingerprint.windowFrames > 0 &&
+                  typeof chunk.boundaryFingerprint.firstHash === "string" &&
+                  chunk.boundaryFingerprint.firstHash.trim().length > 0 &&
+                  typeof chunk.boundaryFingerprint.lastHash === "string" &&
+                  chunk.boundaryFingerprint.lastHash.trim().length > 0
+                    ? {
+                        windowFrames: Math.max(1, Math.floor(chunk.boundaryFingerprint.windowFrames)),
+                        firstHash: chunk.boundaryFingerprint.firstHash.trim(),
+                        lastHash: chunk.boundaryFingerprint.lastHash.trim(),
+                      }
+                    : null,
               }))
           : undefined,
         tailSrc: typeof source.tailSrc === "string" ? normalizePublicAssetPath(source.tailSrc) : undefined,
