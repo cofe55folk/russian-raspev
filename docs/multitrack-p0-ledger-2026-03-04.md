@@ -5476,3 +5476,47 @@ Residual note по verification:
 Итог после `9.132`:
 1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls, explicit seeks, longer holds и явных pause/resume разрывов.
 2. Следующий автономный шаг уже уходит из дешёвой proof-зоны в настоящие visibility/background/interruption-session сценарии.
+
+## 9.133 Focus-aware route-side pitch matrix теперь доказан и для repeated shadow flow с реальным blur/focus churn между шагами
+
+Что оставалось после `9.132`:
+1. Мы уже закрыли cheap route-side runtime gaps вокруг control churn:
+   - repeated changes
+   - explicit seeks
+   - longer holds
+   - explicit pause/resume
+2. Следующий автономный вопрос был уже visibility-adjacent:
+   - сохраняется ли последний proof, если между шагами route page реально теряет и возвращает browser focus
+
+Что добавлено:
+1. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появился новый focus-aware route-level matrix:
+   - `runPitchShadowPilot(1.05, 3, 800)`
+   - blur/focus churn через companion page в том же browser context
+   - `runPitchShadowPilot(0.97, -2, 900)`
+   - ещё один blur/focus churn через companion page
+   - `runPitchShadowPilot(1.09, 6, 900)`
+2. Этот сценарий теперь отдельно доказан для четырёх surface:
+   - reload/hydration
+   - direct `downloadReport()`
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()`
+
+Почему это важно:
+1. Route-side pitch shadow proof теперь покрывает уже не только transport/control churn, но и browser-tab focus churn, который ближе к реальному route-level visibility поведению.
+2. Latest committed proof стабильно переживает потерю и возврат фокуса страницы, а не только seek/pause/time gaps.
+3. Это уже первая настоящая visibility-adjacent ступень перед более дорогими background/interruption-session сценариями.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium focus-aware route proof — `4/4`
+2. WebKit focus-aware route proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.133`:
+1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls, explicit seeks, longer holds, pause/resume churn и browser-tab blur/focus churn.
+2. Следующий автономный шаг уже действительно уходит в true visibility/background/interruption-session territory, а не в ещё один дешёвый route-side proof.

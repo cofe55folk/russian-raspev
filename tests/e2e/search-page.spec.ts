@@ -1,4 +1,26 @@
 import { expect, test } from "@playwright/test";
+import { getPublishedEvents } from "../../app/lib/eventsCatalog";
+
+type SearchTimeWindow = "upcoming" | "past";
+
+function getEventTimeWindowScenario(slug: string): {
+  city: string;
+  emptyWindow: SearchTimeWindow;
+  title: string;
+} {
+  const event = getPublishedEvents().find((item) => item.slug === slug);
+  if (!event) throw new Error(`published event not found for slug: ${slug}`);
+
+  const eventTs = new Date(event.dateIso).getTime();
+  if (!Number.isFinite(eventTs)) throw new Error(`invalid event date for slug: ${slug}`);
+
+  const matchingWindow: SearchTimeWindow = eventTs >= Date.now() ? "upcoming" : "past";
+  return {
+    city: event.translations.ru?.city || event.translations.en?.city || event.venue.city,
+    emptyWindow: matchingWindow === "upcoming" ? "past" : "upcoming",
+    title: event.translations.ru?.title || event.translations.en?.title || event.slug,
+  };
+}
 
 test("search page renders results and supports kind filter @critical-contract", async ({ page }) => {
   await page.goto("/search?q=всё горе руганье", { waitUntil: "domcontentloaded" });
@@ -33,19 +55,34 @@ test("search page supports event filter and keeps event results @critical-contra
 });
 
 test("search page supports region and time-window facets for events @critical-contract", async ({ page }) => {
-  await page.goto("/search?q=распев&kind=event&region=Москва", { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/region=%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B0/);
-  await expect(page.getByTestId("search-page-region")).toHaveValue("Москва");
-  await expect(page.getByTestId("search-page-results")).toContainText("Весенняя распевка");
+  const scenario = getEventTimeWindowScenario("vesennyaya-raspevka-2026");
+  const baseParams = new URLSearchParams({ q: "распев", kind: "event", region: scenario.city });
+  await page.goto(`/search?${baseParams.toString()}`, { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(new RegExp(`region=${encodeURIComponent(scenario.city)}`));
+  await expect(page.getByTestId("search-page-region")).toHaveValue(scenario.city);
+  await expect(page.getByTestId("search-page-results")).toContainText(scenario.title);
 
-  await page.goto("/search?q=распев&kind=event&region=Москва&timeWindow=past", { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/timeWindow=past/);
-  await expect(page.getByTestId("search-page-time-window")).toHaveValue("past");
+  const emptyParams = new URLSearchParams({
+    q: "распев",
+    kind: "event",
+    region: scenario.city,
+    timeWindow: scenario.emptyWindow,
+  });
+  await page.goto(`/search?${emptyParams.toString()}`, { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(new RegExp(`timeWindow=${scenario.emptyWindow}`));
+  await expect(page.getByTestId("search-page-time-window")).toHaveValue(scenario.emptyWindow);
   await expect(page.getByTestId("search-page-empty")).toBeVisible();
 });
 
 test("search page empty state provides recovery links @critical-contract", async ({ page }) => {
-  await page.goto("/search?q=интенсив&kind=event&region=Казань&timeWindow=past", { waitUntil: "domcontentloaded" });
+  const scenario = getEventTimeWindowScenario("ansambl-praktika-mai-2026");
+  const params = new URLSearchParams({
+    q: "интенсив",
+    kind: "event",
+    region: scenario.city,
+    timeWindow: scenario.emptyWindow,
+  });
+  await page.goto(`/search?${params.toString()}`, { waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("search-page-empty")).toBeVisible();
   const recoveryBlock = page.getByTestId("search-page-recovery");
   await expect(recoveryBlock).toBeVisible();

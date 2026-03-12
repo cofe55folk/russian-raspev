@@ -3454,3 +3454,39 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.184`:
    - route-side pitch shadow proof now survives repeated changes, explicit seeks, longer holds, and explicit pause/resume churn
    - the next autonomous route-level window would move beyond cheap route-side proof into true visibility/background/interruption-session territory
+
+## 8.185 Focus-aware route-side pitch matrix now keeps the latest proof across reload and both packet/report exports
+1. After `8.184`, the next feasible autonomous step was no longer playback control churn alone, but browser-tab focus churn:
+   - do repeated pitch proofs still preserve the latest result when the route page loses and regains focus between proof steps
+2. This slice added explicit normal-route coverage for that focus/visibility-adjacent flow:
+   - run one `runPitchShadowPilot(...)`
+   - send the player tab to background via a second page in the same browser context
+   - bring the player tab back to front
+   - repeat that churn before the next proof step
+   - run a third proof that must become the latest committed route-side evidence
+3. The concrete focus-aware matrix now covered by executable specs is:
+   - step 1: `tempo=1.05`, `pitch=3`
+   - blur/focus churn through a companion page
+   - step 2: `tempo=0.97`, `pitch=-2`
+   - blur/focus churn through a companion page
+   - step 3: `tempo=1.09`, `pitch=6`
+4. The contract now proven on the normal `/sound/...` route is:
+   - reload/hydration keeps the third proof after the blur/focus churn
+   - direct `downloadReport()` keeps the same third proof
+   - direct `downloadPacket()` keeps the same third proof
+   - `saveCurrentDiagnostics()` packet export keeps the same third proof
+5. Practical meaning:
+   - route-side pitch qualification is now validated not only for playback-control churn, but also for browser-tab focus churn that is closer to real route-level visibility changes
+   - the hidden pitch-shadow path no longer relies on the assumption that the page remains continuously focused between proof iterations
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium focus-aware route proof → `4/4`
+   - WebKit focus-aware route proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.185`:
+   - route-side pitch shadow proof now survives repeated changes, explicit seeks, longer holds, pause/resume churn, and browser-tab blur/focus churn
+   - the next autonomous route-level step would be true visibility/background/interruption-session territory rather than another cheap proof extension
