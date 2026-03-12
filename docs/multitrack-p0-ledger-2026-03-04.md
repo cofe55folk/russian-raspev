@@ -4780,3 +4780,54 @@ Recommendation order после review:
 Итог после `9.116`:
 1. В appendable stack теперь уже явно видно, что `postmessage_pcm` — это текущий квалифицированный phase-one lane, а `SAB` — preferred future lane с отдельной readiness surface.
 2. Следующий SAB slice сможет заниматься уже самой заменой data plane, а не подготовкой report/probe plumbing и persisted evidence contracts.
+
+## 9.117 Manifest-backed boundary fingerprints теперь жёстко верифицируют continuation group до append и poison'ят весь group при mismatch
+
+Что сделано:
+1. Следующий slice после `9.116` по-прежнему не меняет active PCM lane:
+   - `dataPlaneMode = postmessage_pcm`
+   - `controlPlaneMode = message_port`
+   - SAB migration всё ещё остаётся следующим большим runtime milestone, а не частью этого change set
+2. Вместо смены data plane ужесточён current continuation packaging/runtime contract:
+   - каждый manifest continuation chunk теперь несёт `expectedFrames`
+   - и `boundaryFingerprint = { windowFrames, firstHash, lastHash }`
+3. Qualification layer стал строже ещё до runtime append:
+   - continuation path теперь считает chunk invalid, если boundary metadata отсутствует
+   - source groups больше не считаются qualified, если у одного stem chunk metadata выпала после normalisation
+   - cross-stem group теперь требует одинаковый `expectedFrames` для одного и того же group index
+4. Runtime append тоже стал all-or-nothing на уровне group:
+   - сначала декодируется весь continuation group
+   - потом для каждого stem сверяются `expectedFrames` и boundary fingerprint decoded chunk против manifest
+   - только если весь group прошёл verification, continuation chunk append'ится в appendable source
+   - первый mismatch теперь poison'ит весь group и останавливает continuation append loop на этом boundary
+5. Poisoning surfaced в diagnostics/report surface:
+   - route/source progress теперь хранит `continuationFingerprintGroupsVerified`
+   - сохраняет `continuationPoisonedGroupIndex`
+   - и явный `continuationPoisonReason`
+   - debug UI и route pilot report показывают verified-vs-poisoned state напрямую
+6. В e2e добавлен отдельный negative-path contract:
+   - если manifest boundary fingerprint подменён, runtime должен показать `poisoned@0 (boundary_fingerprint_mismatch)`
+   - и route должен уйти в full fallback вместо частичного continuation append
+
+Реальный blocker, найденный во время этого slice:
+1. Первый прогон live route contract на `tomsk-bogoslovka-po-moryam` словил ложный `boundary_fingerprint_mismatch` на настоящем manifest, хотя continuation assets были валидны.
+2. Причина оказалась в несовпадении hash semantics между packaging и runtime:
+   - generator считал fingerprint по raw decoded float samples исходника
+   - а runtime считал fingerprint уже по декодированному continuation WAV
+   - на некоторых реальных пакетах это давало ложный mismatch из-за PCM quantization round-trip
+3. Исправление:
+   - generator теперь hash'ирует тот же `PCM int16`, который реально пишет в continuation WAV
+   - runtime восстанавливает тот же `PCM int16` из декодированного continuation WAV перед hash
+4. После этого live `tomsk` route снова проходит как normal qualified continuation path, а подменённый manifest по-прежнему детерминированно poison'ится.
+
+Проверка:
+1. `node scripts/generate-startup-chunks.mjs`
+2. `npx tsc --noEmit` — pass
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `30/30`
+4. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit -g "tomsk route|boundary fingerprints do not match manifest metadata"` — `2/2`
+5. `npm run build` — pass
+
+Итог после `9.117`:
+1. Current appendable continuation path теперь защищён не только plan-level timing checks, но и manifest-backed asset integrity verification на group boundary.
+2. Whole-group poison/fallback semantics из внешнего review теперь реально живут в runtime, а не только в документах.
+3. Следующее окно уже не должно тратить время на re-deriving, почему boundary fingerprints появились и почему `tomsk` сначала падал: этот slice был локально доведён до рабочего verified состояния.

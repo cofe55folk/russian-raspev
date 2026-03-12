@@ -1,6 +1,7 @@
 "use client"
 
 import type {
+  AppendableContinuationBoundaryFingerprint,
   AppendableStartupManifestContinuationChunk,
   AppendableStartupManifestMatch,
 } from "./appendableStartupManifest"
@@ -14,6 +15,8 @@ export type AppendableContinuationQualificationReason =
   | "missing_source_chunks"
   | "source_chunk_count_mismatch"
   | "source_layout_mismatch"
+  | "missing_chunk_boundary_metadata"
+  | "chunk_expected_frame_mismatch"
   | "chunk_alignment_mismatch"
   | "chunk_before_startup_end"
   | "chunk_gap_after_startup"
@@ -27,6 +30,8 @@ export type AppendableQualifiedContinuationChunk = {
   durationSec: number
   endSec: number
   label: string | null
+  expectedFrames: number
+  boundaryFingerprint: AppendableContinuationBoundaryFingerprint
 }
 
 export type AppendableContinuationQualification = {
@@ -45,12 +50,33 @@ function normalizeQualifiedChunk(
   if (typeof chunk.src !== "string" || chunk.src.trim().length === 0) return null
   if (typeof chunk.startSec !== "number" || !Number.isFinite(chunk.startSec) || chunk.startSec < 0) return null
   if (typeof chunk.durationSec !== "number" || !Number.isFinite(chunk.durationSec) || chunk.durationSec <= 0) return null
+  if (typeof chunk.expectedFrames !== "number" || !Number.isFinite(chunk.expectedFrames) || chunk.expectedFrames <= 0) {
+    return null
+  }
+  if (
+    !chunk.boundaryFingerprint ||
+    typeof chunk.boundaryFingerprint.windowFrames !== "number" ||
+    !Number.isFinite(chunk.boundaryFingerprint.windowFrames) ||
+    chunk.boundaryFingerprint.windowFrames <= 0 ||
+    typeof chunk.boundaryFingerprint.firstHash !== "string" ||
+    chunk.boundaryFingerprint.firstHash.trim().length === 0 ||
+    typeof chunk.boundaryFingerprint.lastHash !== "string" ||
+    chunk.boundaryFingerprint.lastHash.trim().length === 0
+  ) {
+    return null
+  }
   return {
     src: chunk.src,
     startSec: chunk.startSec,
     durationSec: chunk.durationSec,
     endSec: chunk.startSec + chunk.durationSec,
     label: typeof chunk.label === "string" && chunk.label.trim().length > 0 ? chunk.label.trim() : null,
+    expectedFrames: Math.max(1, Math.floor(chunk.expectedFrames)),
+    boundaryFingerprint: {
+      windowFrames: Math.max(1, Math.floor(chunk.boundaryFingerprint.windowFrames)),
+      firstHash: chunk.boundaryFingerprint.firstHash.trim(),
+      lastHash: chunk.boundaryFingerprint.lastHash.trim(),
+    },
   }
 }
 
@@ -94,6 +120,9 @@ export function qualifyAppendableContinuationChunks(options: {
           .filter((chunk): chunk is AppendableQualifiedContinuationChunk => !!chunk)
       : []
   )
+  const rawGroupCounts = manifestMatch.sources.map((source) =>
+    Array.isArray(source.continuationChunks) ? source.continuationChunks.length : 0
+  )
   const availableGroupCount = sourceGroups.length ? Math.min(...sourceGroups.map((groups) => groups.length)) : 0
   if (!enabled) {
     return createContinuationQualification({
@@ -115,6 +144,15 @@ export function qualifyAppendableContinuationChunks(options: {
     return createContinuationQualification({
       status: "fallback",
       reason: "no_continuation_plan",
+      availableGroupCount,
+      sourceGroups,
+    })
+  }
+
+  if (sourceGroups.some((groups, sourceIndex) => groups.length !== rawGroupCounts[sourceIndex])) {
+    return createContinuationQualification({
+      status: "fallback",
+      reason: "missing_chunk_boundary_metadata",
       availableGroupCount,
       sourceGroups,
     })
@@ -213,6 +251,19 @@ export function qualifyAppendableContinuationChunks(options: {
         })
       }
       if (
+        typeof sourceChunk.expectedFrames !== "number" ||
+        !Number.isFinite(sourceChunk.expectedFrames) ||
+        sourceChunk.expectedFrames <= 0 ||
+        !sourceChunk.boundaryFingerprint
+      ) {
+        return createContinuationQualification({
+          status: "fallback",
+          reason: "missing_chunk_boundary_metadata",
+          availableGroupCount,
+          sourceGroups,
+        })
+      }
+      if (
         diffExceedsTolerance(sourceChunk.startSec, planChunk.startSec) ||
         diffExceedsTolerance(sourceChunk.durationSec, planChunk.durationSec)
       ) {
@@ -222,6 +273,22 @@ export function qualifyAppendableContinuationChunks(options: {
           availableGroupCount,
           sourceGroups,
         })
+      }
+      if (sourceIndex > 0) {
+        const referenceFrames = sourceGroups[0]?.[groupIndex]?.expectedFrames
+        if (
+          typeof referenceFrames === "number" &&
+          Number.isFinite(referenceFrames) &&
+          referenceFrames > 0 &&
+          sourceChunk.expectedFrames !== referenceFrames
+        ) {
+          return createContinuationQualification({
+            status: "fallback",
+            reason: "chunk_expected_frame_mismatch",
+            availableGroupCount,
+            sourceGroups,
+          })
+        }
       }
 
       const estimatedTotalDurationSec = manifestMatch.sources[sourceIndex]?.estimatedTotalDurationSec

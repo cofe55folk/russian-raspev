@@ -7,6 +7,7 @@ const OUTPUT_ROOT = path.join(ROOT, "public", "audio-startup")
 const STARTUP_DURATION_SEC = 10
 const TAIL_START_SEC = 7.5
 const TAIL_DURATION_SEC = 8
+const CONTINUATION_BOUNDARY_FINGERPRINT_WINDOW_FRAMES = 128
 const CONTINUATION_CHUNKS = [
   {
     startSec: STARTUP_DURATION_SEC,
@@ -150,12 +151,45 @@ async function generateChunk(page, sourcePath, startSec, durationSec) {
   const sourceBytes = await fs.readFile(sourcePath)
   const base64 = sourceBytes.toString("base64")
   return page.evaluate(
-    async ({ base64Audio, chunkStartSec, chunkDurationSec }) => {
+    async ({ base64Audio, chunkStartSec, chunkDurationSec, fingerprintWindowFrames }) => {
       const decodeBase64 = (value) => {
         const binary = atob(value)
         const out = new Uint8Array(binary.length)
         for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i)
         return out.buffer
+      }
+
+      const quantizeSampleForWav = (sample) => {
+        const clamped = Math.max(-1, Math.min(1, sample ?? 0))
+        const int16 = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff
+        return Math.max(-0x8000, Math.min(0x7fff, Math.round(int16)))
+      }
+
+      const hashFrameWindow = (channels, startFrame, frameLength) => {
+        let hash = 2166136261 >>> 0
+        const safeStartFrame = Math.max(0, Math.floor(startFrame))
+        const safeEndFrame = safeStartFrame + Math.max(0, Math.floor(frameLength))
+        for (const channel of channels) {
+          for (let frameIndex = safeStartFrame; frameIndex < safeEndFrame; frameIndex += 1) {
+            const quantized = quantizeSampleForWav(channel[frameIndex])
+            hash ^= quantized & 0xffff
+            hash = Math.imul(hash, 16777619) >>> 0
+          }
+        }
+        return hash.toString(16).padStart(8, "0")
+      }
+
+      const computeBoundaryFingerprint = (audioBuffer, startFrame, frameLength, windowFrames) => {
+        const channels = Array.from(
+          { length: audioBuffer.numberOfChannels },
+          (_, channelIndex) => audioBuffer.getChannelData(channelIndex)
+        )
+        const safeWindowFrames = Math.max(1, Math.min(frameLength, Math.floor(windowFrames)))
+        return {
+          windowFrames: safeWindowFrames,
+          firstHash: hashFrameWindow(channels, startFrame, safeWindowFrames),
+          lastHash: hashFrameWindow(channels, startFrame + Math.max(0, frameLength - safeWindowFrames), safeWindowFrames),
+        }
       }
 
       const writeAscii = (view, offset, value) => {
@@ -189,9 +223,7 @@ async function generateChunk(page, sourcePath, startSec, durationSec) {
         for (let frameIndex = 0; frameIndex < frameLength; frameIndex += 1) {
           for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
             const sourceIndex = Math.min(channels[channelIndex].length - 1, startFrame + frameIndex)
-            const sample = Math.max(-1, Math.min(1, channels[channelIndex][sourceIndex] ?? 0))
-            const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-            view.setInt16(offset, Math.round(int16), true)
+            view.setInt16(offset, quantizeSampleForWav(channels[channelIndex][sourceIndex]), true)
             offset += 2
           }
         }
@@ -224,13 +256,25 @@ async function generateChunk(page, sourcePath, startSec, durationSec) {
           channels: audioBuffer.numberOfChannels,
           chunkStartSec: startFrame / audioBuffer.sampleRate,
           chunkDurationSec: frameLength / audioBuffer.sampleRate,
+          expectedFrames: frameLength,
+          boundaryFingerprint: computeBoundaryFingerprint(
+            audioBuffer,
+            startFrame,
+            frameLength,
+            fingerprintWindowFrames
+          ),
           estimatedTotalDurationSec: audioBuffer.duration,
         }
       } finally {
         await ctx.close().catch(() => {})
       }
     },
-    { base64Audio: base64, chunkStartSec: startSec, chunkDurationSec: durationSec }
+    {
+      base64Audio: base64,
+      chunkStartSec: startSec,
+      chunkDurationSec: durationSec,
+      fingerprintWindowFrames: CONTINUATION_BOUNDARY_FINGERPRINT_WINDOW_FRAMES,
+    }
   )
 }
 
@@ -277,6 +321,8 @@ async function main() {
             startSec: Number(continuationResult.chunkStartSec.toFixed(3)),
             durationSec: Number(continuationResult.chunkDurationSec.toFixed(3)),
             label: continuationChunk.label,
+            expectedFrames: continuationResult.expectedFrames,
+            boundaryFingerprint: continuationResult.boundaryFingerprint,
           })
         }
         await ensureDir(outputPath)

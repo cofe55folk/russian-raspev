@@ -922,6 +922,8 @@ test("appendable continuation chunks pilot appends packaged continuation before 
                   continuationChunkGroupsPlanned: number
                   continuationChunkGroupsDecoded: number
                   continuationChunkGroupsAppended: number
+                  continuationFingerprintGroupsVerified: number
+                  continuationPoisonReason: string | null
                   allStartupAppended: boolean
                   allFullDecoded: boolean
                   allFullAppended: boolean
@@ -937,6 +939,8 @@ test("appendable continuation chunks pilot appends packaged continuation before 
             sourceProgress.continuationChunkGroupsPlanned,
             sourceProgress.continuationChunkGroupsDecoded,
             sourceProgress.continuationChunkGroupsAppended,
+            sourceProgress.continuationFingerprintGroupsVerified,
+            sourceProgress.continuationPoisonReason ?? "none",
             sourceProgress.allStartupAppended ? "true" : "false",
             sourceProgress.allFullDecoded ? "true" : "false",
             sourceProgress.allFullAppended ? "true" : "false",
@@ -944,9 +948,10 @@ test("appendable continuation chunks pilot appends packaged continuation before 
         }),
       { timeout: 60000 }
     )
-    .toBe("startup_head_continuation_chunks|qualified|2|2|2|true|true|true")
+    .toBe("startup_head_continuation_chunks|qualified|2|2|2|2|none|true|true|true")
 
   await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+  await waitForPlayerText(page, "appendable continuation fingerprints: 2/2 verified")
   await waitForPlayerText(page, "appendable continuation coverage sec: 26.000 / available groups: 2")
 
   await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
@@ -992,6 +997,85 @@ test("appendable continuation chunks pilot falls back to startup-head-only mode 
   await waitForPlayerText(page, "appendable startup mode: startup_head_manifest")
   await waitForPlayerText(page, "appendable continuation chunks: 0/0 decoded, 0/0 appended")
   await waitForPlayerText(page, "appendable continuation coverage sec: — / available groups: 1")
+})
+
+test("appendable continuation runtime poisons the whole group when decoded boundary fingerprints do not match manifest metadata", async ({ page }) => {
+  await page.route("**/audio-startup/startup-chunks-manifest.json", async (route) => {
+    const response = await route.fetch()
+    const json = (await response.json()) as {
+      tracks?: Array<{
+        slug?: string
+        sources?: Array<{
+          continuationChunks?: Array<{
+            src: string
+            startSec: number
+            durationSec: number
+            label?: string
+            expectedFrames?: number
+            boundaryFingerprint?: {
+              windowFrames?: number
+              firstHash?: string
+              lastHash?: string
+            }
+          }>
+        }>
+      }>
+    }
+    const target = json.tracks?.find((track) => track.slug === SLUG)
+    const brokenChunk = target?.sources?.[0]?.continuationChunks?.[0]
+    if (brokenChunk?.boundaryFingerprint) {
+      brokenChunk.boundaryFingerprint.firstHash = "deadbeef"
+    }
+    await route.fulfill({ response, json })
+  })
+
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    startupHead: true,
+    continuationChunks: true,
+    activationTargets: SLUG,
+  })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
+
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(() => {
+          const state = (window as Window & {
+            __rrAppendableRoutePilotDebug?: {
+              getState: () => {
+                sourceProgress: {
+                  continuationChunkGroupsPlanned: number
+                  continuationFingerprintGroupsVerified: number
+                  continuationPoisonedGroupIndex: number | null
+                  continuationPoisonReason: string | null
+                  allFullDecoded: boolean
+                  allFullAppended: boolean
+                }
+              }
+            }
+          }).__rrAppendableRoutePilotDebug?.getState()
+          const sourceProgress = state?.sourceProgress
+          if (!sourceProgress) return null
+          return [
+            sourceProgress.continuationChunkGroupsPlanned,
+            sourceProgress.continuationFingerprintGroupsVerified,
+            sourceProgress.continuationPoisonedGroupIndex ?? "none",
+            sourceProgress.continuationPoisonReason ?? "none",
+            sourceProgress.allFullDecoded ? "true" : "false",
+            sourceProgress.allFullAppended ? "true" : "false",
+          ].join("|")
+        }),
+      { timeout: 60000 }
+    )
+    .toBe("2|0|0|boundary_fingerprint_mismatch|true|true")
+
+  await waitForPlayerText(page, "appendable continuation fingerprints: 0/2 verified / poisoned@0 (boundary_fingerprint_mismatch)")
+  await waitForPlayerText(page, "appendable source progress: startup=yes / fullDecoded=yes / fullAppended=yes")
 })
 
 test("appendable route debug api can run a quick pilot flow with seek", async ({ page }) => {

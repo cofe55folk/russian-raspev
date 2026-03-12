@@ -2896,3 +2896,49 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.168`:
    - future windows no longer need to infer whether SAB is merely a roadmap note or already reflected in the actual diagnostics surface
    - the next real SAB milestone can focus on replacing the PCM lane itself instead of first inventing new report/probe plumbing
+
+## 8.169 Manifest-backed continuation boundary fingerprints now gate group append before the current fallback path continues
+1. This slice still does not switch the appendable transport away from the phase-one lane:
+   - `dataPlaneMode = postmessage_pcm`
+   - `controlPlaneMode = message_port`
+   - SAB migration remains a later milestone
+2. The new work tightens the current continuation contract instead:
+   - each continuation chunk in the startup manifest now carries `expectedFrames`
+   - and `boundaryFingerprint = { windowFrames, firstHash, lastHash }`
+3. Qualification is stricter before runtime append starts:
+   - continuation qualification now falls back if chunk boundary metadata is missing after manifest normalization
+   - it also falls back if one stem in the same group reports a different `expectedFrames`
+4. Runtime append is now whole-group verification, not opportunistic per-stem append:
+   - a continuation group is decoded first across all stems
+   - each decoded chunk must match manifest `expectedFrames`
+   - each decoded chunk must match the manifest boundary fingerprint
+   - only then is the whole group appended into the appendable sources
+   - the first mismatch poisons that group and stops further continuation-group append
+5. The poison state is now visible everywhere operators actually inspect the route:
+   - source progress now tracks `continuationFingerprintGroupsVerified`
+   - plus `continuationPoisonedGroupIndex`
+   - plus `continuationPoisonReason`
+   - the normal route debug surface and saved pilot report both expose these fields
+6. A dedicated negative-path contract now exists:
+   - if a manifest fingerprint is tampered, runtime should show `poisoned@0 (boundary_fingerprint_mismatch)`
+   - and the route should continue through the full fallback path instead of accepting partial continuation append
+7. A real blocker appeared during this slice and is now important handoff context:
+   - the first live Chromium route run on `tomsk-bogoslovka-po-moryam` failed with a false `boundary_fingerprint_mismatch` on the real manifest
+   - the cause was a packaging/runtime hash mismatch:
+     - generator hashed raw decoded source floats
+     - runtime hashed the decoded continuation WAV
+     - that created false negatives on some real assets because the PCM quantization round-trip was not identical
+8. The fix for that blocker is now part of the slice:
+   - generator hashes the same `PCM int16` values it actually writes into the continuation WAV
+   - runtime reconstructs that same `PCM int16` from the decoded continuation WAV before hashing
+   - after that change the real `tomsk` route passes again, while the intentionally tampered manifest still poisons deterministically
+9. Verification completed locally for this slice:
+   - `node scripts/generate-startup-chunks.mjs`
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `30/30`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit -g "tomsk route|boundary fingerprints do not match manifest metadata"` → `2/2`
+   - `npm run build`
+10. Practical consequence after `8.169`:
+   - current continuation packaging is no longer trusted only by timing/alignment metadata; it now has manifest-backed asset-integrity checks before append
+   - the external review's "whole-group poison/fallback" guidance is now implemented in runtime, not just documented
+   - the next window can treat boundary fingerprints as an active part of the appendable continuation contract rather than as a future idea
