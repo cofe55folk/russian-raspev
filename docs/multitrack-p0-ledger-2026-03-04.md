@@ -5355,3 +5355,44 @@ Residual note по verification:
 Итог после `9.129`:
 1. Route-side pitch shadow path теперь устойчив не только к repeated proof, но и к более широкой edge-value matrix.
 2. Следующее автономное окно можно тратить уже на longer route-level control-change, seek или hold scenarios, а не на очередное доказательство reload/export semantics.
+
+## 9.130 Seek-aware route-side pitch matrix теперь доказан для repeated pitch-shadow flow с реальными `seek(12)` и `seek(24)`
+
+Что оставалось после `9.129`:
+1. Мы уже знали, что latest pitch proof переживает repeated control changes и edge-value matrix.
+2. Но оставалась ещё одна практическая route-level неопределённость:
+   - что будет, если между этими proof-step есть реальные seek по timeline, а не только смена `tempo/pitch`
+
+Что добавлено:
+1. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появился новый seek-aware route-level matrix:
+   - `runPitchShadowPilot(1.06, 4, 800)`
+   - `seek(12)`
+   - `runPitchShadowPilot(0.94, -5, 900)`
+   - `seek(24)`
+   - `runPitchShadowPilot(1.08, 7, 900)`
+2. Этот же сценарий теперь отдельно доказан для четырёх surface:
+   - reload/hydration
+   - direct `downloadReport()`
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()`
+
+Почему это важно:
+1. Route-side pitch shadow proof теперь подтверждён не только для статичного playhead и не только для repeated controls.
+2. Latest committed proof стабильно переживает ещё и route movement между шагами, что ближе к реальному ручному operator flow.
+3. Это снимает ещё один класс сомнений перед дальнейшими route-level stress scenarios:
+   - больше не нужно отдельно гадать, сломает ли `seek` семантику latest pitch proof
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "seek-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest seek-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest seek-aware route proof on the normal route|save-current diagnostics preserves the latest seek-aware pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "seek-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest seek-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest seek-aware route proof on the normal route|save-current diagnostics preserves the latest seek-aware pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium seek-aware route proof — `4/4`
+2. WebKit seek-aware route proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.130`:
+1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls и explicit seeks.
+2. Следующее автономное окно можно тратить уже на longer hold/background/interruption-style scenarios, а не на повторное доказательство latest-proof semantics после seek.
