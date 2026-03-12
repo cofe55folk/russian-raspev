@@ -5396,3 +5396,43 @@ Residual note по verification:
 Итог после `9.130`:
 1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls и explicit seeks.
 2. Следующее автономное окно можно тратить уже на longer hold/background/interruption-style scenarios, а не на повторное доказательство latest-proof semantics после seek.
+
+## 9.131 Hold-aware route-side pitch matrix теперь доказан и для repeated shadow flow с длинными паузами между proof-step
+
+Что оставалось после `9.130`:
+1. Мы уже закрыли latest-proof semantics для repeated controls и explicit seeks.
+2. Но оставался ещё один практический runtime-вопрос:
+   - что будет, если оператор не меняет `tempo/pitch` мгновенно, а между proof-step есть реальные hold-окна по несколько секунд
+
+Что добавлено:
+1. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появился новый hold-aware route-level matrix:
+   - `runPitchShadowPilot(1.02, 3, 800)`
+   - hold `2500ms`
+   - `runPitchShadowPilot(0.96, -4, 900)`
+   - hold `2500ms`
+   - `runPitchShadowPilot(1.10, 6, 900)`
+2. Этот сценарий теперь отдельно доказан для четырёх surface:
+   - reload/hydration
+   - direct `downloadReport()`
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()`
+
+Почему это важно:
+1. Route-side pitch shadow proof теперь покрывает не только быстрые подряд идущие control changes, но и longer steady-state gaps между ними.
+2. Latest committed proof стабильно переживает время удержания playback между шагами, а не только сам факт смены `tempo/pitch`.
+3. Это практически добивает дешёвую route-side proof surface перед более дорогими background/interruption сценариями.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "hold-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest hold-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest hold-aware route proof on the normal route|save-current diagnostics preserves the latest hold-aware pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "hold-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest hold-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest hold-aware route proof on the normal route|save-current diagnostics preserves the latest hold-aware pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium hold-aware route proof — `4/4`
+2. WebKit hold-aware route proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.131`:
+1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls, explicit seeks и longer hold gaps.
+2. Дальнейший автономный шаг уже уходит в более дорогую territory: background/interruption-style scenarios или platform-specific session behavior, а не в дешёвые persistence/export proofs.
