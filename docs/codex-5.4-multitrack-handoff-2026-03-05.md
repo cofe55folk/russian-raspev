@@ -3261,3 +3261,27 @@ Suggested opening prompt for the next window:
      - persisted reload/hydration
      - direct report/packet downloads
    - the next autonomous route-level window no longer needs to re-check whether normal-route pitch proof disappears during export
+
+## 8.179 Normal-route pitch-shadow qualification now keeps the latest proof across repeated tempo/pitch changes
+1. The next route-level slice stayed entirely inside the same hidden shadow path and added no new product-facing behavior.
+2. The gap after `8.178` was no longer export disappearance on a single proof, but “latest proof wins” after multiple route-side control changes.
+3. That case now has explicit executable coverage:
+   - run one route-side pitch shadow proof
+   - run a second proof with different tempo/pitch values
+   - verify that persisted reload/hydration keeps the second, latest proof
+   - verify that direct report download exports the second, latest proof
+4. Practical meaning:
+   - route-side pitch evidence is no longer only stable for a one-off manual proof
+   - the report surface now behaves correctly when the operator changes route-side pitch targets more than once in the same session
+5. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "latest repeated pitch shadow proof rehydrates after reload on the normal route|downloaded pitch shadow report preserves the latest repeated route proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "latest repeated pitch shadow proof rehydrates after reload on the normal route|downloaded pitch shadow report preserves the latest repeated route proof on the normal route"`
+6. Verification completed locally:
+   - Chromium repeated route-shadow persistence/export proof → `2/2`
+   - WebKit repeated route-shadow persistence/export proof → `2/2`
+   - `npx tsc --noEmit`
+7. Practical consequence after `8.179`:
+   - route-side pitch qualification no longer needs to assume one proof per session
+   - the next autonomous window can move from “latest proof survives” toward broader route-side pitch matrices or longer route-level control-change scenarios

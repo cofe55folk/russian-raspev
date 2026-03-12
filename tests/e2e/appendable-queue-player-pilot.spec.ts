@@ -2478,6 +2478,209 @@ test("downloaded pitch shadow report preserves route proof on the normal route",
   expect(report.snapshot?.rollout.reason ?? null).toBe(expectedReportBeforeDownload?.snapshot?.rollout.reason ?? null)
 })
 
+test("latest repeated pitch shadow proof rehydrates after reload on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+    preserveStoredReport: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const persistedBeforeReload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot:
+              | {
+                  capturedAt: string
+                  trackScopeId: string
+                  pitch: {
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runPitchShadowPilot(1.04, 4, 800)
+    const finalState = await api.runPitchShadowPilot(0.98, -3, 800)
+    const storageKey = `rr_appendable_route_pilot_report:${finalState.trackScopeId}:v1`
+    return {
+      trackScopeId: finalState.trackScopeId,
+      report: finalState.report,
+      storageKey,
+      stored: localStorage.getItem(storageKey),
+    }
+  })
+
+  expect(persistedBeforeReload).not.toBeNull()
+  expect(persistedBeforeReload?.report.snapshot).not.toBeNull()
+  expect(persistedBeforeReload?.report.snapshot?.pitch.targetTempo).toBe(0.98)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.observedTempo).toBe(0.98)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.targetPitchSemitones).toBe(-3)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.observedPitchSemitones).toBe(-3)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.passed).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.reason).toBeNull()
+  expect(persistedBeforeReload?.stored).not.toBeNull()
+
+  const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
+  const expectedCapturedAt = persistedBeforeReload?.report.snapshot?.capturedAt ?? ""
+  const expectedStatus = persistedBeforeReload?.report.status ?? "pending"
+
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+
+  const persistedAfterReload = await evaluateWithRetry(page, () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        getState: () => {
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot:
+              | {
+                  capturedAt: string
+                  trackScopeId: string
+                  pitch: {
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    const state = api.getState()
+    const storageKey = `rr_appendable_route_pilot_report:${state.trackScopeId}:v1`
+    return {
+      trackScopeId: state.trackScopeId,
+      report: state.report,
+      stored: localStorage.getItem(storageKey),
+    }
+  })
+
+  expect(persistedAfterReload).not.toBeNull()
+  expect(persistedAfterReload?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.status).toBe(expectedStatus)
+  expect(persistedAfterReload?.report.snapshot?.capturedAt).toBe(expectedCapturedAt)
+  expect(persistedAfterReload?.report.snapshot?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.snapshot?.pitch.targetTempo).toBe(0.98)
+  expect(persistedAfterReload?.report.snapshot?.pitch.observedTempo).toBe(0.98)
+  expect(persistedAfterReload?.report.snapshot?.pitch.targetPitchSemitones).toBe(-3)
+  expect(persistedAfterReload?.report.snapshot?.pitch.observedPitchSemitones).toBe(-3)
+  expect(persistedAfterReload?.report.snapshot?.pitch.passed).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.pitch.reason).toBeNull()
+  expect(persistedAfterReload?.stored).not.toBeNull()
+})
+
+test("downloaded pitch shadow report preserves the latest repeated route proof on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const expectedReportBeforeDownload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          report: {
+            status: string
+            snapshot:
+              | {
+                  trackScopeId: string
+                  gate: { status: string }
+                  pitch: {
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runPitchShadowPilot(1.04, 4, 800)
+    return (await api.runPitchShadowPilot(0.98, -3, 800)).report
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadReport")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadReport: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadReport()
+  })
+  const download = await downloadPromise
+  const report = await readJsonDownload<{
+    status: string
+    trackScopeId: string
+    checklistStatus: string
+    snapshot:
+      | {
+          trackScopeId: string
+          gate: { status: string }
+          pitch: {
+            targetTempo: number | null
+            observedTempo: number | null
+            targetPitchSemitones: number | null
+            observedPitchSemitones: number | null
+            passed: boolean | null
+            reason: string | null
+          }
+        }
+      | null
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-")
+  expect(expectedReportBeforeDownload?.snapshot).not.toBeNull()
+  expect(report.snapshot).not.toBeNull()
+  expect(report.status).toBe(expectedReportBeforeDownload?.status ?? "pending")
+  expect(report.trackScopeId).toBe(expectedReportBeforeDownload?.snapshot?.trackScopeId ?? SLUG)
+  expect(report.checklistStatus).toBe(expectedReportBeforeDownload?.snapshot?.gate.status ?? "pending")
+  expect(report.snapshot?.pitch.targetTempo).toBe(0.98)
+  expect(report.snapshot?.pitch.observedTempo).toBe(0.98)
+  expect(report.snapshot?.pitch.targetPitchSemitones).toBe(-3)
+  expect(report.snapshot?.pitch.observedPitchSemitones).toBe(-3)
+  expect(report.snapshot?.pitch.passed).toBe(true)
+  expect(report.snapshot?.pitch.reason).toBeNull()
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
