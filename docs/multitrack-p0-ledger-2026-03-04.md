@@ -5697,3 +5697,42 @@ Residual note по verification:
 Итог после `9.137`:
 1. Route-side qualification теперь имеет уже и interruption-adjacent reload checkpoint, а не только background-like lifecycle proof.
 2. До реального shipping решения остаётся уже именно platform-dependent слой, а не недостающая route-side bookkeeping mechanics.
+
+## 9.138 Route-side pause-hidden-resume checkpoint теперь доказан и через report/packet/save surfaces
+
+Что добавлено:
+1. Поверх `9.137` добавлено недостающее export/persistence parity для того же interruption-adjacent сценария:
+   - direct `downloadReport()`
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()`
+2. Сам route matrix не менялся:
+   - `runPitchShadowPilot(1.01, 2, 800)`
+   - explicit `pause()`
+   - synthetic hidden/pagehide/pageshow cycle
+   - explicit `play()`
+   - final `runPitchShadowPilot(1.03, 4, 900)`
+3. Теперь этот final `1.03 / +4` proof обязан одинаково сохраняться:
+   - после reload/hydration
+   - в downloaded report
+   - в downloaded packet
+   - в save-current packet
+
+Почему это важно:
+1. Interruption-adjacent qualification больше не зависит только от live reload surface.
+2. Persisted report и export artifacts теперь держат тот же latest-proof contract, что и живая route state.
+3. Это закрывает последний cheap deterministic gap перед переходом в реально platform-dependent background/interruption behavior.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-hidden-resume route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-hidden-resume route proof on the normal route|save-current diagnostics preserves the latest pause-hidden-resume pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-hidden-resume route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-hidden-resume route proof on the normal route|save-current diagnostics preserves the latest pause-hidden-resume pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium pause-hidden-resume export proof — `4/4`
+2. WebKit pause-hidden-resume export proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.138`:
+1. Interruption-adjacent route proof теперь одинаково устойчив и в reload, и в report/packet/save artifacts.
+2. Дальше автономная работа уже смещается из export parity в platform behavior qualification.

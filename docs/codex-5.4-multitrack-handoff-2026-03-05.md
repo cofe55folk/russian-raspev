@@ -3628,3 +3628,36 @@ Suggested opening prompt for the next window:
 7. Practical consequence after `8.189`:
    - route-side qualification now has an interruption-adjacent checkpoint without yet crossing into product-level audio-session decisions
    - the next truly new autonomous layer is platform-dependent background/interruption behavior beyond synthetic lifecycle nudges
+
+## 8.190 Route-side pause-hidden-resume proof now survives report, packet, and save-current exports as well
+1. After `8.189`, the missing surface was no longer reload itself, but export parity for the same interruption-adjacent route proof.
+2. The pause-hidden-resume matrix stays the same:
+   - initial pitch proof `1.01 / +2`
+   - explicit `pause()`
+   - synthetic hidden/pagehide/pageshow cycle
+   - explicit `play()`
+   - final pitch proof `1.03 / +4`
+3. The contract now proven on the normal `/sound/...` route is expanded to all route diagnostics surfaces:
+   - reload/hydration preserves the final `1.03 / +4` proof
+   - direct `downloadReport()` preserves the same proof
+   - direct `downloadPacket()` preserves the same proof
+   - `saveCurrentDiagnostics()` preserves the same proof
+4. This matters because the interruption-adjacent checkpoint is now export-stable, not only live-state stable:
+   - route reports no longer have a weaker surface than reload persistence
+   - packet/report/save artifacts now carry the same latest-proof semantics after pause-hidden-resume
+5. This slice still deliberately stays below real platform interruption claims:
+   - no claim about actual `AudioContext.interrupted`
+   - no Safari/iPhone session-policy change
+   - only deterministic route persistence/export handling around a pause-background-resume style sequence
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-hidden-resume route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-hidden-resume route proof on the normal route|save-current diagnostics preserves the latest pause-hidden-resume pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-hidden-resume route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-hidden-resume route proof on the normal route|save-current diagnostics preserves the latest pause-hidden-resume pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium pause-hidden-resume export proof → `4/4`
+   - WebKit pause-hidden-resume export proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.190`:
+   - interruption-adjacent route qualification is now coherent across reload, report, packet, and save-current surfaces
+   - the next autonomous layer really is platform-behavior territory rather than missing export parity
