@@ -41,6 +41,8 @@ export type AppendableQueueCoordinatorStemSnapshot = {
 export type AppendableQueueCoordinatorSnapshot = {
   playing: boolean
   tempo: number
+  pitchSemitones: number
+  supportsIndependentPitch: boolean
   dataPlaneMode: string | null
   controlPlaneMode: string | null
   preferredDataPlaneMode: string | null
@@ -83,6 +85,7 @@ export type AppendableQueueMultitrackCoordinator = {
   seekSeconds: (sec: number) => number
   rebaseSeconds: (sec: number) => number
   setTempo: (tempo: number) => number
+  setPitchSemitones: (semitones: number) => number
   tick: (opts?: { force?: boolean }) => void
   isPlaying: () => boolean
   getSnapshot: () => AppendableQueueCoordinatorSnapshot
@@ -185,6 +188,10 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
     appendChunkFrames: toFiniteNumber(stats.appendChunkFrames, 0),
     ringFrames: toFiniteNumber(stats.ringFrames, 0),
     sourceEnded: stats.sourceEnded === 1 || stats.sourceEnded === "1" || stats.sourceEnded === "true",
+    supportsIndependentPitch:
+      stats.supportsIndependentPitch === 1 ||
+      stats.supportsIndependentPitch === "1" ||
+      stats.supportsIndependentPitch === "true",
     transportRunning:
       stats.transportRunning === 1 || stats.transportRunning === "1" || stats.transportRunning === "true",
     transportFrame: toFiniteNumber(stats.transportFrame, 0),
@@ -192,6 +199,7 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
     anchorFrame: toFiniteNumber(stats.anchorFrame, 0),
     transportRate: toFiniteNumber(stats.transportRate, 1),
     tempo: toFiniteNumber(stats.tempo, 1),
+    pitchSemitones: toFiniteNumber(stats.pitchSemitones, 0),
   }
 }
 
@@ -210,6 +218,7 @@ export function createAppendableQueueMultitrackCoordinator(
   const transportClock = createAppendableTransportClock(sampleRate, durationFrames)
   let playing = false
   let tempo = 1
+  let pitchSemitones = 0
 
   const computeTickPlan = (force = false) => {
     const stats = stems.map((stem) => getStemStats(stem)).filter((value): value is AppendableQueueDebugStats => !!value)
@@ -314,6 +323,16 @@ export function createAppendableQueueMultitrackCoordinator(
         } catch {}
       })
       return tempo
+    },
+
+    setPitchSemitones(nextPitchSemitones: number) {
+      pitchSemitones = clamp(Math.round(nextPitchSemitones), -12, 12)
+      stems.forEach((stem) => {
+        try {
+          stem.engine.setPitchSemitones(pitchSemitones)
+        } catch {}
+      })
+      return pitchSemitones
     },
 
     tick,
@@ -423,6 +442,7 @@ export function createAppendableQueueMultitrackCoordinator(
             .filter((value): value is boolean => typeof value === "boolean")
         )
       )
+      const supportsIndependentPitch = stems.every((stem) => stem.engine.getCapabilities().supportsIndependentPitch)
       const totalAppendMessages = stemSnapshots.reduce(
         (sum, stem) => sum + (typeof stem.stats?.appendMessageCount === "number" ? stem.stats.appendMessageCount : 0),
         0
@@ -434,6 +454,8 @@ export function createAppendableQueueMultitrackCoordinator(
       return {
         playing,
         tempo: Number(tempo.toFixed(3)),
+        pitchSemitones,
+        supportsIndependentPitch,
         dataPlaneMode:
           dataPlaneModes.length === 1 ? (dataPlaneModes[0] ?? null) : dataPlaneModes.length ? dataPlaneModes.join(",") : null,
         controlPlaneMode:

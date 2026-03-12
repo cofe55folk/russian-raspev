@@ -3049,3 +3049,39 @@ Suggested opening prompt for the next window:
    - the appendable packaging cohort is no longer concentrated mostly in the original Terek/Tomsk/Balman cluster
    - safe-rollout widening can now target a broader ten-route manifest-backed set
    - the next slice can either widen further or shift focus to pitch/transport behavior without reopening packaging basics
+
+## 8.174 Independent pitch groundwork now exists inside the same appendable worklet runtime, but only behind the isolated lab gate
+1. This slice does not enable pitch on the normal `/sound/...` appendable rollout path.
+2. Instead, `createAppendableQueueEngine` now has an explicit `enableIndependentPitch` opt-in:
+   - default remains `false`
+   - current route/player rollout therefore still keeps `supportsIndependentPitch = false`
+   - the isolated `/appendable-queue-lab` is the only surface that enables the new contract on this branch
+3. The worklet-local contract now matches the earlier Web Pro guidance more closely:
+   - pitch changes are applied through the same long-lived appendable worklet runtime per stem
+   - they travel over the same `message_port` control plane already used for tempo/playing commands
+   - no main-thread pitch DSP, no extra scheduling domain, and no processor rebuild path were introduced
+4. The isolated lab surface now exposes explicit pitch evidence:
+   - top-level snapshot carries `supportsIndependentPitch` and `pitchSemitones`
+   - per-stem stats carry the same fields
+   - `window.__rrAppendableQueueDebug.setPitchSemitones(...)` can drive the contract directly
+   - the lab UI now has quick `Pitch -4 / 0 / +4` controls for manual probing
+5. The Safari/WebKit qualification docs are now anchored to explicit executable entrypoints rather than only prose:
+   - WebKit SAB activation proof:
+     - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry"`
+   - WebKit + Chromium pitch proof on the isolated harness:
+     - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=webkit --project=chromium -g "lab-gated worklet-local pitch changes preserve sab_ring sync"`
+   - Chromium steady-state stress entrypoints:
+     - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "longer sab_ring soak stays inside clean steady-state watermarks|interruption-like suspend/resume loop preserves sab_ring sync and telemetry"`
+   - Chromium route fallback guardrail:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium`
+6. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "lab-gated worklet-local pitch changes preserve sab_ring sync"` → `1/1`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `12/12`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry|lab-gated worklet-local pitch changes preserve sab_ring sync"` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `31/31`
+   - `npm run build`
+7. Practical consequence after `8.174`:
+   - the repository now has a real worklet-local pitch contract for appendable playback without changing the thread model
+   - the contract is still lab-gated, so route rollout safety remains unchanged
+   - future windows can widen pitch range/criteria from an already executable Safari/WebKit qualification harness instead of re-opening the architectural decision

@@ -61,11 +61,13 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     this.bufferedEndFrame = 0;
     this.discontinuityCount = 0;
     this.tempo = 1;
+    this.pitchSemitones = 0;
     this.outputInterleaved = new Float32Array(4096 * 2);
     this.source = new AppendableSoundTouchSource(this);
     this.st = new SoundTouch(sampleRate);
     this.st.tempo = this.tempo;
     this.st.pitch = 1;
+    this.st.pitchSemitones = this.pitchSemitones;
     this.filter = new SimpleFilter(this.source, this.st);
 
     this.port.onmessage = (event) => {
@@ -89,6 +91,9 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
           break;
         case "setTempo":
           this.setTempo(data);
+          break;
+        case "setPitchSemitones":
+          this.setPitchSemitones(data);
           break;
         default:
           break;
@@ -206,6 +211,18 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     this.st.tempo = nextTempo;
   }
 
+  setPitchSemitones(data) {
+    const nextPitchSemitones = clamp(
+      Number.isFinite(data.pitchSemitones) ? Number(data.pitchSemitones) : this.pitchSemitones,
+      -12,
+      12
+    );
+    this.pitchSemitones = nextPitchSemitones;
+    try {
+      this.st.pitchSemitones = nextPitchSemitones;
+    } catch {}
+  }
+
   appendFrames(data) {
     if (this.dataPlaneMode === "sab_ring") return;
 
@@ -306,6 +323,7 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
       discontinuityCount: this.discontinuityCount,
       generation: this.generation,
       tempo: this.tempo,
+      pitchSemitones: this.pitchSemitones,
     };
     this.framesSinceReport = 0;
     this.minAvailableFrames = payload.availableFrames;

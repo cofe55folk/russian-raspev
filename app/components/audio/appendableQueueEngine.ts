@@ -50,11 +50,13 @@ export type AppendableQueueWorkletStats = {
   discontinuityCount: number
   generation: number
   tempo: number
+  pitchSemitones: number
 }
 
 export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
   sampleRate: number
   channelCount: number
+  supportsIndependentPitch: boolean
   dataPlaneMode: AppendableQueueDataPlaneMode
   controlPlaneMode: AppendableQueueControlPlaneMode
   preferredDataPlaneMode: AppendableQueuePreferredDataPlaneMode
@@ -116,6 +118,7 @@ type CreateAppendableQueueEngineOpts = {
   appendChunkFrames?: number
   lowWaterFrames?: number
   highWaterFrames?: number
+  enableIndependentPitch?: boolean
   externalTick?: boolean
   onStats?: (stats: AppendableQueueDebugStats) => void
 }
@@ -472,6 +475,7 @@ export async function createAppendableQueueEngine(
   let sourceEnded = false
   let queueFramesEstimate: number | null = null
   const supportsTempo = channelCount <= 2
+  const supportsIndependentPitch = supportsTempo && opts?.enableIndependentPitch === true
   const sabReadiness = detectAppendableQueueSabReadiness()
   let dataPlaneMode: AppendableQueueDataPlaneMode = "postmessage_pcm"
   let sabRing: AppendableQueueSabRing | null = null
@@ -492,6 +496,7 @@ export async function createAppendableQueueEngine(
     }
   }
   let tempo = 1
+  let pitchSemitones = 0
   let lastWorkletStats: AppendableQueueWorkletStats = {
     availableFrames: 0,
     minAvailableFrames: 0,
@@ -503,6 +508,7 @@ export async function createAppendableQueueEngine(
     discontinuityCount: 0,
     generation: 0,
     tempo,
+    pitchSemitones,
   }
 
   const emitStats = () => {
@@ -540,6 +546,7 @@ export async function createAppendableQueueEngine(
       ...lastWorkletStats,
       sampleRate,
       channelCount,
+      supportsIndependentPitch,
       dataPlaneMode,
       controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
       preferredDataPlaneMode: sabReadiness.preferredDataPlaneMode,
@@ -579,6 +586,7 @@ export async function createAppendableQueueEngine(
       anchorFrame: transport.anchorFrame,
       transportRate: transport.playbackRate,
       tempo,
+      pitchSemitones,
     })
   }
 
@@ -603,8 +611,16 @@ export async function createAppendableQueueEngine(
       discontinuityCount: Math.max(0, Number(data.discontinuityCount) || 0),
       generation,
       tempo: Math.min(4, Math.max(0.25, Number(data.tempo) || tempo)),
+      pitchSemitones: Math.min(
+        12,
+        Math.max(
+          -12,
+          Number.isFinite(data.pitchSemitones) ? Number(data.pitchSemitones) : pitchSemitones
+        )
+      ),
     }
     tempo = lastWorkletStats.tempo
+    pitchSemitones = lastWorkletStats.pitchSemitones
     queueFramesEstimate = lastWorkletStats.availableFrames
     emitStats()
     if (startRequested && !isRunning && lastWorkletStats.availableFrames > 0) {
@@ -786,6 +802,7 @@ export async function createAppendableQueueEngine(
       discontinuityCount: 0,
       generation,
       tempo,
+      pitchSemitones,
     }
     try {
       node.port.postMessage({
@@ -870,7 +887,7 @@ export async function createAppendableQueueEngine(
     getCapabilities() {
       return {
         supportsTempo,
-        supportsIndependentPitch: false,
+        supportsIndependentPitch,
       }
     },
 
@@ -977,7 +994,9 @@ export async function createAppendableQueueEngine(
         anchorFrame: transport.anchorFrame,
         transportRate: transport.playbackRate,
         tempo,
+        pitchSemitones,
         sourceEnded: sourceEnded ? 1 : 0,
+        supportsIndependentPitch: supportsIndependentPitch ? 1 : 0,
         lowWaterFrames,
         lowWaterSec: Number((lowWaterFrames / sampleRate).toFixed(3)),
         highWaterFrames,
@@ -1013,7 +1032,12 @@ export async function createAppendableQueueEngine(
     },
 
     setPitchSemitones(_semitones: number) {
-      // Phase-one appendable queue prototype intentionally skips pitch-shift.
+      if (!supportsIndependentPitch) return
+      pitchSemitones = Math.min(12, Math.max(-12, Math.round(_semitones)))
+      try {
+        node.port.postMessage({ type: "setPitchSemitones", generation, pitchSemitones })
+      } catch {}
+      emitStats()
     },
 
     destroy() {
