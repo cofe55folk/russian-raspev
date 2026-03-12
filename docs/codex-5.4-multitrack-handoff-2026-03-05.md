@@ -3490,3 +3490,37 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.185`:
    - route-side pitch shadow proof now survives repeated changes, explicit seeks, longer holds, pause/resume churn, and browser-tab blur/focus churn
    - the next autonomous route-level step would be true visibility/background/interruption-session territory rather than another cheap proof extension
+
+## 8.186 Route-side pitch report now persists visibility telemetry alongside the latest focus-aware proof
+1. After `8.185`, the next autonomous step that still stayed below shipping-policy decisions was to make route evidence explicit about foreground loss itself:
+   - not just whether the latest pitch proof survived
+   - but whether the report/packet actually retained focus- and visibility-adjacent telemetry from that churn
+2. `MultiTrackPlayer` route diagnostics now persist a dedicated `visibility` snapshot inside the appendable pilot report:
+   - `currentState`
+   - `lostForeground`
+   - `blurCount`
+   - `focusCount`
+   - raw `visibilityHiddenCount` / `visibilityVisibleCount`
+   - `hiddenWhilePlayingCount`
+   - `focusWhilePlayingCount`
+   - `lastEvent` / `lastEventAt`
+3. The route pilot report UI now surfaces that evidence directly, so packet/report exports and saved diagnostics expose the same visibility counters as live route diagnostics.
+4. The existing focus-aware normal-route matrix was tightened accordingly:
+   - the latest proof must still survive reload, `downloadReport()`, `downloadPacket()`, and `saveCurrentDiagnostics()`
+   - and the persisted snapshot must now also retain `visibility` evidence proving foreground loss plus focus recovery
+5. Automation nuance captured explicitly:
+   - headless browser tab switching does not always emit native `blur/focus` callbacks consistently
+   - the spec helper therefore keeps the real companion-page `bringToFront()` churn and adds an explicit `window` foreground-event nudge so the route-side telemetry contract remains executable in CI
+   - runtime code itself still listens to actual browser `blur`, `focus`, and `visibilitychange`
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium focus-aware visibility-evidence proof → `4/4`
+   - WebKit focus-aware visibility-evidence proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.186`:
+   - route-side pitch shadow evidence now retains not only the final pitch verdict, but also explicit foreground-loss telemetry through reload and export surfaces
+   - the next autonomous route-level step is no longer about persistence/report shape; it is genuinely about platform-dependent background/interruption/session behavior

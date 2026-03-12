@@ -165,6 +165,24 @@ type AppendableRouteStressSnapshot = {
   passed: boolean | null
   reason: string | null
 }
+type AppendableRouteVisibilityState = "visible" | "hidden"
+type AppendableRouteVisibilityEvent =
+  | "window:blur"
+  | "window:focus"
+  | "document:hidden"
+  | "document:visible"
+type AppendableRouteVisibilitySnapshot = {
+  currentState: AppendableRouteVisibilityState | null
+  lostForeground: boolean
+  blurCount: number
+  focusCount: number
+  visibilityHiddenCount: number
+  visibilityVisibleCount: number
+  hiddenWhilePlayingCount: number
+  focusWhilePlayingCount: number
+  lastEvent: AppendableRouteVisibilityEvent | null
+  lastEventAt: string | null
+}
 type AppendableRouteTransportSnapshot = {
   supportsTempo: boolean | null
   supportsIndependentPitch: boolean | null
@@ -248,6 +266,7 @@ type AppendableRoutePilotReportSnapshot = {
   transport: AppendableRouteTransportSnapshot
   qualification: AppendableRouteQualificationSnapshot
   stress: AppendableRouteStressSnapshot
+  visibility: AppendableRouteVisibilitySnapshot
   pitch: AppendableRoutePitchSnapshot
   rollout: AppendableRouteRolloutSnapshot
 }
@@ -826,6 +845,21 @@ function createAppendableRouteStressSnapshot(): AppendableRouteStressSnapshot {
   }
 }
 
+function createAppendableRouteVisibilitySnapshot(): AppendableRouteVisibilitySnapshot {
+  return {
+    currentState: null,
+    lostForeground: false,
+    blurCount: 0,
+    focusCount: 0,
+    visibilityHiddenCount: 0,
+    visibilityVisibleCount: 0,
+    hiddenWhilePlayingCount: 0,
+    focusWhilePlayingCount: 0,
+    lastEvent: null,
+    lastEventAt: null,
+  }
+}
+
 function createAppendableRouteTransportSnapshot(): AppendableRouteTransportSnapshot {
   return {
     supportsTempo: null,
@@ -896,6 +930,23 @@ function cloneAppendableRouteStressSnapshot(snapshot: AppendableRouteStressSnaps
   }
 }
 
+function cloneAppendableRouteVisibilitySnapshot(
+  snapshot: AppendableRouteVisibilitySnapshot
+): AppendableRouteVisibilitySnapshot {
+  return {
+    currentState: snapshot.currentState,
+    lostForeground: snapshot.lostForeground,
+    blurCount: snapshot.blurCount,
+    focusCount: snapshot.focusCount,
+    visibilityHiddenCount: snapshot.visibilityHiddenCount,
+    visibilityVisibleCount: snapshot.visibilityVisibleCount,
+    hiddenWhilePlayingCount: snapshot.hiddenWhilePlayingCount,
+    focusWhilePlayingCount: snapshot.focusWhilePlayingCount,
+    lastEvent: snapshot.lastEvent,
+    lastEventAt: snapshot.lastEventAt,
+  }
+}
+
 function hasAppendableRouteQualificationEvidence(snapshot: AppendableRouteQualificationSnapshot): boolean {
   return (
     snapshot.targetSoakSec != null ||
@@ -912,6 +963,21 @@ function hasAppendableRouteStressEvidence(snapshot: AppendableRouteStressSnapsho
     snapshot.completedSeeks > 0 ||
     snapshot.passed != null ||
     snapshot.reason != null
+  )
+}
+
+function hasAppendableRouteVisibilityEvidence(snapshot: AppendableRouteVisibilitySnapshot): boolean {
+  return (
+    snapshot.currentState != null ||
+    snapshot.lostForeground ||
+    snapshot.blurCount > 0 ||
+    snapshot.focusCount > 0 ||
+    snapshot.visibilityHiddenCount > 0 ||
+    snapshot.visibilityVisibleCount > 0 ||
+    snapshot.hiddenWhilePlayingCount > 0 ||
+    snapshot.focusWhilePlayingCount > 0 ||
+    snapshot.lastEvent != null ||
+    snapshot.lastEventAt != null
   )
 }
 
@@ -1083,6 +1149,25 @@ function mergeAppendableRouteTransportSnapshot(
   }
 }
 
+function mergeAppendableRouteVisibilitySnapshot(
+  snapshot: AppendableRouteVisibilitySnapshot,
+  previousSnapshot: AppendableRouteVisibilitySnapshot | null
+): AppendableRouteVisibilitySnapshot {
+  if (!previousSnapshot) return cloneAppendableRouteVisibilitySnapshot(snapshot)
+  return {
+    currentState: snapshot.currentState ?? previousSnapshot.currentState,
+    lostForeground: snapshot.lostForeground || previousSnapshot.lostForeground,
+    blurCount: Math.max(snapshot.blurCount, previousSnapshot.blurCount),
+    focusCount: Math.max(snapshot.focusCount, previousSnapshot.focusCount),
+    visibilityHiddenCount: Math.max(snapshot.visibilityHiddenCount, previousSnapshot.visibilityHiddenCount),
+    visibilityVisibleCount: Math.max(snapshot.visibilityVisibleCount, previousSnapshot.visibilityVisibleCount),
+    hiddenWhilePlayingCount: Math.max(snapshot.hiddenWhilePlayingCount, previousSnapshot.hiddenWhilePlayingCount),
+    focusWhilePlayingCount: Math.max(snapshot.focusWhilePlayingCount, previousSnapshot.focusWhilePlayingCount),
+    lastEvent: snapshot.lastEvent ?? previousSnapshot.lastEvent,
+    lastEventAt: snapshot.lastEventAt ?? previousSnapshot.lastEventAt,
+  }
+}
+
 function mergeAppendableRoutePilotEvidenceSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot,
   previousSnapshot: AppendableRoutePilotReportSnapshot | null
@@ -1099,6 +1184,9 @@ function mergeAppendableRoutePilotEvidenceSnapshot(
     stress: hasAppendableRouteStressEvidence(snapshot.stress)
       ? cloneAppendableRouteStressSnapshot(snapshot.stress)
       : cloneAppendableRouteStressSnapshot(previousSnapshot.stress),
+    visibility: hasAppendableRouteVisibilityEvidence(snapshot.visibility)
+      ? mergeAppendableRouteVisibilitySnapshot(snapshot.visibility, previousSnapshot.visibility)
+      : cloneAppendableRouteVisibilitySnapshot(previousSnapshot.visibility),
     pitch: hasAppendableRoutePitchEvidence(snapshot.pitch)
       ? cloneAppendableRoutePitchSnapshot(snapshot.pitch)
       : cloneAppendableRoutePitchSnapshot(previousSnapshot.pitch),
@@ -1396,6 +1484,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           transport: cloneAppendableRouteTransportSnapshot(report.snapshot.transport),
           qualification: cloneAppendableRouteQualificationSnapshot(report.snapshot.qualification),
           stress: cloneAppendableRouteStressSnapshot(report.snapshot.stress),
+          visibility: cloneAppendableRouteVisibilitySnapshot(report.snapshot.visibility),
           pitch: cloneAppendableRoutePitchSnapshot(report.snapshot.pitch),
           rollout: cloneAppendableRouteRolloutSnapshot(report.snapshot.rollout),
         }
@@ -1679,6 +1768,64 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                         typeof parsed.snapshot.stress.reason === "string" ? parsed.snapshot.stress.reason : null,
                     }
                   : createAppendableRouteStressSnapshot(),
+              visibility:
+                parsed.snapshot.visibility && typeof parsed.snapshot.visibility === "object"
+                  ? (() => {
+                      const legacyVisibility = parsed.snapshot.visibility as {
+                        wasHidden?: unknown
+                        lostForeground?: unknown
+                      }
+                      return {
+                      currentState:
+                        parsed.snapshot.visibility.currentState === "visible" ||
+                        parsed.snapshot.visibility.currentState === "hidden"
+                          ? parsed.snapshot.visibility.currentState
+                          : null,
+                      lostForeground:
+                        legacyVisibility.lostForeground == null ? !!legacyVisibility.wasHidden : !!legacyVisibility.lostForeground,
+                      blurCount:
+                        typeof parsed.snapshot.visibility.blurCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.blurCount)
+                          ? parsed.snapshot.visibility.blurCount
+                          : 0,
+                      focusCount:
+                        typeof parsed.snapshot.visibility.focusCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.focusCount)
+                          ? parsed.snapshot.visibility.focusCount
+                          : 0,
+                      visibilityHiddenCount:
+                        typeof parsed.snapshot.visibility.visibilityHiddenCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.visibilityHiddenCount)
+                          ? parsed.snapshot.visibility.visibilityHiddenCount
+                          : 0,
+                      visibilityVisibleCount:
+                        typeof parsed.snapshot.visibility.visibilityVisibleCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.visibilityVisibleCount)
+                          ? parsed.snapshot.visibility.visibilityVisibleCount
+                          : 0,
+                      hiddenWhilePlayingCount:
+                        typeof parsed.snapshot.visibility.hiddenWhilePlayingCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.hiddenWhilePlayingCount)
+                          ? parsed.snapshot.visibility.hiddenWhilePlayingCount
+                          : 0,
+                      focusWhilePlayingCount:
+                        typeof parsed.snapshot.visibility.focusWhilePlayingCount === "number" &&
+                        Number.isFinite(parsed.snapshot.visibility.focusWhilePlayingCount)
+                          ? parsed.snapshot.visibility.focusWhilePlayingCount
+                          : 0,
+                      lastEvent:
+                        parsed.snapshot.visibility.lastEvent === "window:blur" ||
+                        parsed.snapshot.visibility.lastEvent === "window:focus" ||
+                        parsed.snapshot.visibility.lastEvent === "document:hidden" ||
+                        parsed.snapshot.visibility.lastEvent === "document:visible"
+                          ? parsed.snapshot.visibility.lastEvent
+                          : null,
+                      lastEventAt:
+                        typeof parsed.snapshot.visibility.lastEventAt === "string"
+                          ? parsed.snapshot.visibility.lastEventAt
+                          : null,
+                    }})()
+                  : createAppendableRouteVisibilitySnapshot(),
               pitch:
                 parsed.snapshot.pitch && typeof parsed.snapshot.pitch === "object"
                   ? {
@@ -3183,6 +3330,9 @@ export default function MultiTrackPlayer({
   )
   const [appendableQueueSourceProgressSnapshot, setAppendableQueueSourceProgressSnapshot] =
     useState<AppendableQueueSourceProgressSnapshot>(() => createAppendableQueueSourceProgressSnapshot())
+  const [appendableRouteVisibilitySnapshot, setAppendableRouteVisibilitySnapshot] = useState<AppendableRouteVisibilitySnapshot>(
+    () => createAppendableRouteVisibilitySnapshot()
+  )
   const [appendableRoutePilotReport, setAppendableRoutePilotReport] = useState<AppendableRoutePilotReport>(() =>
     createAppendableRoutePilotReport()
   )
@@ -4132,6 +4282,10 @@ export default function MultiTrackPlayer({
     appendableRoutePilotReportStorageKey,
   ])
 
+  useEffect(() => {
+    setAppendableRouteVisibilitySnapshot(createAppendableRouteVisibilitySnapshot())
+  }, [trackScopeId])
+
   const buildAppendableRoutePilotSnapshot = useCallback((): AppendableRoutePilotReportSnapshot => {
     const capturedAt = new Date().toISOString()
     const probe = cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot)
@@ -4179,6 +4333,7 @@ export default function MultiTrackPlayer({
       transport: createAppendableRouteTransportSnapshot(),
       qualification: createAppendableRouteQualificationSnapshot(),
       stress: createAppendableRouteStressSnapshot(),
+      visibility: cloneAppendableRouteVisibilitySnapshot(appendableRouteVisibilitySnapshot),
       pitch: createAppendableRoutePitchSnapshot(),
       rollout: createAppendableRouteRolloutSnapshot(),
     }
@@ -4205,6 +4360,7 @@ export default function MultiTrackPlayer({
     appendableRoutePitchShadowActive,
     appendableQueueRuntimeProbeSnapshot,
     appendableQueueSourceProgressSnapshot,
+    appendableRouteVisibilitySnapshot,
     trackScopeId,
   ])
 
@@ -7790,28 +7946,49 @@ export default function MultiTrackPlayer({
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return
 
-    const logFocusState = (event: "window:blur" | "window:focus" | "document:visibility") => {
+    const recordVisibilityEvent = (event: "window:blur" | "window:focus" | "document:visibility") => {
+      const visibilityState: AppendableRouteVisibilityState = document.visibilityState === "hidden" ? "hidden" : "visible"
+      const persistedEvent: AppendableRouteVisibilityEvent =
+        event === "document:visibility" ? `document:${visibilityState}` : event
+      setAppendableRouteVisibilitySnapshot((current) => ({
+        currentState: visibilityState,
+        lostForeground: current.lostForeground || event === "window:blur" || visibilityState === "hidden",
+        blurCount: current.blurCount + (event === "window:blur" ? 1 : 0),
+        focusCount: current.focusCount + (event === "window:focus" ? 1 : 0),
+        visibilityHiddenCount: current.visibilityHiddenCount + (persistedEvent === "document:hidden" ? 1 : 0),
+        visibilityVisibleCount: current.visibilityVisibleCount + (persistedEvent === "document:visible" ? 1 : 0),
+        hiddenWhilePlayingCount:
+          current.hiddenWhilePlayingCount + (persistedEvent === "document:hidden" && isPlayingRef.current ? 1 : 0),
+        focusWhilePlayingCount:
+          current.focusWhilePlayingCount + (event === "window:focus" && isPlayingRef.current ? 1 : 0),
+        lastEvent: persistedEvent,
+        lastEventAt: new Date().toISOString(),
+      }))
       logAudioDebug("audio:focus_state", {
-        event,
+        event: persistedEvent,
         currentSec: Number(positionSecRef.current.toFixed(3)),
-        visibilityState: document.visibilityState,
+        visibilityState,
         playing: isPlayingRef.current,
         mode: activeEngineMode,
       })
     }
 
     const handleBlur = () => {
-      logFocusState("window:blur")
+      recordVisibilityEvent("window:blur")
     }
 
     const handleFocus = () => {
-      logFocusState("window:focus")
+      recordVisibilityEvent("window:focus")
     }
 
     const handleVisibilityChange = () => {
-      logFocusState("document:visibility")
+      recordVisibilityEvent("document:visibility")
     }
 
+    setAppendableRouteVisibilitySnapshot((current) => ({
+      ...current,
+      currentState: document.visibilityState === "hidden" ? "hidden" : "visible",
+    }))
     window.addEventListener("blur", handleBlur)
     window.addEventListener("focus", handleFocus)
     document.addEventListener("visibilitychange", handleVisibilityChange)
@@ -12833,6 +13010,17 @@ export default function MultiTrackPlayer({
                                 {formatOptionalFixed(appendableRoutePilotReport.snapshot.stress.holdPerSeekSec)}
                                 {appendableRoutePilotReport.snapshot.stress.reason
                                   ? ` (${appendableRoutePilotReport.snapshot.stress.reason})`
+                                  : ""}
+                              </div>
+                              <div data-testid="appendable-route-pilot-report-visibility">
+                                visibility: state={appendableRoutePilotReport.snapshot.visibility.currentState ?? "—"} / blur=
+                                {appendableRoutePilotReport.snapshot.visibility.blurCount} / focus=
+                                {appendableRoutePilotReport.snapshot.visibility.focusCount} / hidden=
+                                {appendableRoutePilotReport.snapshot.visibility.visibilityHiddenCount} / visible=
+                                {appendableRoutePilotReport.snapshot.visibility.visibilityVisibleCount} / hidden_playing=
+                                {appendableRoutePilotReport.snapshot.visibility.hiddenWhilePlayingCount}
+                                {appendableRoutePilotReport.snapshot.visibility.lastEvent
+                                  ? ` / last=${appendableRoutePilotReport.snapshot.visibility.lastEvent}`
                                   : ""}
                               </div>
                               <div data-testid="appendable-route-pilot-report-pitch">
