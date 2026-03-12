@@ -131,6 +131,81 @@ const TARGETS = [
       },
     ],
   },
+  {
+    slug: "balman-ya-kachu-kolco",
+    sources: [
+      {
+        src: "public/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01.mp3",
+        output: "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02.mp3",
+        output: "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03.mp3",
+        output: "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+  {
+    slug: "talbakul-poteryala-ya-kolechko",
+    sources: [
+      {
+        src: "public/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01.m4a",
+        output: "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02.m4a",
+        output: "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03.m4a",
+        output: "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+  {
+    slug: "omsk-talbakul-alenkiy-cvetochek",
+    sources: [
+      {
+        src: "public/audio/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01.mp3",
+        output: "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02.mp3",
+        output: "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03.mp3",
+        output: "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03-startup-10s.wav",
+        tailOutput: "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03-tail-8_5s-4s.wav",
+      },
+    ],
+  },
+  {
+    slug: "kemerov-varyuhino-gulenka",
+    sources: [
+      {
+        src: "public/audio/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01.mp3",
+        output: "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01-startup-10s.wav",
+        tailOutput: "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01-tail-8_5s-4s.wav",
+      },
+      {
+        src: "public/audio/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02.mp3",
+        output: "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02-startup-10s.wav",
+        tailOutput: "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02-tail-8_5s-4s.wav",
+      },
+    ],
+  },
 ]
 
 function toPosix(value) {

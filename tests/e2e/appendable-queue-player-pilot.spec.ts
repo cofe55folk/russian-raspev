@@ -4,10 +4,16 @@ import { expect, test, type Download, type Page } from "@playwright/test"
 const SLUG = "terek-ne-vo-daleche"
 const SECONDARY_SLUG = "tomsk-bogoslovka-po-moryam"
 const TERTIARY_SLUG = "balman-ty-zorya-moya"
+const QUATERNARY_SLUG = "talbakul-poteryala-ya-kolechko"
+const QUINARY_SLUG = "kemerov-varyuhino-gulenka"
 const QUALIFIED_SAFE_ROLLOUT_COHORT = [
+  "balman-ya-kachu-kolco",
   "balman-seyu-veyu",
   TERTIARY_SLUG,
   "balman-vechor-devku",
+  QUINARY_SLUG,
+  "omsk-talbakul-alenkiy-cvetochek",
+  QUATERNARY_SLUG,
   SECONDARY_SLUG,
   "terek-mne-mladcu-malym-spalos",
   SLUG,
@@ -825,6 +831,44 @@ test("safe appendable rollout also auto-enables qualified continuation ingest on
 
   await waitForPlayerText(page, "appendable activation mode: safe_rollout")
   await waitForPlayerText(page, `appendable activation match: ${TERTIARY_SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
+  await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
+})
+
+test("safe appendable rollout also auto-enables qualified continuation ingest on the talbakul route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: QUATERNARY_SLUG }, QUATERNARY_SLUG)
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, `appendable activation match: ${QUATERNARY_SLUG}`)
+  await waitForPlayerText(page, "appendable tempo policy: locked")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "appendable continuation qualification: qualified")
+  await waitForPlayerText(page, "appendable startup mode: startup_head_continuation_chunks")
+  await waitForPlayerText(page, "appendable continuation chunks: 2/2 decoded, 2/2 appended")
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable total underrun: 0")
+  await waitForPlayerText(page, "appendable total discontinuity: 0")
+})
+
+test("safe appendable rollout also auto-enables qualified continuation ingest on the kemerov route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: QUINARY_SLUG }, QUINARY_SLUG)
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, `appendable activation match: ${QUINARY_SLUG}`)
   await waitForPlayerText(page, "appendable tempo policy: locked")
   await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
   await waitForPlayerText(page, "appendable continuation qualification: qualified")

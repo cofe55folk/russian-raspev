@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-11T21:59:04.535Z",
+  "generatedAt": "2026-03-12T07:57:56.163Z",
   "startupDurationSec": 10,
   "tailStartSec": 7.5,
   "tailDurationSec": 8,
@@ -452,6 +452,312 @@
             },
             {
               "src": "public/audio-startup/balman-seyu_veyu/balman-seyu-veyu-03-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "balman-ya-kachu-kolco",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01.mp3",
+          "startupSrc": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 186.436,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02.mp3",
+          "startupSrc": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 186.436,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03.mp3",
+          "startupSrc": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 186.436,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/balman-ya_kachu_kolco/balman-ya_kachu_kolco-03-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "talbakul-poteryala-ya-kolechko",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01.m4a",
+          "startupSrc": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 171.945,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02.m4a",
+          "startupSrc": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 171.988,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03.m4a",
+          "startupSrc": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 171.988,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/talbakul-poteryala_ya_kolechko/talbakul-poteryala_ya_kolechko-03-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "omsk-talbakul-alenkiy-cvetochek",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01.mp3",
+          "startupSrc": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 220.317,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02.mp3",
+          "startupSrc": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 220.317,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-02-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03.mp3",
+          "startupSrc": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 220.317,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/omsk_talbakul-alenkiy_cvetochek/omsk_talbakul-alenkiy_cvetochek-03-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        }
+      ]
+    },
+    {
+      "slug": "kemerov-varyuhino-gulenka",
+      "sources": [
+        {
+          "strategy": "splice",
+          "src": "public/audio/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01.mp3",
+          "startupSrc": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 165.094,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-01-continuation-18s-8s.wav",
+              "startSec": 18,
+              "durationSec": 8,
+              "label": "continuation-18s-8s"
+            }
+          ],
+          "channels": 2,
+          "sampleRate": 44100
+        },
+        {
+          "strategy": "splice",
+          "src": "public/audio/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02.mp3",
+          "startupSrc": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02-startup-10s.wav",
+          "startupDurationSec": 10,
+          "tailSrc": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02-tail-8_5s-4s.wav",
+          "tailStartSec": 7.5,
+          "tailDurationSec": 8,
+          "estimatedTotalDurationSec": 165.094,
+          "continuationChunks": [
+            {
+              "src": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02-continuation-10s-8s.wav",
+              "startSec": 10,
+              "durationSec": 8,
+              "label": "continuation-10s-8s"
+            },
+            {
+              "src": "public/audio-startup/kemerov_varyuhino-gulenka/kemerov_varyuhino-gulenka-02-continuation-18s-8s.wav",
               "startSec": 18,
               "durationSec": 8,
               "label": "continuation-18s-8s"
