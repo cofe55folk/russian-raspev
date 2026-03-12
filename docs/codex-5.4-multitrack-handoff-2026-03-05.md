@@ -3085,3 +3085,42 @@ Suggested opening prompt for the next window:
    - the repository now has a real worklet-local pitch contract for appendable playback without changing the thread model
    - the contract is still lab-gated, so route rollout safety remains unchanged
    - future windows can widen pitch range/criteria from an already executable Safari/WebKit qualification harness instead of re-opening the architectural decision
+
+## 8.175 The isolated lab now has an explicit pitch qualification matrix with numeric gates, and Vercel preview failure is currently treated as deploy-side noise
+1. This slice keeps all pitch work lab-only.
+2. No `/sound/...` rollout policy changed here.
+3. The isolated lab test surface now distinguishes two different pitch layers:
+   - cross-browser key proofs that are cheap enough for Chromium + WebKit
+   - heavier Chromium-only qualification matrix coverage for wider semitone/tempo stress
+4. New executable pitch entrypoints:
+   - cross-browser bounded proof:
+     - `bounded tempo-plus-pitch proof preserves sab_ring sync across browsers`
+   - Chromium-only semitone matrix:
+     - `pitch matrix across +/-4 +/-7 +/-12 stays inside explicit qualification gates`
+   - Chromium-only combined stress:
+     - `tempo-plus-pitch matrix survives soak and interruption qualification gates`
+5. Qualification is no longer “pitch changed and audio kept playing”.
+6. The tests now encode explicit numeric gates:
+   - `stemDriftSec < 0.04`
+   - `transportDriftSec < 0.08`
+   - `totalUnderrunFrames = 0`
+   - `totalDiscontinuityCount = 0`
+   - `totalOverflowDropCount = 0`
+   - `totalOverflowDroppedFrames = 0`
+   - bounded `lowWater` breach budget for matrix-style control-change scenarios
+7. Important nuance captured by this slice:
+   - `highWater` breach counts are now treated as diagnostic telemetry, not direct pass/fail gates
+   - bounded `lowWater` breach budgets are a better signal for control-change safety than demanding a literal zero after every pitch switch
+8. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "pitch matrix across +/-4 +/-7 +/-12 stays inside explicit qualification gates|tempo-plus-pitch matrix survives soak and interruption qualification gates"` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry|lab-gated worklet-local pitch changes preserve sab_ring sync|bounded tempo-plus-pitch proof preserves sab_ring sync across browsers"` → `6/6`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `15/15`
+9. Known infra note:
+   - `Vercel Preview` failed again on the previous two PRs even though local `next build` and both GitHub CI workflows were green
+   - the public Vercel deployment page exposed no actionable build-step error text
+   - until a reproducible app-level deploy failure appears, treat this as deploy-side preview noise rather than a proven regression in the appendable work
+10. Practical consequence after `8.175`:
+   - the next pitch-focused window does not need to invent its own gates or re-litigate what counts as “good enough”
+   - Chromium now has a real semitone/tempo qualification matrix
+   - WebKit has a compact but explicit tempo+pitch proof instead of tempo-only evidence alone

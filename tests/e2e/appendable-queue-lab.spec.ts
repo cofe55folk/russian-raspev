@@ -2,6 +2,18 @@ import { expect, test, type Page } from "@playwright/test"
 
 test.describe.configure({ mode: "serial" })
 
+const MAX_STEM_DRIFT_SEC = 0.04
+const MAX_TRANSPORT_DRIFT_SEC = 0.08
+const PITCH_MATRIX_SEMITONES = [-12, -7, -4, 4, 7, 12]
+const TEMPO_PITCH_MATRIX = [
+  { tempo: 0.9, pitchSemitones: -4 },
+  { tempo: 1.1, pitchSemitones: 4 },
+  { tempo: 0.85, pitchSemitones: -7 },
+  { tempo: 1.15, pitchSemitones: 7 },
+  { tempo: 0.95, pitchSemitones: -12 },
+  { tempo: 1.05, pitchSemitones: 12 },
+]
+
 type AppendableQueueLabStemState = {
   stemIndex: number
   label: string
@@ -394,14 +406,35 @@ async function setHarnessPitchSemitones(page: Page, semitones: number) {
   expect(applied).toBe(semitones)
 }
 
-function expectCleanFinalState(finalState: AppendableQueueLabState) {
+function expectPitchTelemetry(finalState: AppendableQueueLabState, expectedPitchSemitones: number) {
+  expect(finalState.supportsIndependentPitch).toBe(true)
+  expect(finalState.pitchSemitones).toBe(expectedPitchSemitones)
+  expect(finalState.stems.every((stem) => stem.stats?.supportsIndependentPitch === true)).toBe(true)
+  expect(finalState.stems.every((stem) => stem.stats?.pitchSemitones === expectedPitchSemitones)).toBe(true)
+}
+
+function expectQualityGates(
+  finalState: AppendableQueueLabState,
+  opts?: { requireSteadyStateWatermarks?: boolean; maxLowWaterBreaches?: number }
+) {
   expect(finalState.sync.totalUnderrunFrames).toBe(0)
   expect(finalState.sync.totalDiscontinuityCount).toBe(0)
-  expect(finalState.sync.stemDriftSec).toBeLessThan(0.04)
+  expect(finalState.sync.totalOverflowDropCount).toBe(0)
+  expect(finalState.sync.totalOverflowDroppedFrames).toBe(0)
+  expect(finalState.sync.stemDriftSec).toBeLessThan(MAX_STEM_DRIFT_SEC)
+  expect(finalState.sync.transportDriftSec).toBeLessThan(MAX_TRANSPORT_DRIFT_SEC)
+  if (opts?.requireSteadyStateWatermarks === true) {
+    expect(finalState.sync.totalLowWaterBreachCount).toBeLessThanOrEqual(opts.maxLowWaterBreaches ?? 2)
+  }
   for (const stem of finalState.stems) {
     expect(stem.stats?.underrunFrames ?? -1).toBe(0)
     expect(stem.stats?.droppedFrames ?? -1).toBe(0)
     expect(stem.stats?.discontinuityCount ?? -1).toBe(0)
+    expect(stem.stats?.overflowDropCount ?? -1).toBe(0)
+    expect(stem.stats?.overflowDroppedFrames ?? -1).toBe(0)
+    if (opts?.requireSteadyStateWatermarks === true) {
+      expect(stem.stats?.lowWaterBreachCount ?? -1).toBeLessThanOrEqual(opts.maxLowWaterBreaches ?? 2)
+    }
   }
 }
 
@@ -469,7 +502,7 @@ test("multitrack appendable queue crosses the startup boundary in sync", async (
   expect(finalState.stems.every((stem) => stem.sourceEnded)).toBe(true)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState)
 })
 
 test("seek/rebase and pause/resume keep both engine instances aligned", async ({ page }) => {
@@ -512,7 +545,7 @@ test("seek/rebase and pause/resume keep both engine instances aligned", async ({
   expect(finalState.stems.map((stem) => stem.engineInstanceId)).toEqual(beforeEngineIds)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState)
 })
 
 test("tempo-only mode keeps appendable multistem playback aligned", async ({ page }) => {
@@ -588,10 +621,134 @@ test("lab-gated worklet-local pitch changes preserve sab_ring sync", async ({ pa
   expect(finalState.pitchSemitones).toBe(-3)
   expect(finalState.stems.every((stem) => stem.stats?.supportsIndependentPitch === true)).toBe(true)
   expect(finalState.stems.every((stem) => stem.stats?.pitchSemitones === -3)).toBe(true)
-  expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
-  expect(finalState.sync.stemDriftSec).toBeLessThan(0.04)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState)
+})
+
+test("bounded tempo-plus-pitch proof preserves sab_ring sync across browsers", async ({ page }) => {
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+  await appendAllFullRemainder(page)
+
+  await setHarnessTempo(page, 1.05)
+  await setHarnessPitchSemitones(page, 4)
+  await expect
+    .poll(async () => {
+      const state = await getHarnessState(page)
+      return (
+        Math.abs(state.tempo - 1.05) < 0.001 &&
+        state.pitchSemitones === 4 &&
+        state.stems.every((stem) => stem.stats?.pitchSemitones === 4)
+      )
+    })
+    .toBe(true)
+
+  await page.getByRole("button", { name: "Play", exact: true }).click()
+  await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1.2)
+
+  await setHarnessPitchSemitones(page, -4)
+  await expect
+    .poll(async () => {
+      const state = await getHarnessState(page)
+      return state.pitchSemitones === -4 && state.stems.every((stem) => stem.stats?.pitchSemitones === -4)
+    })
+    .toBe(true)
+
+  await expect
+    .poll(async () => (await getHarnessState(page)).transportSec, { timeout: 8000 })
+    .toBeGreaterThan(2.6)
+
+  const finalState = await getHarnessState(page)
+  expect(finalState.tempo).toBeCloseTo(1.05, 3)
+  expectSabRingTelemetry(finalState)
+  expectPitchTelemetry(finalState, -4)
+  expectQualityGates(finalState)
+})
+
+test("pitch matrix across +/-4 +/-7 +/-12 stays inside explicit qualification gates", async ({ page, browserName }) => {
+  test.setTimeout(90_000)
+  test.skip(browserName !== "chromium", "Full pitch matrix qualification currently runs in Chromium only")
+
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+  await appendAllFullRemainder(page)
+
+  await page.getByRole("button", { name: "Play", exact: true }).click()
+  await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1)
+
+  let lastTransportSec = 0
+  for (const semitones of PITCH_MATRIX_SEMITONES) {
+    await setHarnessPitchSemitones(page, semitones)
+    await expect
+      .poll(async () => {
+        const state = await getHarnessState(page)
+        return state.pitchSemitones === semitones && state.stems.every((stem) => stem.stats?.pitchSemitones === semitones)
+      })
+      .toBe(true)
+
+    await expect
+      .poll(async () => (await getHarnessState(page)).transportSec, { timeout: 8000 })
+      .toBeGreaterThan(lastTransportSec + 0.65)
+
+    const currentState = await getHarnessState(page)
+    lastTransportSec = currentState.transportSec
+    expectSabRingTelemetry(currentState)
+    expectPitchTelemetry(currentState, semitones)
+    expectQualityGates(currentState, { requireSteadyStateWatermarks: true })
+  }
+
+  await setHarnessPitchSemitones(page, 0)
+  const finalState = await getHarnessState(page)
+  expectSabRingTelemetry(finalState)
+  expectPitchTelemetry(finalState, 0)
+  expectQualityGates(finalState, { requireSteadyStateWatermarks: true })
+})
+
+test("tempo-plus-pitch matrix survives soak and interruption qualification gates", async ({ page, browserName }) => {
+  test.setTimeout(120_000)
+  test.skip(browserName !== "chromium", "Tempo+pitch qualification matrix currently runs in Chromium only")
+
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+  await appendAllFullRemainder(page)
+
+  await page.getByRole("button", { name: "Play", exact: true }).click()
+  await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1)
+
+  let lastTransportSec = 0
+  for (const entry of TEMPO_PITCH_MATRIX) {
+    await setHarnessTempo(page, entry.tempo)
+    await setHarnessPitchSemitones(page, entry.pitchSemitones)
+    await expect
+      .poll(async () => {
+        const state = await getHarnessState(page)
+        return (
+          Math.abs(state.tempo - entry.tempo) < 0.001 &&
+          state.pitchSemitones === entry.pitchSemitones &&
+          state.stems.every((stem) => stem.stats?.pitchSemitones === entry.pitchSemitones)
+        )
+      })
+      .toBe(true)
+
+    await expect
+      .poll(async () => (await getHarnessState(page)).transportSec, { timeout: 8000 })
+      .toBeGreaterThan(lastTransportSec + 0.6)
+
+    const currentState = await getHarnessState(page)
+    lastTransportSec = currentState.transportSec
+    expectSabRingTelemetry(currentState)
+    expectPitchTelemetry(currentState, entry.pitchSemitones)
+    expectQualityGates(currentState, { requireSteadyStateWatermarks: true })
+  }
+
+  await runLongSoakScenario(page, 14)
+  await runInterruptionLoopScenario(page)
+
+  const finalState = await getHarnessState(page)
+  expect(finalState.contextState).toBe("running")
+  expectSabRingTelemetry(finalState)
+  expectPitchTelemetry(finalState, TEMPO_PITCH_MATRIX.at(-1)?.pitchSemitones ?? 0)
+  expectQualityGates(finalState, { requireSteadyStateWatermarks: true })
 })
 
 test("late per-stem append still clears the boundary without seam telemetry", async ({ page }) => {
@@ -616,7 +773,7 @@ test("late per-stem append still clears the boundary without seam telemetry", as
   expect(finalState.allFullAppended).toBe(true)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState)
 })
 
 test("repeated seek/rebase loop keeps sync telemetry clean", async ({ page }) => {
@@ -634,7 +791,7 @@ test("repeated seek/rebase loop keeps sync telemetry clean", async ({ page }) =>
   const finalState = await getHarnessState(page)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState)
 })
 
 test("longer sab_ring soak stays inside clean steady-state watermarks", async ({ page }) => {
@@ -646,7 +803,7 @@ test("longer sab_ring soak stays inside clean steady-state watermarks", async ({
   const finalState = await getHarnessState(page)
   expect(finalState.transportSec).toBeGreaterThan(10)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState, { requireSteadyStateWatermarks: true })
 })
 
 test("interruption-like suspend/resume loop preserves sab_ring sync and telemetry", async ({ page }) => {
@@ -659,7 +816,7 @@ test("interruption-like suspend/resume loop preserves sab_ring sync and telemetr
   expect(finalState.contextState).toBe("running")
   expect(finalState.transportSec).toBeGreaterThan(1)
   expectSabRingTelemetry(finalState)
-  expectCleanFinalState(finalState)
+  expectQualityGates(finalState, { requireSteadyStateWatermarks: true })
 })
 
 test("listening report captures scenario status, notes, and persists across reload", async ({ page }) => {
