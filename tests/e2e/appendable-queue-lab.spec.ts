@@ -24,8 +24,17 @@ type AppendableQueueLabStemState = {
     underrunFrames: number
     droppedFrames: number
     discontinuityCount: number
+    lowWaterBreachCount: number
+    highWaterBreachCount: number
+    overflowDropCount: number
+    overflowDroppedFrames: number
     generation: number
     bufferLeadSec: number
+    minObservedLeadSec: number
+    maxObservedLeadSec: number
+    lowWaterSec: number
+    highWaterSec: number
+    refillTriggerSec: number
   } | null
 }
 
@@ -58,8 +67,17 @@ type AppendableQueueLabState = {
     transportDriftSec: number
     minLeadSec: number
     maxLeadSec: number
+    minObservedLeadSec: number
+    maxObservedLeadSec: number
+    minLowWaterSec: number
+    maxHighWaterSec: number
+    minRefillTriggerSec: number
     totalUnderrunFrames: number
     totalDiscontinuityCount: number
+    totalLowWaterBreachCount: number
+    totalHighWaterBreachCount: number
+    totalOverflowDropCount: number
+    totalOverflowDroppedFrames: number
   }
 }
 
@@ -146,8 +164,17 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
             transportDriftSec: 0,
             minLeadSec: 0,
             maxLeadSec: 0,
+            minObservedLeadSec: 0,
+            maxObservedLeadSec: 0,
+            minLowWaterSec: 0,
+            maxHighWaterSec: 0,
+            minRefillTriggerSec: 0,
             totalUnderrunFrames: 0,
             totalDiscontinuityCount: 0,
+            totalLowWaterBreachCount: 0,
+            totalHighWaterBreachCount: 0,
+            totalOverflowDropCount: 0,
+            totalOverflowDroppedFrames: 0,
           },
         }
       }
@@ -180,8 +207,17 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
           transportDriftSec: 0,
           minLeadSec: 0,
           maxLeadSec: 0,
+          minObservedLeadSec: 0,
+          maxObservedLeadSec: 0,
+          minLowWaterSec: 0,
+          maxHighWaterSec: 0,
+          minRefillTriggerSec: 0,
           totalUnderrunFrames: 0,
           totalDiscontinuityCount: 0,
+          totalLowWaterBreachCount: 0,
+          totalHighWaterBreachCount: 0,
+          totalOverflowDropCount: 0,
+          totalOverflowDroppedFrames: 0,
         },
       }
     }
@@ -208,6 +244,28 @@ async function runBoundaryCaptureScenario(page: Page): Promise<AudioDebugCapture
         }
       }).__rrAppendableQueueDebug
     return (await api?.runBoundaryCaptureScenario()) ?? null
+  })
+}
+
+async function runLongSoakScenario(page: Page, targetSec?: number) {
+  await page.evaluate(async (nextTargetSec) => {
+    const api =
+      (window as Window & {
+        __rrAppendableQueueDebug?: { runLongSoakScenario: (targetSec?: number) => Promise<void> }
+      }).__rrAppendableQueueDebug
+    if (!api) throw new Error("appendable queue debug API unavailable")
+    await api.runLongSoakScenario(nextTargetSec)
+  }, targetSec)
+}
+
+async function runInterruptionLoopScenario(page: Page) {
+  await page.evaluate(async () => {
+    const api =
+      (window as Window & {
+        __rrAppendableQueueDebug?: { runInterruptionLoopScenario: () => Promise<void> }
+      }).__rrAppendableQueueDebug
+    if (!api) throw new Error("appendable queue debug API unavailable")
+    await api.runInterruptionLoopScenario()
   })
 }
 
@@ -328,6 +386,47 @@ function expectCleanFinalState(finalState: AppendableQueueLabState) {
   }
 }
 
+function expectSabRingTelemetry(state: AppendableQueueLabState) {
+  expect(state.dataPlaneMode).toBe("sab_ring")
+  expect(state.controlPlaneMode).toBe("message_port")
+  expect(state.preferredDataPlaneMode).toBe("sab_ring_preferred")
+  expect(state.sabReady).toBe(true)
+  expect(state.crossOriginIsolated).toBe(true)
+  expect(state.sabRequirement).toBeNull()
+  expect(state.totalAppendMessages).toBe(0)
+  expect(state.totalAppendedBytes).toBeGreaterThan(0)
+  expect(state.sync.minLowWaterSec).toBeGreaterThan(0)
+  expect(state.sync.maxHighWaterSec).toBeGreaterThan(state.sync.minLowWaterSec)
+  expect(state.sync.minRefillTriggerSec).toBeGreaterThan(state.sync.minLowWaterSec)
+  expect(state.sync.maxObservedLeadSec).toBeGreaterThan(0)
+  expect(state.sync.maxObservedLeadSec).toBeGreaterThanOrEqual(state.sync.minObservedLeadSec)
+  expect(state.sync.totalOverflowDropCount).toBe(0)
+  expect(state.sync.totalOverflowDroppedFrames).toBe(0)
+  expect(state.stems.every((stem) => stem.stats?.dataPlaneMode === "sab_ring")).toBe(true)
+  expect(
+    state.stems.every(
+      (stem) =>
+        (stem.stats?.lowWaterSec ?? 0) > 0 &&
+        (stem.stats?.highWaterSec ?? 0) > (stem.stats?.lowWaterSec ?? 0) &&
+        (stem.stats?.refillTriggerSec ?? 0) > (stem.stats?.lowWaterSec ?? 0)
+    )
+  ).toBe(true)
+  expect(state.stems.every((stem) => (stem.stats?.overflowDropCount ?? 0) === 0)).toBe(true)
+  expect(state.stems.every((stem) => (stem.stats?.overflowDroppedFrames ?? 0) === 0)).toBe(true)
+}
+
+test("cross-origin isolated harness activates sab_ring transport with explicit telemetry", async ({ page }) => {
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+  await appendAllFullRemainder(page)
+
+  const initialState = await getHarnessState(page)
+  expectSabRingTelemetry(initialState)
+  expect(initialState.sampleRates.length).toBeGreaterThan(0)
+  expect(initialState.sync.totalUnderrunFrames).toBe(0)
+  expect(initialState.sync.totalDiscontinuityCount).toBe(0)
+})
+
 test("multitrack appendable queue crosses the startup boundary in sync", async ({ page }) => {
   await waitForHarness(page)
 
@@ -350,6 +449,7 @@ test("multitrack appendable queue crosses the startup boundary in sync", async (
   expect(finalState.allFullAppended).toBe(true)
   expect(finalState.stems.every((stem) => stem.sourceEnded)).toBe(true)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
+  expectSabRingTelemetry(finalState)
   expectCleanFinalState(finalState)
 })
 
@@ -392,6 +492,7 @@ test("seek/rebase and pause/resume keep both engine instances aligned", async ({
   const finalState = await getHarnessState(page)
   expect(finalState.stems.map((stem) => stem.engineInstanceId)).toEqual(beforeEngineIds)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
+  expectSabRingTelemetry(finalState)
   expectCleanFinalState(finalState)
 })
 
@@ -427,6 +528,7 @@ test("tempo-only mode keeps appendable multistem playback aligned", async ({ pag
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
   expect(finalState.sync.stemDriftSec).toBeLessThan(0.04)
   expect(finalState.sync.totalDiscontinuityCount).toBe(0)
+  expectSabRingTelemetry(finalState)
 })
 
 test("late per-stem append still clears the boundary without seam telemetry", async ({ page }) => {
@@ -450,6 +552,7 @@ test("late per-stem append still clears the boundary without seam telemetry", as
   const finalState = await getHarnessState(page)
   expect(finalState.allFullAppended).toBe(true)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
+  expectSabRingTelemetry(finalState)
   expectCleanFinalState(finalState)
 })
 
@@ -467,6 +570,32 @@ test("repeated seek/rebase loop keeps sync telemetry clean", async ({ page }) =>
 
   const finalState = await getHarnessState(page)
   expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
+  expectSabRingTelemetry(finalState)
+  expectCleanFinalState(finalState)
+})
+
+test("longer sab_ring soak stays inside clean steady-state watermarks", async ({ page }) => {
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+
+  await runLongSoakScenario(page, 12)
+
+  const finalState = await getHarnessState(page)
+  expect(finalState.transportSec).toBeGreaterThan(10)
+  expectSabRingTelemetry(finalState)
+  expectCleanFinalState(finalState)
+})
+
+test("interruption-like suspend/resume loop preserves sab_ring sync and telemetry", async ({ page }) => {
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+
+  await runInterruptionLoopScenario(page)
+
+  const finalState = await getHarnessState(page)
+  expect(finalState.contextState).toBe("running")
+  expect(finalState.transportSec).toBeGreaterThan(1)
+  expectSabRingTelemetry(finalState)
   expectCleanFinalState(finalState)
 })
 

@@ -63,8 +63,17 @@ export type AppendableQueueCoordinatorSnapshot = {
     transportDriftSec: number
     minLeadSec: number
     maxLeadSec: number
+    minObservedLeadSec: number
+    maxObservedLeadSec: number
+    minLowWaterSec: number
+    maxHighWaterSec: number
+    minRefillTriggerSec: number
     totalUnderrunFrames: number
     totalDiscontinuityCount: number
+    totalLowWaterBreachCount: number
+    totalHighWaterBreachCount: number
+    totalOverflowDropCount: number
+    totalOverflowDroppedFrames: number
   }
 }
 
@@ -158,10 +167,21 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
     appendedBytes: toFiniteNumber(stats.appendedBytes, 0),
     bufferLeadFrames,
     bufferLeadSec,
+    minObservedLeadFrames: toFiniteNumber(stats.minObservedLeadFrames, bufferLeadFrames),
+    minObservedLeadSec: toFiniteNumber(stats.minObservedLeadSec, bufferLeadSec),
+    maxObservedLeadFrames: toFiniteNumber(stats.maxObservedLeadFrames, bufferLeadFrames),
+    maxObservedLeadSec: toFiniteNumber(stats.maxObservedLeadSec, bufferLeadSec),
     targetLeadFrames: toFiniteNumber(stats.targetLeadFrames, 0),
     lowWaterFrames: toFiniteNumber(stats.lowWaterFrames, 0),
+    lowWaterSec: toFiniteNumber(stats.lowWaterSec, 0),
     highWaterFrames: toFiniteNumber(stats.highWaterFrames, 0),
+    highWaterSec: toFiniteNumber(stats.highWaterSec, 0),
     refillTriggerFrames: toFiniteNumber(stats.refillTriggerFrames, 0),
+    refillTriggerSec: toFiniteNumber(stats.refillTriggerSec, 0),
+    lowWaterBreachCount: toFiniteNumber(stats.lowWaterBreachCount, 0),
+    highWaterBreachCount: toFiniteNumber(stats.highWaterBreachCount, 0),
+    overflowDropCount: toFiniteNumber(stats.overflowDropCount, 0),
+    overflowDroppedFrames: toFiniteNumber(stats.overflowDroppedFrames, 0),
     appendChunkFrames: toFiniteNumber(stats.appendChunkFrames, 0),
     ringFrames: toFiniteNumber(stats.ringFrames, 0),
     sourceEnded: stats.sourceEnded === 1 || stats.sourceEnded === "1" || stats.sourceEnded === "true",
@@ -326,6 +346,21 @@ export function createAppendableQueueMultitrackCoordinator(
         if (stem.stats) return stem.stats.bufferLeadSec
         return Math.max(0, stem.sourceBufferedUntilSec - transport.currentSec)
       })
+      const observedLeadSecs = stemSnapshots
+        .map((stem) => stem.stats?.minObservedLeadSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+      const observedMaxLeadSecs = stemSnapshots
+        .map((stem) => stem.stats?.maxObservedLeadSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+      const lowWaterSecs = stemSnapshots
+        .map((stem) => stem.stats?.lowWaterSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+      const highWaterSecs = stemSnapshots
+        .map((stem) => stem.stats?.highWaterSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
+      const refillTriggerSecs = stemSnapshots
+        .map((stem) => stem.stats?.refillTriggerSec)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0)
       const dataPlaneModes = Array.from(
         new Set(
           stemSnapshots
@@ -446,9 +481,27 @@ export function createAppendableQueueMultitrackCoordinator(
           ),
           minLeadSec: Number((stemLeadSecs.length ? Math.min(...stemLeadSecs) : 0).toFixed(3)),
           maxLeadSec: Number((stemLeadSecs.length ? Math.max(...stemLeadSecs) : 0).toFixed(3)),
+          minObservedLeadSec: Number((observedLeadSecs.length ? Math.min(...observedLeadSecs) : 0).toFixed(3)),
+          maxObservedLeadSec: Number((observedMaxLeadSecs.length ? Math.max(...observedMaxLeadSecs) : 0).toFixed(3)),
+          minLowWaterSec: Number((lowWaterSecs.length ? Math.min(...lowWaterSecs) : 0).toFixed(3)),
+          maxHighWaterSec: Number((highWaterSecs.length ? Math.max(...highWaterSecs) : 0).toFixed(3)),
+          minRefillTriggerSec: Number((refillTriggerSecs.length ? Math.min(...refillTriggerSecs) : 0).toFixed(3)),
           totalUnderrunFrames: stemSnapshots.reduce((sum, stem) => sum + (stem.stats?.underrunFrames ?? 0), 0),
           totalDiscontinuityCount: stemSnapshots.reduce(
             (sum, stem) => sum + (stem.stats?.discontinuityCount ?? 0),
+            0
+          ),
+          totalLowWaterBreachCount: stemSnapshots.reduce(
+            (sum, stem) => sum + (stem.stats?.lowWaterBreachCount ?? 0),
+            0
+          ),
+          totalHighWaterBreachCount: stemSnapshots.reduce(
+            (sum, stem) => sum + (stem.stats?.highWaterBreachCount ?? 0),
+            0
+          ),
+          totalOverflowDropCount: stemSnapshots.reduce((sum, stem) => sum + (stem.stats?.overflowDropCount ?? 0), 0),
+          totalOverflowDroppedFrames: stemSnapshots.reduce(
+            (sum, stem) => sum + (stem.stats?.overflowDroppedFrames ?? 0),
             0
           ),
         },

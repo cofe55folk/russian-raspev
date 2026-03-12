@@ -41,8 +41,17 @@ type AppendableQueueLabSyncSnapshot = {
   transportDriftSec: number
   minLeadSec: number
   maxLeadSec: number
+  minObservedLeadSec: number
+  maxObservedLeadSec: number
+  minLowWaterSec: number
+  maxHighWaterSec: number
+  minRefillTriggerSec: number
   totalUnderrunFrames: number
   totalDiscontinuityCount: number
+  totalLowWaterBreachCount: number
+  totalHighWaterBreachCount: number
+  totalOverflowDropCount: number
+  totalOverflowDroppedFrames: number
 }
 
 type AppendableQueueLabSnapshot = {
@@ -122,6 +131,8 @@ type AppendableQueueDebugApi = {
   setTempo: (tempo: number) => number
   seek: (sec: number) => number
   rebase: (sec: number) => number
+  suspendContext: () => Promise<AudioContextState | "unavailable">
+  resumeContext: () => Promise<AudioContextState | "unavailable">
   reset: () => void
   appendStartup: () => number
   appendStartupStem: (stemIndex: number) => boolean
@@ -137,6 +148,8 @@ type AppendableQueueDebugApi = {
   getBoundaryABPreviewState: () => BoundaryAbPreviewState
   runBoundaryCaptureScenario: () => Promise<AudioDebugCaptureArtifact | null>
   runSeekLoopScenario: () => Promise<void>
+  runLongSoakScenario: (targetSec?: number) => Promise<void>
+  runInterruptionLoopScenario: () => Promise<void>
   getState: () => AppendableQueueLabSnapshot
   getListeningReport: () => AppendableQueueListeningReport
   captureOutputArtifact: () => Promise<AudioDebugCaptureArtifact | null>
@@ -241,8 +254,17 @@ function createEmptySyncSnapshot(): AppendableQueueLabSyncSnapshot {
     transportDriftSec: 0,
     minLeadSec: 0,
     maxLeadSec: 0,
+    minObservedLeadSec: 0,
+    maxObservedLeadSec: 0,
+    minLowWaterSec: 0,
+    maxHighWaterSec: 0,
+    minRefillTriggerSec: 0,
     totalUnderrunFrames: 0,
     totalDiscontinuityCount: 0,
+    totalLowWaterBreachCount: 0,
+    totalHighWaterBreachCount: 0,
+    totalOverflowDropCount: 0,
+    totalOverflowDroppedFrames: 0,
   }
 }
 
@@ -1004,6 +1026,27 @@ export default function AppendableQueueLabPage() {
           syncSnapshot()
         }
 
+        const suspendContext = async (): Promise<AudioContextState | "unavailable"> => {
+          const current = harnessRef.current
+          if (!current) return "unavailable"
+          try {
+            await current.ctx.suspend()
+          } catch {}
+          syncSnapshot()
+          return current.ctx.state
+        }
+
+        const resumeContext = async (): Promise<AudioContextState | "unavailable"> => {
+          const current = harnessRef.current
+          if (!current) return "unavailable"
+          try {
+            await current.ctx.resume()
+          } catch {}
+          current.coordinator.tick({ force: true })
+          syncSnapshot()
+          return current.ctx.state
+        }
+
         const waitForTransportAtLeast = (targetSec: number, timeoutMs = 20_000) =>
           new Promise<void>((resolve, reject) => {
             const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
@@ -1044,12 +1087,44 @@ export default function AppendableQueueLabPage() {
           return artifact
         }
 
+        const runLongSoakScenario = async (targetSec = 12) => {
+          const current = harnessRef.current
+          if (!current) return
+          stageBoundaryScenario()
+          await play()
+          const startupDurationSec = current.startupFrames / current.ctx.sampleRate
+          const safeTargetSec = clamp(startupDurationSec + Math.max(1, targetSec), 1, Math.max(1, current.durationSec - 0.35))
+          await waitForTransportAtLeast(safeTargetSec, Math.max(20_000, Math.ceil((safeTargetSec + 4) * 1000)))
+          syncSnapshot()
+        }
+
+        const runInterruptionLoopScenario = async () => {
+          stageBoundaryScenario()
+          await play()
+          const wait = (delayMs: number) =>
+            new Promise<void>((resolve) => {
+              window.setTimeout(resolve, delayMs)
+            })
+          await wait(700)
+          await suspendContext()
+          await wait(350)
+          await resumeContext()
+          await wait(550)
+          await suspendContext()
+          await wait(250)
+          await resumeContext()
+          await wait(650)
+          syncSnapshot()
+        }
+
         window.__rrAppendableQueueDebug = {
           play,
           pause,
           setTempo,
           seek: (sec) => seekCommon(sec, "seek"),
           rebase: (sec) => seekCommon(sec, "rebase"),
+          suspendContext,
+          resumeContext,
           reset,
           appendStartup,
           appendStartupStem,
@@ -1078,6 +1153,8 @@ export default function AppendableQueueLabPage() {
           getBoundaryABPreviewState: () => boundaryAbPreviewRef.current,
           runBoundaryCaptureScenario,
           runSeekLoopScenario,
+          runLongSoakScenario,
+          runInterruptionLoopScenario,
           getState: () => {
             const current = harnessRef.current
             if (!current) return createUnavailableSnapshot()
@@ -1198,8 +1275,17 @@ export default function AppendableQueueLabPage() {
       ["transportDriftSec", formatNumber(snapshot.sync.transportDriftSec, 4)],
       ["minLeadSec", formatNumber(snapshot.sync.minLeadSec)],
       ["maxLeadSec", formatNumber(snapshot.sync.maxLeadSec)],
+      ["minObservedLeadSec", formatNumber(snapshot.sync.minObservedLeadSec)],
+      ["maxObservedLeadSec", formatNumber(snapshot.sync.maxObservedLeadSec)],
+      ["minLowWaterSec", formatNumber(snapshot.sync.minLowWaterSec)],
+      ["maxHighWaterSec", formatNumber(snapshot.sync.maxHighWaterSec)],
+      ["minRefillTriggerSec", formatNumber(snapshot.sync.minRefillTriggerSec)],
       ["totalUnderrunFrames", String(snapshot.sync.totalUnderrunFrames)],
       ["totalDiscontinuityCount", String(snapshot.sync.totalDiscontinuityCount)],
+      ["totalLowWaterBreaches", String(snapshot.sync.totalLowWaterBreachCount)],
+      ["totalHighWaterBreaches", String(snapshot.sync.totalHighWaterBreachCount)],
+      ["totalOverflowDrops", String(snapshot.sync.totalOverflowDropCount)],
+      ["totalOverflowDroppedFrames", String(snapshot.sync.totalOverflowDroppedFrames)],
       ["allStartupAppended", snapshot.allStartupAppended ? "yes" : "no"],
       ["allFullDecoded", snapshot.allFullDecoded ? "yes" : "no"],
       ["allFullAppended", snapshot.allFullAppended ? "yes" : "no"],

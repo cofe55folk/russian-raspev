@@ -69,10 +69,21 @@ export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
   appendedBytes: number
   bufferLeadFrames: number
   bufferLeadSec: number
+  minObservedLeadFrames: number
+  minObservedLeadSec: number
+  maxObservedLeadFrames: number
+  maxObservedLeadSec: number
   targetLeadFrames: number
   lowWaterFrames: number
+  lowWaterSec: number
   highWaterFrames: number
+  highWaterSec: number
   refillTriggerFrames: number
+  refillTriggerSec: number
+  lowWaterBreachCount: number
+  highWaterBreachCount: number
+  overflowDropCount: number
+  overflowDroppedFrames: number
   appendChunkFrames: number
   ringFrames: number
   generation: number
@@ -449,6 +460,15 @@ export async function createAppendableQueueEngine(
   let appendedFrames = 0
   let appendedBytes = 0
   let droppedFrames = 0
+  let lowWaterBreachCount = 0
+  let highWaterBreachCount = 0
+  let overflowDropCount = 0
+  let overflowDroppedFrames = 0
+  let minObservedLeadFrames = 0
+  let maxObservedLeadFrames = 0
+  let hasObservedLeadFrames = false
+  let belowLowWaterActive = false
+  let aboveHighWaterActive = false
   let sourceEnded = false
   let queueFramesEstimate: number | null = null
   const supportsTempo = channelCount <= 2
@@ -492,6 +512,30 @@ export async function createAppendableQueueEngine(
     }
     const transport = transportClock.getSnapshot(audioCtx.currentTime)
     const bufferLeadFrames = getLeadFrames(transport, bufferedEndFrame, queueFramesEstimate)
+    if (appendCount > 0 || appendedFrames > 0) {
+      if (!hasObservedLeadFrames) {
+        minObservedLeadFrames = bufferLeadFrames
+        maxObservedLeadFrames = bufferLeadFrames
+        hasObservedLeadFrames = true
+      } else {
+        minObservedLeadFrames = Math.min(minObservedLeadFrames, bufferLeadFrames)
+        maxObservedLeadFrames = Math.max(maxObservedLeadFrames, bufferLeadFrames)
+      }
+
+      const belowLowWater = bufferLeadFrames < lowWaterFrames
+      const aboveHighWater = bufferLeadFrames > highWaterFrames
+      if (belowLowWater && !belowLowWaterActive) {
+        lowWaterBreachCount += 1
+      }
+      if (aboveHighWater && !aboveHighWaterActive) {
+        highWaterBreachCount += 1
+      }
+      belowLowWaterActive = belowLowWater
+      aboveHighWaterActive = aboveHighWater
+    } else {
+      belowLowWaterActive = false
+      aboveHighWaterActive = false
+    }
     opts.onStats({
       ...lastWorkletStats,
       sampleRate,
@@ -511,10 +555,21 @@ export async function createAppendableQueueEngine(
       appendedBytes,
       bufferLeadFrames,
       bufferLeadSec: Number((bufferLeadFrames / sampleRate).toFixed(3)),
+      minObservedLeadFrames,
+      minObservedLeadSec: Number((minObservedLeadFrames / sampleRate).toFixed(3)),
+      maxObservedLeadFrames,
+      maxObservedLeadSec: Number((maxObservedLeadFrames / sampleRate).toFixed(3)),
       targetLeadFrames: highWaterFrames,
       lowWaterFrames,
+      lowWaterSec: Number((lowWaterFrames / sampleRate).toFixed(3)),
       highWaterFrames,
+      highWaterSec: Number((highWaterFrames / sampleRate).toFixed(3)),
       refillTriggerFrames,
+      refillTriggerSec: Number((refillTriggerFrames / sampleRate).toFixed(3)),
+      lowWaterBreachCount,
+      highWaterBreachCount,
+      overflowDropCount,
+      overflowDroppedFrames,
       appendChunkFrames,
       ringFrames,
       sourceEnded,
@@ -618,6 +673,8 @@ export async function createAppendableQueueEngine(
       })
       if (result.droppedFrames > 0) {
         droppedFrames += result.droppedFrames
+        overflowDropCount += 1
+        overflowDroppedFrames += result.droppedFrames
       }
       if (result.writtenFrames <= 0) {
         queueFramesEstimate = result.availableFrames
@@ -704,6 +761,15 @@ export async function createAppendableQueueEngine(
     appendedFrames = 0
     appendedBytes = 0
     droppedFrames = 0
+    lowWaterBreachCount = 0
+    highWaterBreachCount = 0
+    overflowDropCount = 0
+    overflowDroppedFrames = 0
+    minObservedLeadFrames = 0
+    maxObservedLeadFrames = 0
+    hasObservedLeadFrames = false
+    belowLowWaterActive = false
+    aboveHighWaterActive = false
     sourceEnded = safeFrame >= durationFrames
     queueFramesEstimate = 0
     if (sabRing) {
@@ -902,6 +968,10 @@ export async function createAppendableQueueEngine(
         appendedBytes,
         bufferLeadFrames,
         bufferLeadSec: Number((bufferLeadFrames / sampleRate).toFixed(3)),
+        minObservedLeadFrames,
+        minObservedLeadSec: Number((minObservedLeadFrames / sampleRate).toFixed(3)),
+        maxObservedLeadFrames,
+        maxObservedLeadSec: Number((maxObservedLeadFrames / sampleRate).toFixed(3)),
         transportFrame: transport.currentFrame,
         transportSec: Number(transport.currentSec.toFixed(3)),
         anchorFrame: transport.anchorFrame,
@@ -909,8 +979,15 @@ export async function createAppendableQueueEngine(
         tempo,
         sourceEnded: sourceEnded ? 1 : 0,
         lowWaterFrames,
+        lowWaterSec: Number((lowWaterFrames / sampleRate).toFixed(3)),
         highWaterFrames,
+        highWaterSec: Number((highWaterFrames / sampleRate).toFixed(3)),
         refillTriggerFrames,
+        refillTriggerSec: Number((refillTriggerFrames / sampleRate).toFixed(3)),
+        lowWaterBreachCount,
+        highWaterBreachCount,
+        overflowDropCount,
+        overflowDroppedFrames,
         appendChunkFrames,
         ringFrames,
         availableFrames: lastWorkletStats.availableFrames,

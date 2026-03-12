@@ -4895,3 +4895,51 @@ Recommendation order после review:
 1. У команды теперь есть не только isolated SAB-ready lab, но и реально активный `sab_ring` lane внутри этого harness.
 2. Следующее автономное окно может заниматься уже SAB-specific behavior, telemetry thresholds и возможным widening proof, не начиная с интеграции transport + COI заново.
 3. Current route rollout при этом остаётся консервативным: `postmessage_pcm` fallback в обычном runner подтверждён и не регресснул.
+
+## 9.120 Safari/WebKit qualification matrix теперь частично выражен в исполняемых spec entrypoints, а `SAB` telemetry поднят до quality-oriented surface
+
+Что сделано:
+1. Следующий slice после `9.119` превратил часть Safari/WebKit guidance из docs в реальные тесты.
+2. В `appendable-queue-lab.spec.ts` появился явный cross-browser SAB activation proof:
+   - `cross-origin isolated harness activates sab_ring transport with explicit telemetry`
+   - он теперь проходит и на Chromium, и на WebKit
+3. Сам telemetry contract для appendable queue расширен во всех ключевых поверхностях:
+   - engine/debug stats теперь явно несут `low/refill/high` watermarks
+   - добавлены observed lead range counters
+   - добавлены cumulative low-water / high-water breach counts
+   - добавлены cumulative overflow drop events и dropped-frame totals
+   - lab snapshot и route runtime probe теперь отражают этот же quality envelope, а не только `dataPlaneMode`
+4. Persisted report surface тоже синхронизирован:
+   - `captureReport`
+   - downloaded appendable report
+   - downloaded appendable packet
+   - persisted report reload path
+   теперь сохраняют и восстанавливают те же transport telemetry fields
+5. Лабораторные stress entrypoints расширены:
+   - longer SAB soak
+   - interruption-like suspend/resume loop
+   - existing late-append и repeated seek scenarios теперь дополнительно проверяют новый telemetry envelope
+
+Почему это важно:
+1. До этого момента `sab_ring` можно было подтвердить в lab почти только бинарно:
+   - lane активен или нет
+   - `sabReady` true или false
+2. После `9.120` qualification уже можно читать как quality-oriented signal:
+   - какие были watermarks
+   - были ли low/high water breaches
+   - были ли overflow drops
+   - какой observed lead range держался во время run
+3. Это ровно тот слой evidence, который нужен перед любым Safari/iOS widening, иначе `sab_ring` qualification остаётся слишком бинарным и хрупким.
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry"` — `2/2`
+3. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "longer sab_ring soak stays inside clean steady-state watermarks|interruption-like suspend/resume loop preserves sab_ring sync and telemetry"` — `2/2`
+4. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `11/11`
+5. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `29/29`
+6. `npm run build` — pass
+
+Итог после `9.120`:
+1. WebKit proof для isolated `sab_ring` теперь существует как явный spec, а не как неформальная договорённость.
+2. `SAB` transport qualification больше не ограничен только `dataPlaneMode`; у команды теперь есть watermark/overflow/observed-lead evidence.
+3. Следующее окно может уже либо расширять packaging cohort, либо вести более жёсткий Safari/WebKit widening, не переизобретая базовый qualification harness.
