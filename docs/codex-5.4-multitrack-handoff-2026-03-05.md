@@ -3285,3 +3285,33 @@ Suggested opening prompt for the next window:
 7. Practical consequence after `8.179`:
    - route-side pitch qualification no longer needs to assume one proof per session
    - the next autonomous window can move from “latest proof survives” toward broader route-side pitch matrices or longer route-level control-change scenarios
+
+## 8.180 Repeated route-side pitch proof now survives packet surfaces too, including `saveCurrentDiagnostics()`
+1. After `8.179`, the remaining gap was narrow:
+   - repeated route-side pitch proof already survived reload and direct report download
+   - packet-oriented surfaces still needed the same “latest proof wins” confirmation
+2. This slice added exactly that:
+   - direct `downloadPacket()` after two different `runPitchShadowPilot(...)` calls
+   - `saveCurrentDiagnostics()` packet export after the same repeated proof sequence
+3. The contract now proven on the normal `/sound/...` route is:
+   - run one shadow proof
+   - run a second shadow proof with different tempo/pitch values
+   - packet exports must preserve the second, latest proof rather than the first or a reset/default control state
+4. Practical consequence:
+   - all four route-side evidence surfaces now agree on the latest repeated shadow proof:
+     - immediate debug result
+     - persisted reload/hydration
+     - direct report download
+     - packet export / save-current packet
+5. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "downloaded pitch shadow packet preserves the latest repeated route proof on the normal route|save-current diagnostics preserves the latest repeated pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "downloaded pitch shadow packet preserves the latest repeated route proof on the normal route|save-current diagnostics preserves the latest repeated pitch shadow proof on the normal route"`
+6. Verification completed locally:
+   - Chromium repeated packet-surface route proof → `2/2`
+   - WebKit repeated packet-surface route proof → `2/2`
+   - `npx tsc --noEmit`
+7. Practical consequence after `8.180`:
+   - the repeated route-side pitch proof chain is now complete across all current persistence/export surfaces
+   - the next autonomous route-level window no longer needs to ask whether packet surfaces lag behind the latest repeated proof

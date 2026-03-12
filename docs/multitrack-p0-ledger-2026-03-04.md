@@ -5276,3 +5276,41 @@ Residual note по verification:
 Итог после `9.127`:
 1. Route-side pitch proof теперь стабилен не только для single-step, но и для repeated-shadow workflow.
 2. Следующее автономное окно можно тратить уже на более широкую route-side pitch matrix или longer control-change scenarios, а не на вопрос “сохраняется ли последний proof”.
+
+## 9.128 Repeated route-side pitch proof теперь доказан и для packet surfaces, включая `saveCurrentDiagnostics()`
+
+Что оставалось после `9.127`:
+1. Reload/hydration и direct report download уже сохраняли latest repeated pitch proof.
+2. Но packet surfaces ещё не были отдельно доказаны для repeated-shadow flow:
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()` packet export
+
+Что добавлено:
+1. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появились ещё две targeted route-level проверки:
+   - downloaded pitch shadow packet preserves the latest repeated route proof on the normal route
+   - save-current diagnostics preserves the latest repeated pitch shadow proof on the normal route
+2. Обе проверки прогоняют две разные shadow-proof итерации подряд и подтверждают, что packet surface сохраняет второй, последний proof (`tempo=0.98`, `pitch=-3`).
+
+Почему это важно:
+1. Теперь chain route-side proof для repeated-shadow flow закрыт полностью:
+   - immediate debug state
+   - reload/hydration
+   - report export
+   - packet export
+2. Это убирает ещё один класс сомнений перед более широкой route-side pitch matrix:
+   - больше не нужно гадать, не отстаёт ли packet path от latest committed repeated proof
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "downloaded pitch shadow packet preserves the latest repeated route proof on the normal route|save-current diagnostics preserves the latest repeated pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "downloaded pitch shadow packet preserves the latest repeated route proof on the normal route|save-current diagnostics preserves the latest repeated pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium repeated packet-surface proof — `2/2`
+2. WebKit repeated packet-surface proof — `2/2`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.128`:
+1. Repeated route-side pitch proof теперь одинаково сохраняется через все текущие persistence/export surfaces.
+2. Следующее автономное окно можно уже тратить на broader route-side pitch matrix или longer route-level control-change scenarios без возврата к packet/export semantics.
