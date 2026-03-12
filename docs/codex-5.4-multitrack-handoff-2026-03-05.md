@@ -2896,3 +2896,39 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.168`:
    - future windows no longer need to infer whether SAB is merely a roadmap note or already reflected in the actual diagnostics surface
    - the next real SAB milestone can focus on replacing the PCM lane itself instead of first inventing new report/probe plumbing
+
+## 8.169 Optional SAB data plane is now implemented behind the existing appendable control plane
+1. This slice is the first one that actually changes the appendable PCM transport implementation after the earlier readiness-only work.
+2. Runtime behavior now has two real data-plane branches:
+   - fallback `postmessage_pcm`
+   - optional `sab_ring` when `sabReady === true`
+3. `MessagePort` remains intentionally unchanged as the control plane:
+   - `reset`
+   - `setPlaying`
+   - `setTempo`
+   - initial SAB ring configuration handoff
+4. A dedicated shared-memory helper now exists:
+   - `appendableQueueSabRing.ts`
+   - it owns the per-channel SAB buffers plus the shared atomic state block
+   - write/read/reset semantics now live in one place instead of being smeared across ad-hoc engine code
+5. The worklet now understands both transport shapes:
+   - legacy append chunks sent through `postMessage`
+   - direct reads from the shared SAB ring when configured
+6. Transport verdict logic was updated to match this new runtime reality:
+   - `sab_ring` is now accepted as a valid `dataPlaneMode`
+   - `controlPlaneMode = message_port` remains required
+   - `postmessage_pcm` still requires real append messages
+   - `sab_ring` instead requires real appended payload visible through the probe surface
+7. Important limitation that the next window must not gloss over:
+   - the local / CI route runner is still not cross-origin isolated
+   - so normal route verification in this environment still runs on fallback `postmessage_pcm`
+   - this slice proves that the optional SAB lane exists in code and that fallback still works, but it does not yet count as live COI route qualification
+8. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `29/29`
+   - `npm run build`
+9. Practical consequence after `8.169`:
+   - SAB is no longer only a readiness/report concept inside the appendable stack
+   - the next SAB-focused window can move toward real COI route or lab qualification instead of starting from zero transport plumbing
+   - current non-COI rollout behavior remains green because `postmessage_pcm` fallback was kept intact through the refactor

@@ -4780,3 +4780,50 @@ Recommendation order после review:
 Итог после `9.116`:
 1. В appendable stack теперь уже явно видно, что `postmessage_pcm` — это текущий квалифицированный phase-one lane, а `SAB` — preferred future lane с отдельной readiness surface.
 2. Следующий SAB slice сможет заниматься уже самой заменой data plane, а не подготовкой report/probe plumbing и persisted evidence contracts.
+
+## 9.117 Optional `sab_ring` PCM lane теперь реально собран в appendable engine/worklet, а transport verdict принимает его как валидный data plane
+
+Что сделано:
+1. Следующий slice после `9.116` впервые меняет не только readiness/report surface, но и сам appendable transport implementation:
+   - `appendableQueueEngine` теперь умеет реально поднять `dataPlaneMode = sab_ring`
+   - но только когда `sabReady === true`
+   - `MessagePort` остаётся control plane для `reset`, `setPlaying`, `setTempo` и initial SAB config handoff
+2. Shared-memory primitives вынесены в отдельный helper:
+   - добавлен `appendableQueueSabRing.ts`
+   - helper создаёт per-stem shared float channel buffers + shared int state block
+   - writer/read semantics держатся на `SharedArrayBuffer` + `Atomics`
+3. Engine теперь умеет два честных data-plane режима:
+   - `postmessage_pcm` как current deterministic fallback
+   - `sab_ring` как preferred fast path, если environment действительно cross-origin isolated и SAB доступен
+4. Worklet больше не знает только один append path:
+   - он может читать PCM либо из локального ring, который заполняется через `postMessage`
+   - либо напрямую из shared SAB ring, который main thread заполняет без per-chunk transfer message
+5. Transport verdict тоже обновлён под новый reality:
+   - `sab_ring` теперь считается допустимым `dataPlaneMode`
+   - `controlPlaneMode = message_port` остаётся обязательным
+   - для `postmessage_pcm` transport по-прежнему требует реальные append messages
+   - для `sab_ring` transport требует уже не append messages, а реальный appended payload через probe surface
+
+Что важно не перепутать после `9.117`:
+1. Current local / CI route runner всё ещё не cross-origin isolated.
+2. Поэтому обычный route/e2e verification в этом окружении остаётся на:
+   - `dataPlaneMode = postmessage_pcm`
+   - `preferredDataPlaneMode = postmessage_pcm_fallback`
+   - `sabReady = false`
+3. То есть этот slice не означает, что SAB уже широко validated на живом `/sound/...` route в текущем runner.
+4. Он означает, что:
+   - optional SAB lane больше не только roadmap/readiness idea
+   - actual runtime path существует в коде
+   - fallback path остался рабочим
+   - и shared-memory ring contract теперь имеет прямое automated покрытие без COI route dependency
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` — `2/2`
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `29/29`
+4. `npm run build` — pass
+
+Итог после `9.117`:
+1. Appendable stack теперь имеет уже не только SAB readiness diagnostics, но и реальный optional SAB PCM lane implementation.
+2. Следующий SAB window больше не обязан начинать с нуля transport plumbing; он может идти уже в сторону real COI route qualification / lab activation.
+3. При этом current fallback route contract не потерян: `postmessage_pcm` lane остаётся зелёным и полностью совместимым с текущим non-COI rollout environment.

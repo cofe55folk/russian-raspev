@@ -1,5 +1,12 @@
 import { SimpleFilter, SoundTouch } from "./soundtouch.js";
 
+const SAB_STATE = {
+  readIndex: 0,
+  writeIndex: 1,
+  availableFrames: 2,
+  bufferedEndFrame: 3,
+};
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -11,32 +18,9 @@ class AppendableSoundTouchSource {
   }
 
   extract(target, numFrames) {
-    const processor = this.processor;
-    const framesToRead = Math.min(Math.max(0, numFrames | 0), processor.availableFrames);
-    if (framesToRead <= 0) {
-      return 0;
-    }
-
-    let written = 0;
-    while (written < framesToRead) {
-      const readIndex = processor.readIndex;
-      const chunkFrames = Math.min(framesToRead - written, processor.ringFrames - readIndex);
-      const left = processor.buffers[0];
-      const right = processor.buffers[1] || left;
-
-      for (let i = 0; i < chunkFrames; i += 1) {
-        const outIndex = (written + i) * 2;
-        target[outIndex] = left?.[readIndex + i] ?? 0;
-        target[outIndex + 1] = right?.[readIndex + i] ?? target[outIndex];
-      }
-
-      processor.readIndex = (processor.readIndex + chunkFrames) % processor.ringFrames;
-      processor.availableFrames -= chunkFrames;
-      written += chunkFrames;
-    }
-
+    const written = this.processor.extractSourceFrames(target, numFrames);
     this.position += written;
-    processor.playedFrame = this.position;
+    this.processor.playedFrame = this.position;
     return written;
   }
 
@@ -57,6 +41,8 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     const processorOptions = options?.processorOptions || {};
     this.channelCount = Math.max(1, processorOptions.channelCount || 2);
     this.ringFrames = Math.max(8192, processorOptions.ringFrames || 131072);
+    this.dataPlaneMode = "postmessage_pcm";
+    this.sabState = null;
     this.buffers = Array.from({ length: this.channelCount }, () => new Float32Array(this.ringFrames));
 
     this.readIndex = 0;
@@ -86,6 +72,9 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
       const data = event?.data;
       if (!data || typeof data !== "object") return;
       switch (data.type) {
+        case "configureSabRing":
+          this.configureSabRing(data);
+          break;
         case "reset":
           this.resetState(data);
           break;
@@ -113,6 +102,52 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     this.outputInterleaved = new Float32Array(needed);
   }
 
+  getAvailableFrames() {
+    if (this.sabState) {
+      const availableFrames = Math.max(0, Atomics.load(this.sabState, SAB_STATE.availableFrames) | 0);
+      this.availableFrames = availableFrames;
+      return availableFrames;
+    }
+    return this.availableFrames;
+  }
+
+  getReadIndex() {
+    if (this.sabState) {
+      const readIndex = Math.max(0, Atomics.load(this.sabState, SAB_STATE.readIndex) | 0) % this.ringFrames;
+      this.readIndex = readIndex;
+      return readIndex;
+    }
+    return this.readIndex;
+  }
+
+  getBufferedEndFrame() {
+    if (this.sabState) {
+      const bufferedEndFrame = Math.max(0, Atomics.load(this.sabState, SAB_STATE.bufferedEndFrame) | 0);
+      this.bufferedEndFrame = bufferedEndFrame;
+      return bufferedEndFrame;
+    }
+    return this.bufferedEndFrame;
+  }
+
+  setReadIndex(nextReadIndex) {
+    const safeReadIndex = Math.max(0, nextReadIndex | 0) % this.ringFrames;
+    this.readIndex = safeReadIndex;
+    if (this.sabState) {
+      Atomics.store(this.sabState, SAB_STATE.readIndex, safeReadIndex);
+    }
+  }
+
+  consumeAvailableFrames(frameCount) {
+    const safeFrameCount = Math.max(0, frameCount | 0);
+    if (this.sabState) {
+      const nextAvailableFrames = Atomics.sub(this.sabState, SAB_STATE.availableFrames, safeFrameCount) - safeFrameCount;
+      this.availableFrames = Math.max(0, nextAvailableFrames);
+      return this.availableFrames;
+    }
+    this.availableFrames = Math.max(0, this.availableFrames - safeFrameCount);
+    return this.availableFrames;
+  }
+
   clearProcessorState() {
     try {
       this.filter.clear();
@@ -122,6 +157,26 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     } catch {}
     this.source.setPosition(this.baseFrame);
     this.playedFrame = this.baseFrame;
+  }
+
+  configureSabRing(data) {
+    if (!(data.stateSab instanceof SharedArrayBuffer) || !Array.isArray(data.dataSabs) || !data.dataSabs.length) {
+      return;
+    }
+    const buffers = [];
+    for (let channelIndex = 0; channelIndex < this.channelCount; channelIndex += 1) {
+      const sab = data.dataSabs[channelIndex];
+      if (!(sab instanceof SharedArrayBuffer)) {
+        return;
+      }
+      buffers.push(new Float32Array(sab));
+    }
+    this.sabState = new Int32Array(data.stateSab);
+    this.buffers = buffers;
+    this.dataPlaneMode = "sab_ring";
+    this.readIndex = this.getReadIndex();
+    this.availableFrames = this.getAvailableFrames();
+    this.bufferedEndFrame = this.getBufferedEndFrame();
   }
 
   resetState(data) {
@@ -136,6 +191,12 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     this.generation = Number.isFinite(data.generation) ? (Number(data.generation) | 0) : 0;
     this.baseFrame = Number.isFinite(data.startFrame) ? (Number(data.startFrame) | 0) : 0;
     this.bufferedEndFrame = this.baseFrame;
+    if (this.sabState) {
+      Atomics.store(this.sabState, SAB_STATE.readIndex, 0);
+      Atomics.store(this.sabState, SAB_STATE.writeIndex, 0);
+      Atomics.store(this.sabState, SAB_STATE.availableFrames, 0);
+      Atomics.store(this.sabState, SAB_STATE.bufferedEndFrame, this.baseFrame);
+    }
     this.clearProcessorState();
   }
 
@@ -146,6 +207,8 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
   }
 
   appendFrames(data) {
+    if (this.dataPlaneMode === "sab_ring") return;
+
     const generation = Number.isFinite(data.generation) ? (Number(data.generation) | 0) : this.generation;
     if (generation !== this.generation) return;
 
@@ -202,23 +265,51 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
     }
   }
 
+  extractSourceFrames(target, numFrames) {
+    const framesToRead = Math.min(Math.max(0, numFrames | 0), this.getAvailableFrames());
+    if (framesToRead <= 0) {
+      return 0;
+    }
+
+    let written = 0;
+    while (written < framesToRead) {
+      const readIndex = this.getReadIndex();
+      const chunkFrames = Math.min(framesToRead - written, this.ringFrames - readIndex);
+      const left = this.buffers[0];
+      const right = this.buffers[1] || left;
+
+      for (let i = 0; i < chunkFrames; i += 1) {
+        const outIndex = (written + i) * 2;
+        target[outIndex] = left?.[readIndex + i] ?? 0;
+        target[outIndex + 1] = right?.[readIndex + i] ?? target[outIndex];
+      }
+
+      this.setReadIndex(readIndex + chunkFrames);
+      this.consumeAvailableFrames(chunkFrames);
+      written += chunkFrames;
+    }
+
+    this.getBufferedEndFrame();
+    return written;
+  }
+
   reportStats() {
     const payload = {
       type: "stats",
-      availableFrames: this.availableFrames,
+      availableFrames: this.getAvailableFrames(),
       minAvailableFrames: this.minAvailableFrames,
       maxAvailableFrames: this.maxAvailableFrames,
       underrunFrames: this.underrunFrames,
       droppedFrames: this.droppedFrames,
       playedFrame: this.playedFrame,
-      bufferedEndFrame: this.bufferedEndFrame,
+      bufferedEndFrame: this.getBufferedEndFrame(),
       discontinuityCount: this.discontinuityCount,
       generation: this.generation,
       tempo: this.tempo,
     };
     this.framesSinceReport = 0;
-    this.minAvailableFrames = this.availableFrames;
-    this.maxAvailableFrames = this.availableFrames;
+    this.minAvailableFrames = payload.availableFrames;
+    this.maxAvailableFrames = payload.availableFrames;
     try {
       this.port.postMessage(payload);
     } catch {}
@@ -230,8 +321,9 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
 
     const frames = output[0].length;
     this.ensureOutputBuffer(frames);
-    this.minAvailableFrames = Math.min(this.minAvailableFrames, this.availableFrames);
-    this.maxAvailableFrames = Math.max(this.maxAvailableFrames, this.availableFrames);
+    const currentAvailableFrames = this.getAvailableFrames();
+    this.minAvailableFrames = Math.min(this.minAvailableFrames, currentAvailableFrames);
+    this.maxAvailableFrames = Math.max(this.maxAvailableFrames, currentAvailableFrames);
 
     if (!this.playing) {
       for (let ch = 0; ch < output.length; ch += 1) {
@@ -267,8 +359,9 @@ class RrAppendableQueueProcessor extends AudioWorkletProcessor {
       this.underrunFrames += frames - safeExtracted;
     }
 
-    this.minAvailableFrames = Math.min(this.minAvailableFrames, this.availableFrames);
-    this.maxAvailableFrames = Math.max(this.maxAvailableFrames, this.availableFrames);
+    const postProcessAvailableFrames = this.getAvailableFrames();
+    this.minAvailableFrames = Math.min(this.minAvailableFrames, postProcessAvailableFrames);
+    this.maxAvailableFrames = Math.max(this.maxAvailableFrames, postProcessAvailableFrames);
     this.framesSinceReport += frames;
     if (this.framesSinceReport >= this.reportEveryFrames) {
       this.reportStats();

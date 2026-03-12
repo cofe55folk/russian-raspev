@@ -1,6 +1,13 @@
 "use client"
 
 import { createAppendableTransportClock, type AppendableTransportClockSnapshot } from "./appendableTransportClock"
+import {
+  createAppendableQueueSabRing,
+  getAppendableQueueSabRingAvailableFrames,
+  resetAppendableQueueSabRing,
+  writeAppendableQueueSabRingChunk,
+  type AppendableQueueSabRing,
+} from "./appendableQueueSabRing"
 import type { AudioEngineTickPlan, SoundTouchEngine } from "./soundtouchEngine"
 
 export type AppendablePcmChunk = {
@@ -24,7 +31,7 @@ export type AppendablePcmSource = {
   isEnded?: () => boolean
 }
 
-export type AppendableQueueDataPlaneMode = "postmessage_pcm"
+export type AppendableQueueDataPlaneMode = "postmessage_pcm" | "sab_ring"
 export type AppendableQueueControlPlaneMode = "message_port"
 export type AppendableQueuePreferredDataPlaneMode = "sab_ring_preferred" | "postmessage_pcm_fallback"
 export type AppendableQueueSabRequirement =
@@ -103,7 +110,6 @@ type CreateAppendableQueueEngineOpts = {
 }
 
 const WORKLET_MODULE_PATH = "/worklets/rr-appendable-queue-processor.js"
-const APPENDABLE_QUEUE_DATA_PLANE_MODE = "postmessage_pcm" as const
 const APPENDABLE_QUEUE_CONTROL_PLANE_MODE = "message_port" as const
 const moduleLoadPromiseByCtx = new WeakMap<AudioContext, Promise<void>>()
 
@@ -439,12 +445,32 @@ export async function createAppendableQueueEngine(
   let generation = 0
   let bufferedEndFrame = 0
   let appendCount = 0
+  let appendMessageCount = 0
   let appendedFrames = 0
   let appendedBytes = 0
+  let droppedFrames = 0
   let sourceEnded = false
   let queueFramesEstimate: number | null = null
   const supportsTempo = channelCount <= 2
   const sabReadiness = detectAppendableQueueSabReadiness()
+  let dataPlaneMode: AppendableQueueDataPlaneMode = "postmessage_pcm"
+  let sabRing: AppendableQueueSabRing | null = null
+  if (sabReadiness.sabReady) {
+    try {
+      sabRing = createAppendableQueueSabRing({ channelCount, ringFrames })
+      resetAppendableQueueSabRing(sabRing, 0)
+      node.port.postMessage({
+        type: "configureSabRing",
+        generation,
+        stateSab: sabRing.stateSab,
+        dataSabs: sabRing.dataSabs,
+      })
+      dataPlaneMode = "sab_ring"
+    } catch {
+      sabRing = null
+      dataPlaneMode = "postmessage_pcm"
+    }
+  }
   let tempo = 1
   let lastWorkletStats: AppendableQueueWorkletStats = {
     availableFrames: 0,
@@ -461,13 +487,16 @@ export async function createAppendableQueueEngine(
 
   const emitStats = () => {
     if (typeof opts?.onStats !== "function") return
+    if (dataPlaneMode === "sab_ring" && sabRing) {
+      queueFramesEstimate = getAppendableQueueSabRingAvailableFrames(sabRing)
+    }
     const transport = transportClock.getSnapshot(audioCtx.currentTime)
     const bufferLeadFrames = getLeadFrames(transport, bufferedEndFrame, queueFramesEstimate)
     opts.onStats({
       ...lastWorkletStats,
       sampleRate,
       channelCount,
-      dataPlaneMode: APPENDABLE_QUEUE_DATA_PLANE_MODE,
+      dataPlaneMode,
       controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
       preferredDataPlaneMode: sabReadiness.preferredDataPlaneMode,
       sabCapable: sabReadiness.sabCapable,
@@ -476,7 +505,7 @@ export async function createAppendableQueueEngine(
       sabRequirement: sabReadiness.sabRequirement,
       generation,
       appendCount,
-      appendMessageCount: appendCount,
+      appendMessageCount,
       appendedFrames,
       appendedSec: Number((appendedFrames / sampleRate).toFixed(3)),
       appendedBytes,
@@ -513,7 +542,7 @@ export async function createAppendableQueueEngine(
       minAvailableFrames: Math.max(0, Number(data.minAvailableFrames) || 0),
       maxAvailableFrames: Math.max(0, Number(data.maxAvailableFrames) || 0),
       underrunFrames: Math.max(0, Number(data.underrunFrames) || 0),
-      droppedFrames: Math.max(0, Number(data.droppedFrames) || 0),
+      droppedFrames: Math.max(droppedFrames, Math.max(0, Number(data.droppedFrames) || 0)),
       playedFrame: Math.max(0, Number(data.playedFrame) || 0),
       bufferedEndFrame: Math.max(0, Number(data.bufferedEndFrame) || 0),
       discontinuityCount: Math.max(0, Number(data.discontinuityCount) || 0),
@@ -580,13 +609,40 @@ export async function createAppendableQueueEngine(
 
     const safeFrameCount = clamp(chunk.frameCount, 1, Math.max(1, durationFrames - safeStartFrame))
     const safeFinal = chunk.final || safeStartFrame + safeFrameCount >= durationFrames
+    const chunkBytes = chunk.channels.reduce((sum, channel) => sum + channel.byteLength, 0)
+
+    if (dataPlaneMode === "sab_ring" && sabRing) {
+      const result = writeAppendableQueueSabRingChunk(sabRing, {
+        frameCount: safeFrameCount,
+        channels: chunk.channels,
+      })
+      if (result.droppedFrames > 0) {
+        droppedFrames += result.droppedFrames
+      }
+      if (result.writtenFrames <= 0) {
+        queueFramesEstimate = result.availableFrames
+        return 0
+      }
+      bufferedEndFrame = safeStartFrame + result.writtenFrames
+      appendCount += 1
+      appendedFrames += result.writtenFrames
+      appendedBytes += Math.round((chunkBytes * result.writtenFrames) / safeFrameCount)
+      queueFramesEstimate = result.availableFrames
+      const bufferedAfterAppend = source.getBufferedUntilFrame?.()
+      const hasSourceAheadAfterAppend =
+        typeof bufferedAfterAppend === "number" &&
+        Number.isFinite(bufferedAfterAppend) &&
+        bufferedAfterAppend > bufferedEndFrame
+      sourceEnded = result.writtenFrames >= safeFrameCount ? safeFinal && !hasSourceAheadAfterAppend : false
+      return result.writtenFrames
+    }
+
     const transferableChunk = toTransferableChunk({
       startFrame: safeStartFrame,
       frameCount: safeFrameCount,
       channels: chunk.channels,
       final: safeFinal,
     })
-    const chunkBytes = transferableChunk.channels.reduce((sum, channel) => sum + channel.byteLength, 0)
 
     try {
       node.port.postMessage(
@@ -602,6 +658,7 @@ export async function createAppendableQueueEngine(
       )
       bufferedEndFrame = safeStartFrame + safeFrameCount
       appendCount += 1
+      appendMessageCount += 1
       appendedFrames += safeFrameCount
       appendedBytes += chunkBytes
       const bufferedAfterAppend = source.getBufferedUntilFrame?.()
@@ -643,10 +700,15 @@ export async function createAppendableQueueEngine(
     generation += 1
     bufferedEndFrame = safeFrame
     appendCount = 0
+    appendMessageCount = 0
     appendedFrames = 0
     appendedBytes = 0
+    droppedFrames = 0
     sourceEnded = safeFrame >= durationFrames
     queueFramesEstimate = 0
+    if (sabRing) {
+      resetAppendableQueueSabRing(sabRing, safeFrame)
+    }
     lastWorkletStats = {
       availableFrames: 0,
       minAvailableFrames: 0,
@@ -818,11 +880,14 @@ export async function createAppendableQueueEngine(
 
     getDebugState() {
       const transport = transportClock.getSnapshot(audioCtx.currentTime)
+      if (dataPlaneMode === "sab_ring" && sabRing) {
+        queueFramesEstimate = getAppendableQueueSabRingAvailableFrames(sabRing)
+      }
       const bufferLeadFrames = getLeadFrames(transport, bufferedEndFrame, queueFramesEstimate)
       return {
         sampleRate,
         channelCount,
-        dataPlaneMode: APPENDABLE_QUEUE_DATA_PLANE_MODE,
+        dataPlaneMode,
         controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
         preferredDataPlaneMode: sabReadiness.preferredDataPlaneMode,
         sabCapable: sabReadiness.sabCapable,
@@ -831,7 +896,7 @@ export async function createAppendableQueueEngine(
         sabRequirement: sabReadiness.sabRequirement,
         generation,
         appendCount,
-        appendMessageCount: appendCount,
+        appendMessageCount,
         appendedFrames,
         appendedSec: Number((appendedFrames / sampleRate).toFixed(3)),
         appendedBytes,
@@ -850,7 +915,7 @@ export async function createAppendableQueueEngine(
         ringFrames,
         availableFrames: lastWorkletStats.availableFrames,
         underrunFrames: lastWorkletStats.underrunFrames,
-        droppedFrames: lastWorkletStats.droppedFrames,
+        droppedFrames: Math.max(lastWorkletStats.droppedFrames, droppedFrames),
         discontinuityCount: lastWorkletStats.discontinuityCount,
       }
     },
