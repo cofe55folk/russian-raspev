@@ -2896,3 +2896,91 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.168`:
    - future windows no longer need to infer whether SAB is merely a roadmap note or already reflected in the actual diagnostics surface
    - the next real SAB milestone can focus on replacing the PCM lane itself instead of first inventing new report/probe plumbing
+
+## 8.169 Optional SAB data plane is now implemented behind the existing appendable control plane
+1. This slice is the first one that actually changes the appendable PCM transport implementation after the earlier readiness-only work.
+2. Runtime behavior now has two real data-plane branches:
+   - fallback `postmessage_pcm`
+   - optional `sab_ring` when `sabReady === true`
+3. `MessagePort` remains intentionally unchanged as the control plane:
+   - `reset`
+   - `setPlaying`
+   - `setTempo`
+   - initial SAB ring configuration handoff
+4. A dedicated shared-memory helper now exists:
+   - `appendableQueueSabRing.ts`
+   - it owns the per-channel SAB buffers plus the shared atomic state block
+   - write/read/reset semantics now live in one place instead of being smeared across ad-hoc engine code
+5. The worklet now understands both transport shapes:
+   - legacy append chunks sent through `postMessage`
+   - direct reads from the shared SAB ring when configured
+6. Transport verdict logic was updated to match this new runtime reality:
+   - `sab_ring` is now accepted as a valid `dataPlaneMode`
+   - `controlPlaneMode = message_port` remains required
+   - `postmessage_pcm` still requires real append messages
+   - `sab_ring` instead requires real appended payload visible through the probe surface
+7. Important limitation that the next window must not gloss over:
+   - the local / CI route runner is still not cross-origin isolated
+   - so normal route verification in this environment still runs on fallback `postmessage_pcm`
+   - this slice proves that the optional SAB lane exists in code and that fallback still works, but it does not yet count as live COI route qualification
+8. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `29/29`
+   - `npm run build`
+9. Practical consequence after `8.169`:
+   - SAB is no longer only a readiness/report concept inside the appendable stack
+   - the next SAB-focused window can move toward real COI route or lab qualification instead of starting from zero transport plumbing
+   - current non-COI rollout behavior remains green because `postmessage_pcm` fallback was kept intact through the refactor
+
+## 8.170 The appendable lab now runs in a real cross-origin isolated environment for SAB qualification
+1. This slice is intentionally lab-only.
+2. It does not change the normal `/sound/...` route rollout path and does not yet switch the active appendable PCM lane there.
+3. Instead, `next.config.ts` now adds:
+   - `Cross-Origin-Opener-Policy: same-origin`
+   - `Cross-Origin-Embedder-Policy: require-corp`
+   - only for `/appendable-queue-lab`
+4. Practical consequence for the lab harness:
+   - `crossOriginIsolated` is now expected to be `true`
+   - `sabReady` is now expected to be `true`
+   - `preferredDataPlaneMode` is now expected to be `sab_ring_preferred`
+   - the active lane on this branch still remains `dataPlaneMode = postmessage_pcm`, because the actual SAB transport migration is a later runtime slice
+5. This is important context for future windows:
+   - the team now has a real isolated browser harness for SAB work
+   - not just a readiness dashboard that says SAB would be preferred if headers existed
+   - but this still should not be confused with broad route rollout or production-facing transport qualification
+6. Verification completed locally:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` → pass
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `8/8`
+   - `npx tsc --noEmit`
+   - `npm run build`
+7. Practical consequence after `8.170`:
+   - the next SAB-focused window can validate real isolated-browser behavior on the existing lab page without first redoing COI/header plumbing
+   - the normal route surface remains unchanged and can continue to serve as the non-COI fallback reference
+
+## 8.171 The isolated appendable lab now actually activates `sab_ring` while normal routes stay on fallback `postmessage_pcm`
+1. This integration slice combines the prior SAB transport implementation and the lab-only COI harness on one branch.
+2. Practical result on `/appendable-queue-lab`:
+   - `crossOriginIsolated = true`
+   - `sabReady = true`
+   - `preferredDataPlaneMode = sab_ring_preferred`
+   - active `dataPlaneMode = sab_ring`
+   - `controlPlaneMode = message_port`
+3. The lab contract now reflects the actual split between data and control transport:
+   - no per-chunk PCM append messages are expected on the active SAB lane
+   - `totalAppendMessages = 0` is now the correct lab expectation
+   - appended PCM evidence is instead carried by non-zero shared-ring payload/byte counters
+4. Just as important, the normal `/sound/...` route surface remains unchanged in the same branch:
+   - route pilot coverage still stays on fallback `postmessage_pcm`
+   - this confirms the intended split-mode state rather than an accidental global transport flip
+5. Verification completed locally:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` → pass
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `8/8`
+   - `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `29/29`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.171`:
+   - future SAB work no longer has to infer whether the isolated harness only reports readiness or truly exercises the shared-memory lane
+   - the next focused window can work on SAB-specific telemetry tuning / widening from an already-active isolated harness
+   - production-facing route rollout still has a clean fallback baseline in the same branch

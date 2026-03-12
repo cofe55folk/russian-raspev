@@ -4780,3 +4780,118 @@ Recommendation order после review:
 Итог после `9.116`:
 1. В appendable stack теперь уже явно видно, что `postmessage_pcm` — это текущий квалифицированный phase-one lane, а `SAB` — preferred future lane с отдельной readiness surface.
 2. Следующий SAB slice сможет заниматься уже самой заменой data plane, а не подготовкой report/probe plumbing и persisted evidence contracts.
+
+## 9.117 Optional `sab_ring` PCM lane теперь реально собран в appendable engine/worklet, а transport verdict принимает его как валидный data plane
+
+Что сделано:
+1. Следующий slice после `9.116` впервые меняет не только readiness/report surface, но и сам appendable transport implementation:
+   - `appendableQueueEngine` теперь умеет реально поднять `dataPlaneMode = sab_ring`
+   - но только когда `sabReady === true`
+   - `MessagePort` остаётся control plane для `reset`, `setPlaying`, `setTempo` и initial SAB config handoff
+2. Shared-memory primitives вынесены в отдельный helper:
+   - добавлен `appendableQueueSabRing.ts`
+   - helper создаёт per-stem shared float channel buffers + shared int state block
+   - writer/read semantics держатся на `SharedArrayBuffer` + `Atomics`
+3. Engine теперь умеет два честных data-plane режима:
+   - `postmessage_pcm` как current deterministic fallback
+   - `sab_ring` как preferred fast path, если environment действительно cross-origin isolated и SAB доступен
+4. Worklet больше не знает только один append path:
+   - он может читать PCM либо из локального ring, который заполняется через `postMessage`
+   - либо напрямую из shared SAB ring, который main thread заполняет без per-chunk transfer message
+5. Transport verdict тоже обновлён под новый reality:
+   - `sab_ring` теперь считается допустимым `dataPlaneMode`
+   - `controlPlaneMode = message_port` остаётся обязательным
+   - для `postmessage_pcm` transport по-прежнему требует реальные append messages
+   - для `sab_ring` transport требует уже не append messages, а реальный appended payload через probe surface
+
+Что важно не перепутать после `9.117`:
+1. Current local / CI route runner всё ещё не cross-origin isolated.
+2. Поэтому обычный route/e2e verification в этом окружении остаётся на:
+   - `dataPlaneMode = postmessage_pcm`
+   - `preferredDataPlaneMode = postmessage_pcm_fallback`
+   - `sabReady = false`
+3. То есть этот slice не означает, что SAB уже широко validated на живом `/sound/...` route в текущем runner.
+4. Он означает, что:
+   - optional SAB lane больше не только roadmap/readiness idea
+   - actual runtime path существует в коде
+   - fallback path остался рабочим
+   - и shared-memory ring contract теперь имеет прямое automated покрытие без COI route dependency
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` — `2/2`
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `29/29`
+4. `npm run build` — pass
+
+Итог после `9.117`:
+1. Appendable stack теперь имеет уже не только SAB readiness diagnostics, но и реальный optional SAB PCM lane implementation.
+2. Следующий SAB window больше не обязан начинать с нуля transport plumbing; он может идти уже в сторону real COI route qualification / lab activation.
+3. При этом current fallback route contract не потерян: `postmessage_pcm` lane остаётся зелёным и полностью совместимым с текущим non-COI rollout environment.
+
+## 9.118 `/appendable-queue-lab` теперь запускается в cross-origin isolated окружении и реально показывает SAB-ready diagnostics
+
+Что сделано:
+1. Следующий slice после `9.117` не меняет current `/sound/...` rollout path и не включает `sab_ring` на обычном route.
+2. Изменение намеренно узкое и лабораторное:
+   - в `next.config.ts` добавлены `Cross-Origin-Opener-Policy: same-origin`
+   - и `Cross-Origin-Embedder-Policy: require-corp`
+   - только для `/appendable-queue-lab`
+3. Это переводит lab harness в реальное cross-origin isolated окружение, а не только в hypothetical readiness surface.
+4. Lab contract обновлён под новый expected state:
+   - `crossOriginIsolated = true`
+   - `sabReady = true`
+   - `preferredDataPlaneMode = sab_ring_preferred`
+   - при этом current active lane на develop всё ещё остаётся `dataPlaneMode = postmessage_pcm`, потому что actual SAB transport migration живёт отдельным следующим runtime slice
+
+Что это означает practically:
+1. У команды теперь есть реальный isolated browser harness для следующего SAB transport этапа.
+2. Это уже не просто “браузер мог бы поддерживать SAB при правильных headers”, а конкретная lab page, где readiness действительно поднимается.
+3. Но это ещё не означает broad rollout change:
+   - обычный `/sound/...` route остаётся в прежнем non-COI режиме
+   - route transport qualification semantics не менялись
+   - lab isolation пока не переносилась на production-facing route surface
+
+Проверка:
+1. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `8/8`
+3. `npx tsc --noEmit` — pass
+4. `npm run build` — pass
+
+Итог после `9.118`:
+1. Appendable lab теперь может служить реальным COI qualification harness для будущего SAB lane, а не только readiness dashboard.
+2. Следующий SAB-focused slice сможет валидировать actual isolated-browser behavior уже на существующей lab page, не начиная с header plumbing заново.
+3. Current production-facing route surface при этом не затронут и продолжает жить в прежнем fallback-friendly режиме.
+
+## 9.119 Изолированный `/appendable-queue-lab` теперь реально работает на `sab_ring`, а обычный `/sound/...` route в том же branch остаётся на fallback `postmessage_pcm`
+
+Что сделано:
+1. Этот интеграционный slice впервые свёл на одном branch оба предыдущих шага:
+   - реальный optional `sab_ring` transport из `9.117`
+   - lab-only COI harness из `9.118`
+2. На `/appendable-queue-lab` это дало уже не readiness-only картину, а фактический active state:
+   - `crossOriginIsolated = true`
+   - `sabReady = true`
+   - `preferredDataPlaneMode = sab_ring_preferred`
+   - `dataPlaneMode = sab_ring`
+   - `controlPlaneMode = message_port`
+3. Lab contract скорректирован под реальную shared-memory семантику:
+   - per-chunk PCM append messages больше не являются expected сигналом активного lane
+   - `totalAppendMessages = 0` теперь является правильным ожиданием для SAB lab run
+   - реальное transport evidence идёт через non-zero appended payload/byte counters и stem-level `dataPlaneMode = sab_ring`
+4. Одновременно проверено, что current production-facing route surface в том же branch не перевернулся случайно:
+   - normal `/sound/...` route pilot остаётся на `postmessage_pcm`
+   - fallback qualification contract не сломан
+   - тем самым зафиксирован ожидаемый split-mode state: SAB в isolated harness, fallback на обычном route
+
+Проверка:
+1. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `8/8`
+3. `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` — `2/2`
+4. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `29/29`
+5. `npx tsc --noEmit` — pass
+6. `npm run build` — pass
+
+Итог после `9.119`:
+1. У команды теперь есть не только isolated SAB-ready lab, но и реально активный `sab_ring` lane внутри этого harness.
+2. Следующее автономное окно может заниматься уже SAB-specific behavior, telemetry thresholds и возможным widening proof, не начиная с интеграции transport + COI заново.
+3. Current route rollout при этом остаётся консервативным: `postmessage_pcm` fallback в обычном runner подтверждён и не регресснул.

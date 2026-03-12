@@ -888,7 +888,9 @@ function withAppendableRouteTransportSnapshot(
     }
   }
 
-  if (probe.dataPlaneMode !== "postmessage_pcm") {
+  const supportedDataPlane = probe.dataPlaneMode === "postmessage_pcm" || probe.dataPlaneMode === "sab_ring"
+
+  if (!supportedDataPlane) {
     transport.passed = false
     transport.reason = `data_plane:${probe.dataPlaneMode ?? "missing"}`
   } else if (probe.controlPlaneMode !== "message_port") {
@@ -900,9 +902,12 @@ function withAppendableRouteTransportSnapshot(
   } else if (probe.sampleRates.length !== 1) {
     transport.passed = false
     transport.reason = "sample_rates:mixed"
-  } else if (probe.appendMessageCount <= 0) {
+  } else if (probe.dataPlaneMode === "postmessage_pcm" && probe.appendMessageCount <= 0) {
     transport.passed = false
     transport.reason = "append_messages:missing"
+  } else if (probe.dataPlaneMode === "sab_ring" && (!probe.appendedMiB || probe.appendedMiB <= 0)) {
+    transport.passed = false
+    transport.reason = "appended_mib:missing"
   } else {
     transport.passed = true
     transport.reason = null
