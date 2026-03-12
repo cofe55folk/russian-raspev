@@ -2681,6 +2681,170 @@ test("downloaded pitch shadow report preserves the latest repeated route proof o
   expect(report.snapshot?.pitch.reason).toBeNull()
 })
 
+test("downloaded pitch shadow packet preserves the latest repeated route proof on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const expectedReportBeforeDownload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          report: {
+            status: string
+            snapshot:
+              | {
+                  gate: { status: string }
+                  pitch: {
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runPitchShadowPilot(1.04, 4, 800)
+    return (await api.runPitchShadowPilot(0.98, -3, 800)).report
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadPacket")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadPacket: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadPacket()
+  })
+  const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot:
+        | {
+            gate: { status: string }
+            pitch: {
+              targetTempo: number | null
+              observedTempo: number | null
+              targetPitchSemitones: number | null
+              observedPitchSemitones: number | null
+              passed: boolean | null
+              reason: string | null
+            }
+          }
+        | null
+    }
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  expect(expectedReportBeforeDownload?.snapshot).not.toBeNull()
+  expect(packet.report.snapshot).not.toBeNull()
+  expect(packet.checklist.status).toBe(expectedReportBeforeDownload?.snapshot?.gate.status ?? "pending")
+  expect(packet.report.status).toBe(expectedReportBeforeDownload?.status ?? "pending")
+  expect(packet.report.snapshot?.pitch.targetTempo).toBe(0.98)
+  expect(packet.report.snapshot?.pitch.observedTempo).toBe(0.98)
+  expect(packet.report.snapshot?.pitch.targetPitchSemitones).toBe(-3)
+  expect(packet.report.snapshot?.pitch.observedPitchSemitones).toBe(-3)
+  expect(packet.report.snapshot?.pitch.passed).toBe(true)
+  expect(packet.report.snapshot?.pitch.reason).toBeNull()
+})
+
+test("save-current diagnostics preserves the latest repeated pitch shadow proof on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+  await waitForAppendablePilotDebugMethod(page, "saveCurrentDiagnostics")
+
+  const expectedReportBeforeDownload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          report: {
+            status: string
+            snapshot:
+              | {
+                  gate: { status: string }
+                  pitch: {
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    await api.runPitchShadowPilot(1.04, 4, 800)
+    return (await api.runPitchShadowPilot(0.98, -3, 800)).report
+  })
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { saveCurrentDiagnostics: () => void } })
+      .__rrAppendableRoutePilotDebug?.saveCurrentDiagnostics()
+  })
+  const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot:
+        | {
+            gate: { status: string }
+            pitch: {
+              targetTempo: number | null
+              observedTempo: number | null
+              targetPitchSemitones: number | null
+              observedPitchSemitones: number | null
+              passed: boolean | null
+              reason: string | null
+            }
+          }
+        | null
+    }
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  expect(expectedReportBeforeDownload?.snapshot).not.toBeNull()
+  expect(packet.report.snapshot).not.toBeNull()
+  expect(packet.checklist.status).toBe(packet.report.snapshot?.gate.status)
+  expect(packet.report.status).toBe(expectedReportBeforeDownload?.status ?? "pending")
+  expect(packet.report.snapshot?.pitch.targetTempo).toBe(0.98)
+  expect(packet.report.snapshot?.pitch.observedTempo).toBe(0.98)
+  expect(packet.report.snapshot?.pitch.targetPitchSemitones).toBe(-3)
+  expect(packet.report.snapshot?.pitch.observedPitchSemitones).toBe(-3)
+  expect(packet.report.snapshot?.pitch.passed).toBe(true)
+  expect(packet.report.snapshot?.pitch.reason).toBeNull()
+})
+
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
   await openPlayerWithAppendableFlags(page, { appendable: true, multistem: true, activationTargets: SLUG })
   await openRuntimeProbe(page)
