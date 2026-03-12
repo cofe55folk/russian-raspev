@@ -3418,3 +3418,39 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.183`:
    - route-side pitch shadow proof now survives repeated changes, explicit seeks, and longer hold gaps
    - the next autonomous route-level window has largely exhausted the cheap proof surface and would move into background/interruption-style territory rather than more persistence/export semantics
+
+## 8.184 Pause/resume-aware route-side pitch matrix now keeps the latest proof across reload and both packet/report exports
+1. After `8.183`, the remaining cheap runtime gap was interruption-adjacent churn rather than time passage alone:
+   - do repeated pitch proofs still preserve the latest result when explicit `pause()` calls break the sequence between proof steps
+2. This slice added explicit normal-route coverage for that pause/resume-aware flow:
+   - run one `runPitchShadowPilot(...)`
+   - call `pause()`
+   - run a second proof with different `tempo/pitch`
+   - call `pause()` again
+   - run a third proof that must become the latest committed route-side evidence
+3. The concrete pause-aware matrix now covered by executable specs is:
+   - step 1: `tempo=1.03`, `pitch=2`
+   - pause
+   - step 2: `tempo=0.95`, `pitch=-3`
+   - pause
+   - step 3: `tempo=1.07`, `pitch=5`
+4. The contract now proven on the normal `/sound/...` route is:
+   - reload/hydration keeps the third proof after the pause/resume churn
+   - direct `downloadReport()` keeps the same third proof
+   - direct `downloadPacket()` keeps the same third proof
+   - `saveCurrentDiagnostics()` packet export keeps the same third proof
+5. Practical meaning:
+   - route-side pitch qualification is now validated not only for repeated changes, explicit seeks, and longer holds, but also for explicit pause/resume interruptions between proof steps
+   - the hidden pitch-shadow path no longer relies on the assumption that playback remains continuously running between route-side proof iterations
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "pause-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-aware route proof on the normal route|save-current diagnostics preserves the latest pause-aware pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "pause-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-aware route proof on the normal route|save-current diagnostics preserves the latest pause-aware pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium pause-aware route proof → `4/4`
+   - WebKit pause-aware route proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.184`:
+   - route-side pitch shadow proof now survives repeated changes, explicit seeks, longer holds, and explicit pause/resume churn
+   - the next autonomous route-level window would move beyond cheap route-side proof into true visibility/background/interruption-session territory
