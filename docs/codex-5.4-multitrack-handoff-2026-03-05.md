@@ -3176,3 +3176,50 @@ Suggested opening prompt for the next window:
    - the repository now has a real route-surface pitch shadow path instead of lab-only pitch evidence
    - report persistence can now carry route-side pitch proof without changing rollout policy
    - the next window can decide whether to fix the older postmessage route stress instability or widen pitch evidence further, without re-opening the shadow-path contract
+
+## 8.177 Route-player diagnostics now preserve cumulative evidence correctly, and the Chromium regression sweep is stable again on this host
+1. The old `8.176` residual turned out to be two separate issues, not one runtime verdict:
+   - the cumulative packet/report specs were asserting an over-idealized invariant (`underrun = 0`) instead of checking that saved artifacts preserved the same cumulative evidence already visible in the live route report
+   - the route-player harness still allowed short reload/startup windows to fail with transient `ECONNREFUSED` during cold `next dev` boot and page reload flows
+2. The `appendable-queue-player-pilot` specs were tightened to the actual contract they are named after:
+   - saved packet and downloaded report are now compared against the live cumulative route report evidence before download
+   - the tests no longer pretend stressed `postmessage_pcm` transport must always report literal zero underruns to be serializable correctly
+3. The readiness helper was hardened for route reload flows:
+   - `waitForPlayerRouteReachable(...)` now enforces a practical minimum startup budget
+   - transient `ECONNREFUSED` / `fetch failed` / `socket hang up` windows are treated as booting-state retries instead of immediate false failures
+4. A real route-side bug also surfaced in WebKit during this stabilization:
+   - `saveCurrentDiagnostics()` could re-snapshot transport and overwrite previously accumulated route evidence with weaker/staler numbers
+   - `window.__rrAppendableRoutePilotDebug.getState().report` could also expose stale React state immediately after a stress pilot, even though the latest report had already been committed to the internal ref
+5. That bug is now fixed in app code:
+   - cumulative transport evidence is merged field-wise instead of being blindly replaced
+   - monotonic transport counters such as `appendMessageCount`, `totalUnderrunFrames`, `totalOverflowDroppedFrames`, and related breach/discontinuity counters no longer regress when diagnostics are saved again
+   - debug-state export now reads the latest committed report from `appendableRoutePilotReportRef`, not from a potentially not-yet-flushed React render snapshot
+6. Practical result:
+   - route diagnostics/download surfaces now preserve cumulative route evidence across repeated saves
+   - WebKit no longer exposes a stale-report gap between `runStressPilot()` and `saveCurrentDiagnostics()`
+   - the route-player regression proof on this host is green again without re-opening rollout policy or transport architecture
+7. Executable spec entrypoints for this stabilized slice:
+   - Chromium full route-player regression:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1`
+   - Cross-browser readiness + cumulative-evidence proof:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"`
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"`
+8. Verification completed locally:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1` → `34/34`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"` → `4/4`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "appendable route pilot stays off when the current track set is not targeted for rollout|appendable route diagnostics can apply the full qualified safe-rollout cohort|saved appendable packet preserves cumulative rollout evidence after qualification then stress|downloaded appendable report preserves cumulative rollout evidence after qualification then stress"` → `4/4`
+   - `npx tsc --noEmit`
+   - `npm run build`
+9. External CI note from `PR #49`:
+   - both GitHub workflows passed on the PR:
+     - `validate`
+     - `admin-analytics-contracts`
+   - `Vercel Preview` failed again on the same PR
+   - this is now one more repeat of the already documented preview-noise pattern, not a new signal that the route-player stabilization slice broke app-level build correctness
+10. Important nuance for future windows:
+   - this slice proves artifact preservation/reporting correctness and route-harness stability
+   - it does not claim that stressed `postmessage_pcm` transport always stays at `0 underruns`
+   - if transport-quality policy needs to get stricter later, that should happen in transport/qualification gates, not by reintroducing a false packet-download invariant
+11. Practical consequence after `8.177`:
+   - the previous “old postmessage route stress instability” note is no longer blocking route-player regression work on this host
+   - the next autonomous window can move on to new route-level qualification or other appendable work, instead of re-debugging this test/save-current loop again
