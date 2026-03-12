@@ -4861,3 +4861,37 @@ Recommendation order после review:
 1. Appendable lab теперь может служить реальным COI qualification harness для будущего SAB lane, а не только readiness dashboard.
 2. Следующий SAB-focused slice сможет валидировать actual isolated-browser behavior уже на существующей lab page, не начиная с header plumbing заново.
 3. Current production-facing route surface при этом не затронут и продолжает жить в прежнем fallback-friendly режиме.
+
+## 9.119 Изолированный `/appendable-queue-lab` теперь реально работает на `sab_ring`, а обычный `/sound/...` route в том же branch остаётся на fallback `postmessage_pcm`
+
+Что сделано:
+1. Этот интеграционный slice впервые свёл на одном branch оба предыдущих шага:
+   - реальный optional `sab_ring` transport из `9.117`
+   - lab-only COI harness из `9.118`
+2. На `/appendable-queue-lab` это дало уже не readiness-only картину, а фактический active state:
+   - `crossOriginIsolated = true`
+   - `sabReady = true`
+   - `preferredDataPlaneMode = sab_ring_preferred`
+   - `dataPlaneMode = sab_ring`
+   - `controlPlaneMode = message_port`
+3. Lab contract скорректирован под реальную shared-memory семантику:
+   - per-chunk PCM append messages больше не являются expected сигналом активного lane
+   - `totalAppendMessages = 0` теперь является правильным ожиданием для SAB lab run
+   - реальное transport evidence идёт через non-zero appended payload/byte counters и stem-level `dataPlaneMode = sab_ring`
+4. Одновременно проверено, что current production-facing route surface в том же branch не перевернулся случайно:
+   - normal `/sound/...` route pilot остаётся на `postmessage_pcm`
+   - fallback qualification contract не сломан
+   - тем самым зафиксирован ожидаемый split-mode state: SAB в isolated harness, fallback на обычном route
+
+Проверка:
+1. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `8/8`
+3. `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` — `2/2`
+4. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `29/29`
+5. `npx tsc --noEmit` — pass
+6. `npm run build` — pass
+
+Итог после `9.119`:
+1. У команды теперь есть не только isolated SAB-ready lab, но и реально активный `sab_ring` lane внутри этого harness.
+2. Следующее автономное окно может заниматься уже SAB-specific behavior, telemetry thresholds и возможным widening proof, не начиная с интеграции transport + COI заново.
+3. Current route rollout при этом остаётся консервативным: `postmessage_pcm` fallback в обычном runner подтверждён и не регресснул.

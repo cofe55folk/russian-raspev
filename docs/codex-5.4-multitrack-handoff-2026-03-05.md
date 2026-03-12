@@ -2957,3 +2957,30 @@ Suggested opening prompt for the next window:
 7. Practical consequence after `8.170`:
    - the next SAB-focused window can validate real isolated-browser behavior on the existing lab page without first redoing COI/header plumbing
    - the normal route surface remains unchanged and can continue to serve as the non-COI fallback reference
+
+## 8.171 The isolated appendable lab now actually activates `sab_ring` while normal routes stay on fallback `postmessage_pcm`
+1. This integration slice combines the prior SAB transport implementation and the lab-only COI harness on one branch.
+2. Practical result on `/appendable-queue-lab`:
+   - `crossOriginIsolated = true`
+   - `sabReady = true`
+   - `preferredDataPlaneMode = sab_ring_preferred`
+   - active `dataPlaneMode = sab_ring`
+   - `controlPlaneMode = message_port`
+3. The lab contract now reflects the actual split between data and control transport:
+   - no per-chunk PCM append messages are expected on the active SAB lane
+   - `totalAppendMessages = 0` is now the correct lab expectation
+   - appended PCM evidence is instead carried by non-zero shared-ring payload/byte counters
+4. Just as important, the normal `/sound/...` route surface remains unchanged in the same branch:
+   - route pilot coverage still stays on fallback `postmessage_pcm`
+   - this confirms the intended split-mode state rather than an accidental global transport flip
+5. Verification completed locally:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "tempo-only mode keeps appendable multistem playback aligned"` → pass
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `8/8`
+   - `npx playwright test tests/e2e/appendable-queue-sab-ring.spec.ts --project=chromium` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `29/29`
+   - `npx tsc --noEmit`
+   - `npm run build`
+6. Practical consequence after `8.171`:
+   - future SAB work no longer has to infer whether the isolated harness only reports readiness or truly exercises the shared-memory lane
+   - the next focused window can work on SAB-specific telemetry tuning / widening from an already-active isolated harness
+   - production-facing route rollout still has a clean fallback baseline in the same branch
