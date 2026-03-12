@@ -2984,3 +2984,39 @@ Suggested opening prompt for the next window:
    - future SAB work no longer has to infer whether the isolated harness only reports readiness or truly exercises the shared-memory lane
    - the next focused window can work on SAB-specific telemetry tuning / widening from an already-active isolated harness
    - production-facing route rollout still has a clean fallback baseline in the same branch
+
+## 8.172 WebKit SAB proof and telemetry-driven qualification are now executable, not just described in docs
+1. This slice turns the Safari/WebKit qualification discussion into real testable entrypoints.
+2. The isolated lab now has an explicit cross-browser SAB proof:
+   - `tests/e2e/appendable-queue-lab.spec.ts`
+   - `cross-origin isolated harness activates sab_ring transport with explicit telemetry`
+   - this same assertion now passes on both Chromium and WebKit
+3. SAB steady-state telemetry was widened across the engine, lab, runtime probe, and persisted route reports:
+   - explicit watermark thresholds: low / refill / high
+   - observed lead range over time, not only the current snapshot lead
+   - cumulative low-water / high-water breach counts
+   - cumulative overflow drop events and dropped-frame totals
+   - existing underrun / discontinuity evidence remains intact
+4. The lab harness also gained harsher executable scenarios beyond the earlier boundary/seek basics:
+   - longer steady-state soak
+   - interruption-like suspend/resume loop
+   - existing repeated seek and late-append scenarios now also assert the SAB telemetry envelope
+5. The normal `/sound/...` route surface was kept in lockstep:
+   - runtime probe now exposes the same transport telemetry fields
+   - captured/downloaded/persisted appendable route reports now carry the same watermark and overflow evidence
+   - route pilot tests assert the new transport telemetry on the fallback `postmessage_pcm` lane
+6. This is the first concrete answer to the Web Pro guidance about Safari/iOS qualification matrix:
+   - at least one WebKit-specific SAB activation proof now exists
+   - the matrix is no longer only narrative guidance in docs
+   - it now has executable spec entrypoints the next window can widen instead of re-inventing
+7. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry"` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "longer sab_ring soak stays inside clean steady-state watermarks|interruption-like suspend/resume loop preserves sab_ring sync and telemetry"` → `2/2`
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` → `11/11`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` → `29/29`
+   - `npm run build`
+8. Practical consequence after `8.172`:
+   - the next Safari/WebKit widening step can target explicit spec names instead of vague manual checklists
+   - `sab_ring` qualification now has quality telemetry, not only binary activation evidence
+   - route reports can now preserve the exact watermark/overflow envelope seen during a pilot run

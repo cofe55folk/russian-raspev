@@ -383,6 +383,10 @@ test("multistem appendable pilot runs on the normal player route when both flags
               sabRequirement: string | null
               sampleRates: number[]
               appendMessageCount: number
+              minLowWaterSec: number | null
+              maxHighWaterSec: number | null
+              minRefillTriggerSec: number | null
+              totalOverflowDroppedFrames: number
             }
           }
         }
@@ -397,6 +401,10 @@ test("multistem appendable pilot runs on the normal player route when both flags
   expect(runtimeProbe?.sabRequirement).toBe("cross_origin_isolation_required")
   expect(runtimeProbe?.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(runtimeProbe?.appendMessageCount ?? 0).toBeGreaterThan(0)
+  expect(runtimeProbe?.minLowWaterSec ?? 0).toBeGreaterThan(0)
+  expect(runtimeProbe?.maxHighWaterSec ?? 0).toBeGreaterThan(runtimeProbe?.minLowWaterSec ?? 0)
+  expect(runtimeProbe?.minRefillTriggerSec ?? 0).toBeGreaterThan(runtimeProbe?.minLowWaterSec ?? 0)
+  expect(runtimeProbe?.totalOverflowDroppedFrames ?? -1).toBe(0)
   await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
   await expect
     .poll(
@@ -448,6 +456,11 @@ test("appendable route captureReport returns the derived rollout verdict, not th
             preferredDataPlaneMode: string | null
             sabReady: boolean | null
             sabRequirement: string | null
+            minLowWaterSec: number | null
+            maxHighWaterSec: number | null
+            minRefillTriggerSec: number | null
+            totalUnderrunFrames: number
+            totalOverflowDroppedFrames: number
           }
           rollout: { status: string; reason: string | null }
         }
@@ -469,6 +482,11 @@ test("appendable route captureReport returns the derived rollout verdict, not th
         preferredDataPlaneMode: string | null
         sabReady: boolean | null
         sabRequirement: string | null
+        minLowWaterSec: number | null
+        maxHighWaterSec: number | null
+        minRefillTriggerSec: number | null
+        totalUnderrunFrames: number
+        totalOverflowDroppedFrames: number
       }
       rollout: { status: string; reason: string | null }
     }).gate.status === "ready_for_manual_pilot"
@@ -483,6 +501,11 @@ test("appendable route captureReport returns the derived rollout verdict, not th
         preferredDataPlaneMode: string | null
         sabReady: boolean | null
         sabRequirement: string | null
+        minLowWaterSec: number | null
+        maxHighWaterSec: number | null
+        minRefillTriggerSec: number | null
+        totalUnderrunFrames: number
+        totalOverflowDroppedFrames: number
       }
     }).transport.passed
   ).toBe(true)
@@ -525,6 +548,23 @@ test("appendable route captureReport returns the derived rollout verdict, not th
   expect(
     (capturedSnapshot as { transport: { sabRequirement: string | null } }).transport.sabRequirement
   ).toBe("cross_origin_isolation_required")
+  expect((capturedSnapshot as { transport: { minLowWaterSec: number | null } }).transport.minLowWaterSec ?? 0).toBeGreaterThan(0)
+  expect(
+    (capturedSnapshot as {
+      transport: { maxHighWaterSec: number | null; minLowWaterSec: number | null }
+    }).transport.maxHighWaterSec ?? 0
+  ).toBeGreaterThan(
+    (capturedSnapshot as { transport: { minLowWaterSec: number | null } }).transport.minLowWaterSec ?? 0
+  )
+  expect(
+    (capturedSnapshot as {
+      transport: { minRefillTriggerSec: number | null; minLowWaterSec: number | null }
+    }).transport.minRefillTriggerSec ?? 0
+  ).toBeGreaterThan(
+    (capturedSnapshot as { transport: { minLowWaterSec: number | null } }).transport.minLowWaterSec ?? 0
+  )
+  expect((capturedSnapshot as { transport: { totalUnderrunFrames: number } }).transport.totalUnderrunFrames).toBe(0)
+  expect((capturedSnapshot as { transport: { totalOverflowDroppedFrames: number } }).transport.totalOverflowDroppedFrames).toBe(0)
   expect((capturedSnapshot as { rollout: { status: string } }).rollout.status).toBe(expectedRolloutStatus)
   if (expectedRolloutStatus === "pending") {
     expect((capturedSnapshot as { rollout: { reason: string | null } }).rollout.reason).toBe("qualification:missing")
@@ -1295,6 +1335,11 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
           controlPlaneMode: string | null
           sampleRates: number[]
           appendMessageCount: number
+          minLowWaterSec: number | null
+          maxHighWaterSec: number | null
+          minRefillTriggerSec: number | null
+          totalUnderrunFrames: number
+          totalOverflowDroppedFrames: number
         }
         qualification: { targetSoakSec: number | null; passed: boolean | null }
         stress: { seekSequenceSec: number[]; completedSeeks: number; passed: boolean | null }
@@ -1313,6 +1358,13 @@ test("saved appendable packet preserves cumulative rollout evidence after qualif
   expect(packet.report.snapshot?.transport.sabRequirement).toBe("cross_origin_isolation_required")
   expect(packet.report.snapshot?.transport.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(packet.report.snapshot?.transport.appendMessageCount ?? 0).toBeGreaterThan(0)
+  expect(packet.report.snapshot?.transport.minLowWaterSec ?? 0).toBeGreaterThan(0)
+  expect(packet.report.snapshot?.transport.maxHighWaterSec ?? 0).toBeGreaterThan(packet.report.snapshot?.transport.minLowWaterSec ?? 0)
+  expect(packet.report.snapshot?.transport.minRefillTriggerSec ?? 0).toBeGreaterThan(
+    packet.report.snapshot?.transport.minLowWaterSec ?? 0
+  )
+  expect(packet.report.snapshot?.transport.totalUnderrunFrames).toBe(0)
+  expect(packet.report.snapshot?.transport.totalOverflowDroppedFrames).toBe(0)
   expect(packet.report.snapshot?.qualification.targetSoakSec).toBe(6)
   expect(packet.report.snapshot?.qualification.passed).not.toBeNull()
   expect(packet.report.snapshot?.stress.seekSequenceSec.length ?? 0).toBeGreaterThan(0)
@@ -1376,6 +1428,11 @@ test("downloaded appendable report preserves cumulative rollout evidence after q
         controlPlaneMode: string | null
         sampleRates: number[]
         appendMessageCount: number
+        minLowWaterSec: number | null
+        maxHighWaterSec: number | null
+        minRefillTriggerSec: number | null
+        totalUnderrunFrames: number
+        totalOverflowDroppedFrames: number
       }
       qualification: { targetSoakSec: number | null; passed: boolean | null }
       stress: { seekSequenceSec: number[]; completedSeeks: number; passed: boolean | null }
@@ -1396,6 +1453,11 @@ test("downloaded appendable report preserves cumulative rollout evidence after q
   expect(report.snapshot?.transport.sabRequirement).toBe("cross_origin_isolation_required")
   expect(report.snapshot?.transport.sampleRates.length ?? 0).toBeGreaterThan(0)
   expect(report.snapshot?.transport.appendMessageCount ?? 0).toBeGreaterThan(0)
+  expect(report.snapshot?.transport.minLowWaterSec ?? 0).toBeGreaterThan(0)
+  expect(report.snapshot?.transport.maxHighWaterSec ?? 0).toBeGreaterThan(report.snapshot?.transport.minLowWaterSec ?? 0)
+  expect(report.snapshot?.transport.minRefillTriggerSec ?? 0).toBeGreaterThan(report.snapshot?.transport.minLowWaterSec ?? 0)
+  expect(report.snapshot?.transport.totalUnderrunFrames).toBe(0)
+  expect(report.snapshot?.transport.totalOverflowDroppedFrames).toBe(0)
   expect(report.snapshot?.qualification.targetSoakSec).toBe(6)
   expect(report.snapshot?.qualification.passed).not.toBeNull()
   expect(report.snapshot?.stress.seekSequenceSec.length ?? 0).toBeGreaterThan(0)

@@ -103,11 +103,20 @@ type AppendableQueueRuntimeProbeSnapshot = {
   transportDriftSec: number | null
   minLeadSec: number | null
   maxLeadSec: number | null
+  minObservedLeadSec: number | null
+  maxObservedLeadSec: number | null
+  minLowWaterSec: number | null
+  maxHighWaterSec: number | null
+  minRefillTriggerSec: number | null
   dropDeltaSec: number | null
   cleanSoakSec: number | null
   readyThresholdSec: number | null
   totalUnderrunFrames: number
   totalDiscontinuityCount: number
+  totalLowWaterBreachCount: number
+  totalHighWaterBreachCount: number
+  totalOverflowDropCount: number
+  totalOverflowDroppedFrames: number
 }
 type AppendableQueueSourceProgressSnapshot = {
   mode: "off" | "full_buffer" | "startup_head_manifest" | "startup_head_continuation_chunks"
@@ -162,6 +171,20 @@ type AppendableRouteTransportSnapshot = {
   sabRequirement: string | null
   sampleRates: number[]
   appendMessageCount: number
+  appendedMiB: number | null
+  minLeadSec: number | null
+  maxLeadSec: number | null
+  minObservedLeadSec: number | null
+  maxObservedLeadSec: number | null
+  minLowWaterSec: number | null
+  maxHighWaterSec: number | null
+  minRefillTriggerSec: number | null
+  totalUnderrunFrames: number
+  totalDiscontinuityCount: number
+  totalLowWaterBreachCount: number
+  totalHighWaterBreachCount: number
+  totalOverflowDropCount: number
+  totalOverflowDroppedFrames: number
   passed: boolean | null
   reason: string | null
 }
@@ -535,11 +558,20 @@ function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProb
     transportDriftSec: null,
     minLeadSec: null,
     maxLeadSec: null,
+    minObservedLeadSec: null,
+    maxObservedLeadSec: null,
+    minLowWaterSec: null,
+    maxHighWaterSec: null,
+    minRefillTriggerSec: null,
     dropDeltaSec: null,
     cleanSoakSec: null,
     readyThresholdSec: APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC,
     totalUnderrunFrames: 0,
     totalDiscontinuityCount: 0,
+    totalLowWaterBreachCount: 0,
+    totalHighWaterBreachCount: 0,
+    totalOverflowDropCount: 0,
+    totalOverflowDroppedFrames: 0,
   }
 }
 
@@ -565,11 +597,20 @@ function cloneAppendableQueueRuntimeProbeSnapshot(
     transportDriftSec: snapshot.transportDriftSec,
     minLeadSec: snapshot.minLeadSec,
     maxLeadSec: snapshot.maxLeadSec,
+    minObservedLeadSec: snapshot.minObservedLeadSec,
+    maxObservedLeadSec: snapshot.maxObservedLeadSec,
+    minLowWaterSec: snapshot.minLowWaterSec,
+    maxHighWaterSec: snapshot.maxHighWaterSec,
+    minRefillTriggerSec: snapshot.minRefillTriggerSec,
     dropDeltaSec: snapshot.dropDeltaSec,
     cleanSoakSec: snapshot.cleanSoakSec,
     readyThresholdSec: snapshot.readyThresholdSec,
     totalUnderrunFrames: snapshot.totalUnderrunFrames,
     totalDiscontinuityCount: snapshot.totalDiscontinuityCount,
+    totalLowWaterBreachCount: snapshot.totalLowWaterBreachCount,
+    totalHighWaterBreachCount: snapshot.totalHighWaterBreachCount,
+    totalOverflowDropCount: snapshot.totalOverflowDropCount,
+    totalOverflowDroppedFrames: snapshot.totalOverflowDroppedFrames,
   }
 }
 
@@ -754,6 +795,20 @@ function createAppendableRouteTransportSnapshot(): AppendableRouteTransportSnaps
     sabRequirement: null,
     sampleRates: [],
     appendMessageCount: 0,
+    appendedMiB: null,
+    minLeadSec: null,
+    maxLeadSec: null,
+    minObservedLeadSec: null,
+    maxObservedLeadSec: null,
+    minLowWaterSec: null,
+    maxHighWaterSec: null,
+    minRefillTriggerSec: null,
+    totalUnderrunFrames: 0,
+    totalDiscontinuityCount: 0,
+    totalLowWaterBreachCount: 0,
+    totalHighWaterBreachCount: 0,
+    totalOverflowDropCount: 0,
+    totalOverflowDroppedFrames: 0,
     passed: null,
     reason: null,
   }
@@ -812,6 +867,20 @@ function cloneAppendableRouteTransportSnapshot(
     sabRequirement: snapshot.sabRequirement,
     sampleRates: snapshot.sampleRates.slice(),
     appendMessageCount: snapshot.appendMessageCount,
+    appendedMiB: snapshot.appendedMiB,
+    minLeadSec: snapshot.minLeadSec,
+    maxLeadSec: snapshot.maxLeadSec,
+    minObservedLeadSec: snapshot.minObservedLeadSec,
+    maxObservedLeadSec: snapshot.maxObservedLeadSec,
+    minLowWaterSec: snapshot.minLowWaterSec,
+    maxHighWaterSec: snapshot.maxHighWaterSec,
+    minRefillTriggerSec: snapshot.minRefillTriggerSec,
+    totalUnderrunFrames: snapshot.totalUnderrunFrames,
+    totalDiscontinuityCount: snapshot.totalDiscontinuityCount,
+    totalLowWaterBreachCount: snapshot.totalLowWaterBreachCount,
+    totalHighWaterBreachCount: snapshot.totalHighWaterBreachCount,
+    totalOverflowDropCount: snapshot.totalOverflowDropCount,
+    totalOverflowDroppedFrames: snapshot.totalOverflowDroppedFrames,
     passed: snapshot.passed,
     reason: snapshot.reason,
   }
@@ -828,6 +897,20 @@ function hasAppendableRouteTransportEvidence(snapshot: AppendableRouteTransportS
     snapshot.sabRequirement != null ||
     snapshot.sampleRates.length > 0 ||
     snapshot.appendMessageCount > 0 ||
+    snapshot.appendedMiB != null ||
+    snapshot.minLeadSec != null ||
+    snapshot.maxLeadSec != null ||
+    snapshot.minObservedLeadSec != null ||
+    snapshot.maxObservedLeadSec != null ||
+    snapshot.minLowWaterSec != null ||
+    snapshot.maxHighWaterSec != null ||
+    snapshot.minRefillTriggerSec != null ||
+    snapshot.totalUnderrunFrames > 0 ||
+    snapshot.totalDiscontinuityCount > 0 ||
+    snapshot.totalLowWaterBreachCount > 0 ||
+    snapshot.totalHighWaterBreachCount > 0 ||
+    snapshot.totalOverflowDropCount > 0 ||
+    snapshot.totalOverflowDroppedFrames > 0 ||
     snapshot.passed != null ||
     snapshot.reason != null
   )
@@ -877,6 +960,20 @@ function withAppendableRouteTransportSnapshot(
     sabRequirement: probe.sabRequirement,
     sampleRates: probe.sampleRates.slice(),
     appendMessageCount: probe.appendMessageCount,
+    appendedMiB: probe.appendedMiB,
+    minLeadSec: probe.minLeadSec,
+    maxLeadSec: probe.maxLeadSec,
+    minObservedLeadSec: probe.minObservedLeadSec,
+    maxObservedLeadSec: probe.maxObservedLeadSec,
+    minLowWaterSec: probe.minLowWaterSec,
+    maxHighWaterSec: probe.maxHighWaterSec,
+    minRefillTriggerSec: probe.minRefillTriggerSec,
+    totalUnderrunFrames: probe.totalUnderrunFrames,
+    totalDiscontinuityCount: probe.totalDiscontinuityCount,
+    totalLowWaterBreachCount: probe.totalLowWaterBreachCount,
+    totalHighWaterBreachCount: probe.totalHighWaterBreachCount,
+    totalOverflowDropCount: probe.totalOverflowDropCount,
+    totalOverflowDroppedFrames: probe.totalOverflowDroppedFrames,
     passed: null,
     reason: null,
   })
@@ -1207,6 +1304,76 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                         typeof parsed.snapshot.transport.appendMessageCount === "number" &&
                         Number.isFinite(parsed.snapshot.transport.appendMessageCount)
                           ? parsed.snapshot.transport.appendMessageCount
+                          : 0,
+                      appendedMiB:
+                        typeof parsed.snapshot.transport.appendedMiB === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.appendedMiB)
+                          ? parsed.snapshot.transport.appendedMiB
+                          : null,
+                      minLeadSec:
+                        typeof parsed.snapshot.transport.minLeadSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.minLeadSec)
+                          ? parsed.snapshot.transport.minLeadSec
+                          : null,
+                      maxLeadSec:
+                        typeof parsed.snapshot.transport.maxLeadSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.maxLeadSec)
+                          ? parsed.snapshot.transport.maxLeadSec
+                          : null,
+                      minObservedLeadSec:
+                        typeof parsed.snapshot.transport.minObservedLeadSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.minObservedLeadSec)
+                          ? parsed.snapshot.transport.minObservedLeadSec
+                          : null,
+                      maxObservedLeadSec:
+                        typeof parsed.snapshot.transport.maxObservedLeadSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.maxObservedLeadSec)
+                          ? parsed.snapshot.transport.maxObservedLeadSec
+                          : null,
+                      minLowWaterSec:
+                        typeof parsed.snapshot.transport.minLowWaterSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.minLowWaterSec)
+                          ? parsed.snapshot.transport.minLowWaterSec
+                          : null,
+                      maxHighWaterSec:
+                        typeof parsed.snapshot.transport.maxHighWaterSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.maxHighWaterSec)
+                          ? parsed.snapshot.transport.maxHighWaterSec
+                          : null,
+                      minRefillTriggerSec:
+                        typeof parsed.snapshot.transport.minRefillTriggerSec === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.minRefillTriggerSec)
+                          ? parsed.snapshot.transport.minRefillTriggerSec
+                          : null,
+                      totalUnderrunFrames:
+                        typeof parsed.snapshot.transport.totalUnderrunFrames === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.totalUnderrunFrames)
+                          ? parsed.snapshot.transport.totalUnderrunFrames
+                          : 0,
+                      totalDiscontinuityCount:
+                        typeof parsed.snapshot.transport.totalDiscontinuityCount === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.totalDiscontinuityCount)
+                          ? parsed.snapshot.transport.totalDiscontinuityCount
+                          : 0,
+                      totalLowWaterBreachCount:
+                        typeof parsed.snapshot.transport.totalLowWaterBreachCount === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.totalLowWaterBreachCount)
+                          ? parsed.snapshot.transport.totalLowWaterBreachCount
+                          : 0,
+                      totalHighWaterBreachCount:
+                        typeof parsed.snapshot.transport.totalHighWaterBreachCount === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.totalHighWaterBreachCount)
+                          ? parsed.snapshot.transport.totalHighWaterBreachCount
+                          : 0,
+                      totalOverflowDropCount:
+                        typeof parsed.snapshot.transport.totalOverflowDropCount === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.totalOverflowDropCount)
+                          ? parsed.snapshot.transport.totalOverflowDropCount
+                          : 0,
+                      totalOverflowDroppedFrames:
+                        typeof parsed.snapshot.transport.totalOverflowDroppedFrames === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.totalOverflowDroppedFrames)
+                          ? parsed.snapshot.transport.totalOverflowDroppedFrames
                           : 0,
                       passed:
                         typeof parsed.snapshot.transport.passed === "boolean"
@@ -7511,11 +7678,20 @@ export default function MultiTrackPlayer({
         transportDriftSec: snapshot.sync.transportDriftSec,
         minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
         maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
+        minObservedLeadSec: Number(snapshot.sync.minObservedLeadSec.toFixed(3)),
+        maxObservedLeadSec: Number(snapshot.sync.maxObservedLeadSec.toFixed(3)),
+        minLowWaterSec: Number(snapshot.sync.minLowWaterSec.toFixed(3)),
+        maxHighWaterSec: Number(snapshot.sync.maxHighWaterSec.toFixed(3)),
+        minRefillTriggerSec: Number(snapshot.sync.minRefillTriggerSec.toFixed(3)),
         dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
         cleanSoakSec: Number(cleanSoakSec.toFixed(3)),
         readyThresholdSec: APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC,
         totalUnderrunFrames: snapshot.sync.totalUnderrunFrames,
         totalDiscontinuityCount: snapshot.sync.totalDiscontinuityCount,
+        totalLowWaterBreachCount: snapshot.sync.totalLowWaterBreachCount,
+        totalHighWaterBreachCount: snapshot.sync.totalHighWaterBreachCount,
+        totalOverflowDropCount: snapshot.sync.totalOverflowDropCount,
+        totalOverflowDroppedFrames: snapshot.sync.totalOverflowDroppedFrames,
       })
 
       if (dueHeartbeat || notableDrop) {
@@ -7539,11 +7715,20 @@ export default function MultiTrackPlayer({
           appendedMiB: Number((appendedBytes / (1024 * 1024)).toFixed(3)),
           minLeadSec: Number(snapshot.sync.minLeadSec.toFixed(3)),
           maxLeadSec: Number(snapshot.sync.maxLeadSec.toFixed(3)),
+          minObservedLeadSec: Number(snapshot.sync.minObservedLeadSec.toFixed(3)),
+          maxObservedLeadSec: Number(snapshot.sync.maxObservedLeadSec.toFixed(3)),
+          minLowWaterSec: Number(snapshot.sync.minLowWaterSec.toFixed(3)),
+          maxHighWaterSec: Number(snapshot.sync.maxHighWaterSec.toFixed(3)),
+          minRefillTriggerSec: Number(snapshot.sync.minRefillTriggerSec.toFixed(3)),
           dropDeltaSec: Number(dropDeltaSec.toFixed(3)),
           cleanSoakSec: Number(cleanSoakSec.toFixed(3)),
           readyThresholdSec: APPENDABLE_QUEUE_RUNTIME_READY_SOAK_SEC,
           totalUnderrunFrames: snapshot.sync.totalUnderrunFrames,
           totalDiscontinuityCount: snapshot.sync.totalDiscontinuityCount,
+          totalLowWaterBreachCount: snapshot.sync.totalLowWaterBreachCount,
+          totalHighWaterBreachCount: snapshot.sync.totalHighWaterBreachCount,
+          totalOverflowDropCount: snapshot.sync.totalOverflowDropCount,
+          totalOverflowDroppedFrames: snapshot.sync.totalOverflowDroppedFrames,
           availableFrames: debugStates.map((state) => state.availableFrames).filter((value) => typeof value === "number"),
           appendCounts: debugStates.map((state) => state.appendCount).filter((value) => typeof value === "number"),
           generations: debugStates.map((state) => state.generation).filter((value) => typeof value === "number"),
@@ -11785,6 +11970,16 @@ export default function MultiTrackPlayer({
                             appendable max lead sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.maxLeadSec)}
                           </div>
                           <div>
+                            appendable observed lead sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.minObservedLeadSec)}
+                            {" .. "}
+                            {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.maxObservedLeadSec)}
+                          </div>
+                          <div>
+                            appendable watermarks sec: low={formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.minLowWaterSec)} / refill=
+                            {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.minRefillTriggerSec)} / high=
+                            {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.maxHighWaterSec)}
+                          </div>
+                          <div>
                             appendable stem drift sec: {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.stemDriftSec, 4)}
                           </div>
                           <div>
@@ -11804,6 +11999,14 @@ export default function MultiTrackPlayer({
                           </div>
                           <div>
                             appendable total discontinuity: {appendableQueueRuntimeProbeSnapshot.totalDiscontinuityCount}
+                          </div>
+                          <div>
+                            appendable water breaches: low={appendableQueueRuntimeProbeSnapshot.totalLowWaterBreachCount} / high=
+                            {appendableQueueRuntimeProbeSnapshot.totalHighWaterBreachCount}
+                          </div>
+                          <div>
+                            appendable overflow drops: {appendableQueueRuntimeProbeSnapshot.totalOverflowDropCount} / frames=
+                            {appendableQueueRuntimeProbeSnapshot.totalOverflowDroppedFrames}
                           </div>
                           <div>
                             appendable queued segments: {formatOptionalFixed(appendableQueueSourceProgressSnapshot.minQueuedSegments, 0)}
@@ -12037,6 +12240,21 @@ export default function MultiTrackPlayer({
                               <div>
                                 probe soak: {formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.cleanSoakSec)} / threshold=
                                 {formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.readyThresholdSec)}
+                              </div>
+                              <div>
+                                transport watermarks: low={formatOptionalFixed(appendableRoutePilotReport.snapshot.transport.minLowWaterSec)} / refill=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.transport.minRefillTriggerSec)} / high=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.transport.maxHighWaterSec)}
+                              </div>
+                              <div>
+                                transport counters: underrun={appendableRoutePilotReport.snapshot.transport.totalUnderrunFrames} / discontinuity=
+                                {appendableRoutePilotReport.snapshot.transport.totalDiscontinuityCount} / low-breach=
+                                {appendableRoutePilotReport.snapshot.transport.totalLowWaterBreachCount} / high-breach=
+                                {appendableRoutePilotReport.snapshot.transport.totalHighWaterBreachCount}
+                              </div>
+                              <div>
+                                transport overflow: drops={appendableRoutePilotReport.snapshot.transport.totalOverflowDropCount} / frames=
+                                {appendableRoutePilotReport.snapshot.transport.totalOverflowDroppedFrames}
                               </div>
                               <div>
                                 qualification: {appendableRoutePilotReport.snapshot.qualification.passed == null
