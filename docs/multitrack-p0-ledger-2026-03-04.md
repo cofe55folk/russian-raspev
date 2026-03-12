@@ -5436,3 +5436,43 @@ Residual note по verification:
 Итог после `9.131`:
 1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls, explicit seeks и longer hold gaps.
 2. Дальнейший автономный шаг уже уходит в более дорогую territory: background/interruption-style scenarios или platform-specific session behavior, а не в дешёвые persistence/export proofs.
+
+## 9.132 Pause/resume-aware route-side pitch matrix теперь доказан и для repeated shadow flow с явными `pause()` между proof-step
+
+Что оставалось после `9.131`:
+1. Мы уже знали, что latest pitch proof переживает repeated controls, explicit seeks и longer hold gaps.
+2. Но ещё оставался interruption-adjacent runtime-вопрос:
+   - сохраняется ли последний proof, если между шагами есть явные `pause()` и следующий proof должен снова возобновить playback
+
+Что добавлено:
+1. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появился новый pause-aware route-level matrix:
+   - `runPitchShadowPilot(1.03, 2, 800)`
+   - `pause()`
+   - `runPitchShadowPilot(0.95, -3, 900)`
+   - `pause()`
+   - `runPitchShadowPilot(1.07, 5, 900)`
+2. Этот сценарий теперь отдельно доказан для четырёх surface:
+   - reload/hydration
+   - direct `downloadReport()`
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()`
+
+Почему это важно:
+1. Route-side pitch shadow proof теперь покрывает не только непрерывный playback, но и явные pause/resume разрывы между итерациями.
+2. Latest committed proof стабильно переживает interruption-adjacent churn на normal route, а не только seek или time gaps.
+3. Это практически добивает дешёвую route-side runtime surface перед уже более дорогими visibility/background сценариями.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "pause-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-aware route proof on the normal route|save-current diagnostics preserves the latest pause-aware pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "pause-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest pause-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest pause-aware route proof on the normal route|save-current diagnostics preserves the latest pause-aware pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium pause-aware route proof — `4/4`
+2. WebKit pause-aware route proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.132`:
+1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls, explicit seeks, longer holds и явных pause/resume разрывов.
+2. Следующий автономный шаг уже уходит из дешёвой proof-зоны в настоящие visibility/background/interruption-session сценарии.
