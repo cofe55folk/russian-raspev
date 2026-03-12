@@ -3347,3 +3347,38 @@ Suggested opening prompt for the next window:
 8. Practical consequence after `8.181`:
    - broader route-side pitch matrices no longer have to start by re-proving latest-proof persistence
    - the next autonomous route-level window can move toward longer hold/seek/background-style pitch scenarios instead of more export-surface bookkeeping
+
+## 8.182 Seek-aware route-side pitch matrix now keeps the latest proof across reload and both packet/report exports
+1. After `8.181`, the next remaining autonomous uncertainty was no longer pitch-edge persistence by itself, but control churn combined with route movement.
+2. This slice added explicit normal-route coverage for seek-aware pitch proof:
+   - run one `runPitchShadowPilot(...)`
+   - seek to `12s`
+   - run a second proof with different `tempo/pitch`
+   - seek to `24s`
+   - run a third proof that must become the latest committed route-side evidence
+3. The concrete seek-aware matrix now covered by executable specs is:
+   - step 1: `tempo=1.06`, `pitch=4`
+   - seek to `12`
+   - step 2: `tempo=0.94`, `pitch=-5`
+   - seek to `24`
+   - step 3: `tempo=1.08`, `pitch=7`
+4. The contract now proven on the normal `/sound/...` route is:
+   - reload/hydration keeps the third proof after the two seeks
+   - direct `downloadReport()` keeps the same third proof
+   - direct `downloadPacket()` keeps the same third proof
+   - `saveCurrentDiagnostics()` packet export keeps the same third proof
+5. Practical meaning:
+   - route-side pitch qualification is now validated not only for repeated control changes, but for repeated control changes plus real route movement
+   - the hidden pitch-shadow path no longer relies on the assumption that proofs happen at a fixed playhead position
+6. New executable entrypoints:
+   - Chromium:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "seek-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest seek-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest seek-aware route proof on the normal route|save-current diagnostics preserves the latest seek-aware pitch shadow proof on the normal route"`
+   - WebKit:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "seek-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest seek-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest seek-aware route proof on the normal route|save-current diagnostics preserves the latest seek-aware pitch shadow proof on the normal route"`
+7. Verification completed locally:
+   - Chromium seek-aware route proof → `4/4`
+   - WebKit seek-aware route proof → `4/4`
+   - `npx tsc --noEmit`
+8. Practical consequence after `8.182`:
+   - route-side pitch shadow proof now survives both repeated control changes and explicit route seeks
+   - the next autonomous route-level window can move toward longer hold/background/interruption-style scenarios rather than more reload/export/seek bookkeeping
