@@ -5520,3 +5520,51 @@ Residual note по verification:
 Итог после `9.133`:
 1. Route-side pitch shadow path теперь устойчив к сочетанию repeated controls, explicit seeks, longer holds, pause/resume churn и browser-tab blur/focus churn.
 2. Следующий автономный шаг уже действительно уходит в true visibility/background/interruption-session territory, а не в ещё один дешёвый route-side proof.
+
+## 9.134 Route-side pitch report теперь хранит и visibility/focus telemetry, а не только последний pitch verdict
+
+Что оставалось после `9.133`:
+1. Мы уже доказали, что latest focus-aware proof переживает browser-tab churn между шагами.
+2. Но сам persisted route evidence ещё не фиксировал явно, что foreground loss действительно был замечен и сохранён в report/packet surface.
+
+Что добавлено:
+1. В `app/components/MultiTrackPlayer.tsx` appendable route pilot report получил отдельный `visibility` snapshot:
+   - `currentState`
+   - `lostForeground`
+   - `blurCount`
+   - `focusCount`
+   - `visibilityHiddenCount`
+   - `visibilityVisibleCount`
+   - `hiddenWhilePlayingCount`
+   - `focusWhilePlayingCount`
+   - `lastEvent`
+   - `lastEventAt`
+2. Этот snapshot теперь:
+   - строится из route-side `blur` / `focus` / `visibilitychange` telemetry
+   - попадает в live report UI
+   - merge/persist/restore’ится вместе с остальным route evidence
+   - сохраняется через reload, `downloadReport()`, `downloadPacket()` и `saveCurrentDiagnostics()`
+3. Focus-aware proof в `tests/e2e/appendable-queue-player-pilot.spec.ts` ужесточён:
+   - прежний final pitch proof по-прежнему должен остаться последним
+   - плюс persisted snapshot теперь обязан сохранять `lostForeground`, `blurCount`, `focusCount`, `focusWhilePlayingCount` и актуальный `currentState`
+
+Важный harness note:
+1. В headless automation реальный tab switch через companion page не всегда стабильно отдаёт native `blur/focus` callbacks.
+2. Поэтому helper сохраняет реальный `bringToFront()` churn, но дополнительно делает явный foreground-event nudge на `window`, чтобы visibility/focus contract был исполняем в CI.
+3. Сам runtime при этом слушает настоящие browser events и пишет их в ту же route-side telemetry surface.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "focus-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest focus-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest focus-aware route proof on the normal route|save-current diagnostics preserves the latest focus-aware pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium focus-aware visibility-evidence proof — `4/4`
+2. WebKit focus-aware visibility-evidence proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.134`:
+1. Route-side pitch shadow evidence теперь хранит не только final verdict, но и явный foreground-loss / focus-return telemetry contract.
+2. Cheap route-side persistence block на этом уровне фактически закрыт.
+3. Следующий автономный класс задач уже действительно platform-dependent: visibility/background/interruption/session behavior, а не ещё один report-shape extension.

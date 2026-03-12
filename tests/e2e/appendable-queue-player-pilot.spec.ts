@@ -261,6 +261,18 @@ type RoutePitchShadowMatrixSnapshot = {
     tempo: number | null
     pitchSemitones: number | null
   }
+  visibility?: {
+    currentState?: string | null
+    lostForeground: boolean
+    blurCount: number
+    focusCount: number
+    visibilityHiddenCount: number
+    visibilityVisibleCount: number
+    hiddenWhilePlayingCount: number
+    focusWhilePlayingCount: number
+    lastEvent?: string | null
+    lastEventAt?: string | null
+  }
   pitch?: {
     scenario?: string | null
     shadowEnabled: boolean
@@ -497,10 +509,16 @@ function expectRoutePitchShadowPauseMatrixSnapshot(snapshot: RoutePitchShadowMat
 async function cyclePlayerTabFocus(page: Page, holdMs = 900) {
   const companion = await page.context().newPage()
   try {
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("blur"))
+    })
     await companion.goto("about:blank", { waitUntil: "load" })
     await companion.bringToFront()
     await companion.waitForTimeout(holdMs)
     await page.bringToFront()
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"))
+    })
     await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 15000 })
     await page.waitForTimeout(300)
   } finally {
@@ -573,6 +591,16 @@ function expectRoutePitchShadowFocusMatrixSnapshot(snapshot: RoutePitchShadowMat
     ROUTE_PITCH_SHADOW_FOCUS_MATRIX_FINAL_TEMPO,
     ROUTE_PITCH_SHADOW_FOCUS_MATRIX_FINAL_PITCH_SEMITONES
   )
+  expect(snapshot?.visibility?.currentState).toBe("visible")
+  expect(snapshot?.visibility?.lostForeground).toBe(true)
+  expect(snapshot?.visibility?.blurCount ?? 0).toBeGreaterThanOrEqual(2)
+  expect(snapshot?.visibility?.focusCount ?? 0).toBeGreaterThanOrEqual(2)
+  expect(snapshot?.visibility?.hiddenWhilePlayingCount ?? 0).toBeGreaterThanOrEqual(0)
+  expect(snapshot?.visibility?.focusWhilePlayingCount ?? 0).toBeGreaterThanOrEqual(2)
+  expect(snapshot?.visibility?.lastEvent === "window:focus" || snapshot?.visibility?.lastEvent === "document:visible").toBe(
+    true
+  )
+  expect(snapshot?.visibility?.lastEventAt).toBeTruthy()
 }
 
 test("appendable route pilot stays off when the current track set is not targeted for rollout", async ({ page }) => {
