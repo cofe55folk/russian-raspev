@@ -778,6 +778,7 @@ function expectRoutePitchShadowResumeMatrixSnapshot(snapshot: RoutePitchShadowMa
   expect(snapshot?.visibility?.currentState).toBe("visible")
   expect(snapshot?.visibility?.lostForeground).toBe(true)
   expect(snapshot?.visibility?.visibilityHiddenCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.hiddenWhilePlayingCount ?? 0).toBe(0)
   expect(snapshot?.visibility?.pageHideCount ?? 0).toBeGreaterThanOrEqual(1)
   expect(snapshot?.visibility?.pageShowCount ?? 0).toBeGreaterThanOrEqual(1)
   expect(snapshot?.visibility?.lastEvent).toBeTruthy()
@@ -4650,6 +4651,7 @@ test("pause-hidden-resume pitch shadow matrix rehydrates with the latest route p
       snapshot.pitch?.targetTempo === ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_TEMPO &&
       snapshot.pitch?.targetPitchSemitones === ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_PITCH_SEMITONES &&
       (snapshot.visibility?.visibilityHiddenCount ?? 0) >= 1 &&
+      (snapshot.visibility?.hiddenWhilePlayingCount ?? 0) === 0 &&
       (snapshot.visibility?.pageHideCount ?? 0) >= 1 &&
       (snapshot.visibility?.pageShowCount ?? 0) >= 1
     ) {
