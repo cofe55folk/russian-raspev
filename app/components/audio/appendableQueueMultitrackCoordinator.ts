@@ -187,13 +187,10 @@ function readStatsFromEngine(engine: SoundTouchEngine): AppendableQueueDebugStat
     overflowDroppedFrames: toFiniteNumber(stats.overflowDroppedFrames, 0),
     appendChunkFrames: toFiniteNumber(stats.appendChunkFrames, 0),
     ringFrames: toFiniteNumber(stats.ringFrames, 0),
-    sourceEnded: stats.sourceEnded === 1 || stats.sourceEnded === "1" || stats.sourceEnded === "true",
-    supportsIndependentPitch:
-      stats.supportsIndependentPitch === 1 ||
-      stats.supportsIndependentPitch === "1" ||
-      stats.supportsIndependentPitch === "true",
-    transportRunning:
-      stats.transportRunning === 1 || stats.transportRunning === "1" || stats.transportRunning === "true",
+    sourceEnded: toBoolean(stats.sourceEnded, false),
+    supportsTempo: toBoolean(stats.supportsTempo, false),
+    supportsIndependentPitch: toBoolean(stats.supportsIndependentPitch, false),
+    transportRunning: toBoolean(stats.transportRunning, false),
     transportFrame: toFiniteNumber(stats.transportFrame, 0),
     transportSec: toFiniteNumber(stats.transportSec, 0),
     anchorFrame: toFiniteNumber(stats.anchorFrame, 0),

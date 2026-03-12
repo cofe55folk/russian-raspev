@@ -5081,3 +5081,57 @@ Recommendation order после review:
 1. Lab pitch qualification больше не абстрактный “future idea”, а конкретная matrix с pass/fail gates.
 2. WebKit получил явный bounded `tempo + pitch` proof, а Chromium — полный semitone/tempo matrix.
 3. Следующее окно может уже переносить тот же contract на route-shadow/report surfaces, не тратя время заново на lab-level gate definition.
+
+## 9.124 Normal `/sound/...` route теперь имеет hidden pitch-shadow path и pitch-aware report persistence, но safe-rollout policy не изменилась
+
+Что сделано:
+1. Следующий slice после `9.123` не widened pitch для обычного пользователя.
+2. Вместо этого на обычном route surface добавлен hidden debug-only gate:
+   - localStorage key: `rr_audio_appendable_queue_shadow_pitch_enabled`
+   - gate активируется только при явных `appendable queue` + `appendable multistem` pilot flags
+   - при `activation mode = safe_rollout` он принудительно остаётся `off`
+3. Это даёт важную развязку:
+   - targeted/manual appendable pilot теперь может гонять worklet-local pitch прямо на `/sound/...`
+   - safe-rollout по-прежнему остаётся `tempo: off / pitch: off`
+   - hidden flag не превращается в неявный rollout widening
+4. Route runtime/report surface теперь несут pitch-specific evidence:
+   - runtime probe: `supportsTempo`, `supportsIndependentPitch`, `tempo`, `pitchSemitones`
+   - transport snapshot: те же поля
+   - report получил отдельный `pitch` block с `scenario`, `shadowEnabled`, target/observed values, `passed`, `reason`
+5. Route debug API widened минимально, но достаточно:
+   - `window.__rrAppendableRoutePilotDebug.setTempo(...)`
+   - `window.__rrAppendableRoutePilotDebug.setPitchSemitones(...)`
+   - `window.__rrAppendableRoutePilotDebug.runPitchShadowPilot(...)`
+6. Route-side pitch proof теперь фиксируется как отдельный scenario:
+   - `route_shadow_manual_pitch`
+   - это важно для handoff, потому что lab proof и route proof теперь различимы не только по контексту, но и по persisted evidence
+
+Исполняемые spec entrypoints:
+1. Chromium route-shadow proof:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route"`
+2. Chromium safe-rollout guardrail:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "hidden shadow pitch flag does not change safe-rollout route policy"`
+3. Chromium report persistence:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "pitch shadow report evidence rehydrates after reload on the normal route"`
+4. WebKit route-side proof:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|hidden shadow pitch flag does not change safe-rollout route policy"`
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npm run build` — pass
+3. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|hidden shadow pitch flag does not change safe-rollout route policy|pitch shadow report evidence rehydrates after reload on the normal route"` — `3/3`
+4. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|hidden shadow pitch flag does not change safe-rollout route policy"` — `2/2`
+
+Residual note по verification:
+1. Полный Chromium sweep `tests/e2e/appendable-queue-player-pilot.spec.ts` дошёл до `24/34`, после чего упал старый non-shadow scenario:
+   - `saved appendable packet preserves cumulative rollout evidence after qualification then stress`
+2. Ошибка не связана с новым hidden shadow path:
+   - в failing snapshot было `appendable shadow pitch flag: off / active=off`
+   - упал legacy postmessage route stress path с большим `transport.totalUnderrunFrames`
+3. Targeted rerun этого старого scenario воспроизвёл ту же проблему на текущем хосте.
+4. Значит новый route-shadow contract уже доказан отдельно, а старый cumulative packet stress case остаётся отдельным residual investigation item.
+
+Итог после `9.124`:
+1. Pitch evidence больше не ограничен isolated lab; теперь есть и normal route shadow surface.
+2. Report persistence умеет сохранять route-side pitch proof, не меняя rollout policy.
+3. Следующее окно может либо отдельно чинить old postmessage route stress instability, либо продолжать widening pitch evidence уже поверх зафиксированного route-shadow contract.

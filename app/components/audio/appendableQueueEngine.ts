@@ -56,6 +56,7 @@ export type AppendableQueueWorkletStats = {
 export type AppendableQueueDebugStats = AppendableQueueWorkletStats & {
   sampleRate: number
   channelCount: number
+  supportsTempo: boolean
   supportsIndependentPitch: boolean
   dataPlaneMode: AppendableQueueDataPlaneMode
   controlPlaneMode: AppendableQueueControlPlaneMode
@@ -546,6 +547,7 @@ export async function createAppendableQueueEngine(
       ...lastWorkletStats,
       sampleRate,
       channelCount,
+      supportsTempo,
       supportsIndependentPitch,
       dataPlaneMode,
       controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
@@ -970,6 +972,7 @@ export async function createAppendableQueueEngine(
       return {
         sampleRate,
         channelCount,
+        supportsTempo,
         dataPlaneMode,
         controlPlaneMode: APPENDABLE_QUEUE_CONTROL_PLANE_MODE,
         preferredDataPlaneMode: sabReadiness.preferredDataPlaneMode,
@@ -995,8 +998,8 @@ export async function createAppendableQueueEngine(
         transportRate: transport.playbackRate,
         tempo,
         pitchSemitones,
-        sourceEnded: sourceEnded ? 1 : 0,
-        supportsIndependentPitch: supportsIndependentPitch ? 1 : 0,
+        sourceEnded,
+        supportsIndependentPitch,
         lowWaterFrames,
         lowWaterSec: Number((lowWaterFrames / sampleRate).toFixed(3)),
         highWaterFrames,

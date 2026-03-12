@@ -89,6 +89,10 @@ type AppendableQueueRuntimeProbeSnapshot = {
   sampleAtMs: number | null
   currentSec: number | null
   transportSec: number | null
+  supportsTempo: boolean | null
+  supportsIndependentPitch: boolean | null
+  tempo: number | null
+  pitchSemitones: number | null
   dataPlaneMode: string | null
   controlPlaneMode: string | null
   preferredDataPlaneMode: string | null
@@ -162,6 +166,10 @@ type AppendableRouteStressSnapshot = {
   reason: string | null
 }
 type AppendableRouteTransportSnapshot = {
+  supportsTempo: boolean | null
+  supportsIndependentPitch: boolean | null
+  tempo: number | null
+  pitchSemitones: number | null
   dataPlaneMode: string | null
   controlPlaneMode: string | null
   preferredDataPlaneMode: string | null
@@ -188,6 +196,18 @@ type AppendableRouteTransportSnapshot = {
   passed: boolean | null
   reason: string | null
 }
+type AppendableRoutePitchSnapshot = {
+  scenario: string | null
+  shadowEnabled: boolean
+  supportsTempo: boolean | null
+  supportsIndependentPitch: boolean | null
+  targetTempo: number | null
+  observedTempo: number | null
+  targetPitchSemitones: number | null
+  observedPitchSemitones: number | null
+  passed: boolean | null
+  reason: string | null
+}
 type AppendableRouteRolloutSnapshot = {
   status: AppendableRoutePilotReportStatus
   gateReady: boolean
@@ -209,12 +229,14 @@ type AppendableRoutePilotReportSnapshot = {
     appendableQueueMultistemPilotEnabled: boolean
     appendableQueueStartupHeadPilotEnabled: boolean
     appendableQueueContinuationChunksPilotEnabled: boolean
+    appendableQueueShadowPitchEnabled: boolean
   }
   activation: {
     configured: boolean
     allowed: boolean
     mode: "unscoped" | "targeted_pilot" | "safe_rollout"
     tempoControlUnlocked: boolean
+    pitchShadowActive: boolean
     matchedTarget: string | null
     currentTargets: string[]
     configuredTargets: string[]
@@ -226,6 +248,7 @@ type AppendableRoutePilotReportSnapshot = {
   transport: AppendableRouteTransportSnapshot
   qualification: AppendableRouteQualificationSnapshot
   stress: AppendableRouteStressSnapshot
+  pitch: AppendableRoutePitchSnapshot
   rollout: AppendableRouteRolloutSnapshot
 }
 type AppendableRoutePilotReport = {
@@ -252,6 +275,8 @@ type AppendableRoutePilotDebugApi = {
   play: () => Promise<void>
   pause: () => void
   seek: (sec: number) => number
+  setTempo: (tempo: number) => { tempo: number; pitchSemitones: number }
+  setPitchSemitones: (semi: number) => { tempo: number; pitchSemitones: number }
   captureReport: () => AppendableRoutePilotReportSnapshot
   saveCurrentDiagnostics: () => void
   markPass: () => void
@@ -264,6 +289,11 @@ type AppendableRoutePilotDebugApi = {
   runSoakPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runQualificationPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runStressPilot: (holdSec?: number | null) => Promise<AppendableRoutePilotDebugState>
+  runPitchShadowPilot: (
+    tempo?: number | null,
+    pitchSemitones?: number | null,
+    settleMs?: number | null
+  ) => Promise<AppendableRoutePilotDebugState>
 }
 type NavHandoffState = {
   trackScopeId: string
@@ -538,12 +568,20 @@ function readOptionalBoolean(value: unknown): boolean | null {
   return typeof value === "boolean" ? value : null
 }
 
+function readOptionalFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
 function createAppendableQueueRuntimeProbeSnapshot(): AppendableQueueRuntimeProbeSnapshot {
   return {
     active: false,
     sampleAtMs: null,
     currentSec: null,
     transportSec: null,
+    supportsTempo: null,
+    supportsIndependentPitch: null,
+    tempo: null,
+    pitchSemitones: null,
     dataPlaneMode: null,
     controlPlaneMode: null,
     preferredDataPlaneMode: null,
@@ -583,6 +621,10 @@ function cloneAppendableQueueRuntimeProbeSnapshot(
     sampleAtMs: snapshot.sampleAtMs,
     currentSec: snapshot.currentSec,
     transportSec: snapshot.transportSec,
+    supportsTempo: snapshot.supportsTempo,
+    supportsIndependentPitch: snapshot.supportsIndependentPitch,
+    tempo: snapshot.tempo,
+    pitchSemitones: snapshot.pitchSemitones,
     dataPlaneMode: snapshot.dataPlaneMode,
     controlPlaneMode: snapshot.controlPlaneMode,
     preferredDataPlaneMode: snapshot.preferredDataPlaneMode,
@@ -786,6 +828,10 @@ function createAppendableRouteStressSnapshot(): AppendableRouteStressSnapshot {
 
 function createAppendableRouteTransportSnapshot(): AppendableRouteTransportSnapshot {
   return {
+    supportsTempo: null,
+    supportsIndependentPitch: null,
+    tempo: null,
+    pitchSemitones: null,
     dataPlaneMode: null,
     controlPlaneMode: null,
     preferredDataPlaneMode: null,
@@ -809,6 +855,21 @@ function createAppendableRouteTransportSnapshot(): AppendableRouteTransportSnaps
     totalHighWaterBreachCount: 0,
     totalOverflowDropCount: 0,
     totalOverflowDroppedFrames: 0,
+    passed: null,
+    reason: null,
+  }
+}
+
+function createAppendableRoutePitchSnapshot(): AppendableRoutePitchSnapshot {
+  return {
+    scenario: null,
+    shadowEnabled: false,
+    supportsTempo: null,
+    supportsIndependentPitch: null,
+    targetTempo: null,
+    observedTempo: null,
+    targetPitchSemitones: null,
+    observedPitchSemitones: null,
     passed: null,
     reason: null,
   }
@@ -858,6 +919,10 @@ function cloneAppendableRouteTransportSnapshot(
   snapshot: AppendableRouteTransportSnapshot
 ): AppendableRouteTransportSnapshot {
   return {
+    supportsTempo: snapshot.supportsTempo,
+    supportsIndependentPitch: snapshot.supportsIndependentPitch,
+    tempo: snapshot.tempo,
+    pitchSemitones: snapshot.pitchSemitones,
     dataPlaneMode: snapshot.dataPlaneMode,
     controlPlaneMode: snapshot.controlPlaneMode,
     preferredDataPlaneMode: snapshot.preferredDataPlaneMode,
@@ -886,8 +951,27 @@ function cloneAppendableRouteTransportSnapshot(
   }
 }
 
+function cloneAppendableRoutePitchSnapshot(snapshot: AppendableRoutePitchSnapshot): AppendableRoutePitchSnapshot {
+  return {
+    scenario: snapshot.scenario,
+    shadowEnabled: snapshot.shadowEnabled,
+    supportsTempo: snapshot.supportsTempo,
+    supportsIndependentPitch: snapshot.supportsIndependentPitch,
+    targetTempo: snapshot.targetTempo,
+    observedTempo: snapshot.observedTempo,
+    targetPitchSemitones: snapshot.targetPitchSemitones,
+    observedPitchSemitones: snapshot.observedPitchSemitones,
+    passed: snapshot.passed,
+    reason: snapshot.reason,
+  }
+}
+
 function hasAppendableRouteTransportEvidence(snapshot: AppendableRouteTransportSnapshot): boolean {
   return (
+    snapshot.supportsTempo != null ||
+    snapshot.supportsIndependentPitch != null ||
+    snapshot.tempo != null ||
+    snapshot.pitchSemitones != null ||
     snapshot.dataPlaneMode != null ||
     snapshot.controlPlaneMode != null ||
     snapshot.preferredDataPlaneMode != null ||
@@ -911,6 +995,21 @@ function hasAppendableRouteTransportEvidence(snapshot: AppendableRouteTransportS
     snapshot.totalHighWaterBreachCount > 0 ||
     snapshot.totalOverflowDropCount > 0 ||
     snapshot.totalOverflowDroppedFrames > 0 ||
+    snapshot.passed != null ||
+    snapshot.reason != null
+  )
+}
+
+function hasAppendableRoutePitchEvidence(snapshot: AppendableRoutePitchSnapshot): boolean {
+  return (
+    snapshot.scenario != null ||
+    snapshot.shadowEnabled ||
+    snapshot.supportsTempo != null ||
+    snapshot.supportsIndependentPitch != null ||
+    snapshot.targetTempo != null ||
+    snapshot.observedTempo != null ||
+    snapshot.targetPitchSemitones != null ||
+    snapshot.observedPitchSemitones != null ||
     snapshot.passed != null ||
     snapshot.reason != null
   )
@@ -943,6 +1042,9 @@ function mergeAppendableRoutePilotEvidenceSnapshot(
     stress: hasAppendableRouteStressEvidence(snapshot.stress)
       ? cloneAppendableRouteStressSnapshot(snapshot.stress)
       : cloneAppendableRouteStressSnapshot(previousSnapshot.stress),
+    pitch: hasAppendableRoutePitchEvidence(snapshot.pitch)
+      ? cloneAppendableRoutePitchSnapshot(snapshot.pitch)
+      : cloneAppendableRoutePitchSnapshot(previousSnapshot.pitch),
   }
 }
 
@@ -951,6 +1053,10 @@ function withAppendableRouteTransportSnapshot(
 ): AppendableRoutePilotReportSnapshot {
   const probe = snapshot.probe
   const transport = cloneAppendableRouteTransportSnapshot({
+    supportsTempo: probe.supportsTempo,
+    supportsIndependentPitch: probe.supportsIndependentPitch,
+    tempo: probe.tempo,
+    pitchSemitones: probe.pitchSemitones,
     dataPlaneMode: probe.dataPlaneMode,
     controlPlaneMode: probe.controlPlaneMode,
     preferredDataPlaneMode: probe.preferredDataPlaneMode,
@@ -1063,6 +1169,71 @@ function withAppendableRouteRolloutSnapshot(
   }
 }
 
+function withAppendableRoutePitchSnapshot(
+  snapshot: AppendableRoutePilotReportSnapshot,
+  options: {
+    scenario: string
+    shadowEnabled: boolean
+    targetTempo: number | null
+    targetPitchSemitones: number | null
+  }
+): AppendableRoutePilotReportSnapshot {
+  const safeTargetTempo =
+    typeof options.targetTempo === "number" && Number.isFinite(options.targetTempo)
+      ? Number(Math.min(4, Math.max(0.25, options.targetTempo)).toFixed(3))
+      : null
+  const safeTargetPitchSemitones =
+    typeof options.targetPitchSemitones === "number" && Number.isFinite(options.targetPitchSemitones)
+      ? Math.min(12, Math.max(-12, Math.round(options.targetPitchSemitones)))
+      : null
+  const observedTempo = snapshot.probe.tempo
+  const observedPitchSemitones = snapshot.probe.pitchSemitones
+  const cleanRuntime =
+    snapshot.probe.totalUnderrunFrames === 0 && snapshot.probe.totalDiscontinuityCount === 0
+  let passed = false
+  let reason: string | null = null
+
+  if (!options.shadowEnabled) {
+    reason = "shadow_disabled"
+  } else if (!snapshot.probe.active) {
+    reason = "probe_inactive"
+  } else if (snapshot.probe.supportsIndependentPitch !== true) {
+    reason = "pitch_locked"
+  } else if (safeTargetTempo != null && snapshot.probe.supportsTempo !== true) {
+    reason = "tempo_locked"
+  } else if (!cleanRuntime) {
+    reason = "runtime_not_clean"
+  } else if (
+    safeTargetTempo != null &&
+    (observedTempo == null || Math.abs(observedTempo - safeTargetTempo) > 0.02)
+  ) {
+    reason = "tempo_not_converged"
+  } else if (
+    safeTargetPitchSemitones != null &&
+    (observedPitchSemitones == null || Math.abs(observedPitchSemitones - safeTargetPitchSemitones) > 0.02)
+  ) {
+    reason = "pitch_not_converged"
+  } else {
+    passed = true
+  }
+
+  return {
+    ...snapshot,
+    pitch: {
+      scenario: options.scenario,
+      shadowEnabled: options.shadowEnabled,
+      supportsTempo: snapshot.probe.supportsTempo,
+      supportsIndependentPitch: snapshot.probe.supportsIndependentPitch,
+      targetTempo: safeTargetTempo,
+      observedTempo,
+      targetPitchSemitones: safeTargetPitchSemitones,
+      observedPitchSemitones,
+      passed,
+      reason,
+    },
+  }
+}
+
 function withAppendableRouteQualificationSnapshot(
   snapshot: AppendableRoutePilotReportSnapshot,
   targetSoakSec: number
@@ -1153,12 +1324,14 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
             appendableQueueStartupHeadPilotEnabled: report.snapshot.flags.appendableQueueStartupHeadPilotEnabled,
             appendableQueueContinuationChunksPilotEnabled:
               report.snapshot.flags.appendableQueueContinuationChunksPilotEnabled,
+            appendableQueueShadowPitchEnabled: report.snapshot.flags.appendableQueueShadowPitchEnabled,
           },
           activation: {
             configured: report.snapshot.activation.configured,
             allowed: report.snapshot.activation.allowed,
             mode: report.snapshot.activation.mode,
             tempoControlUnlocked: report.snapshot.activation.tempoControlUnlocked,
+            pitchShadowActive: report.snapshot.activation.pitchShadowActive,
             matchedTarget: report.snapshot.activation.matchedTarget,
             currentTargets: report.snapshot.activation.currentTargets.slice(),
             configuredTargets: report.snapshot.activation.configuredTargets.slice(),
@@ -1170,6 +1343,7 @@ function cloneAppendableRoutePilotReport(report: AppendableRoutePilotReport): Ap
           transport: cloneAppendableRouteTransportSnapshot(report.snapshot.transport),
           qualification: cloneAppendableRouteQualificationSnapshot(report.snapshot.qualification),
           stress: cloneAppendableRouteStressSnapshot(report.snapshot.stress),
+          pitch: cloneAppendableRoutePitchSnapshot(report.snapshot.pitch),
           rollout: cloneAppendableRouteRolloutSnapshot(report.snapshot.rollout),
         }
       : null,
@@ -1218,6 +1392,7 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                 appendableQueueStartupHeadPilotEnabled: !!parsed.snapshot.flags?.appendableQueueStartupHeadPilotEnabled,
                 appendableQueueContinuationChunksPilotEnabled:
                   !!parsed.snapshot.flags?.appendableQueueContinuationChunksPilotEnabled,
+                appendableQueueShadowPitchEnabled: !!parsed.snapshot.flags?.appendableQueueShadowPitchEnabled,
               },
               activation: {
                 configured: !!parsed.snapshot.activation?.configured,
@@ -1231,6 +1406,7 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                   parsed.snapshot.activation?.tempoControlUnlocked == null
                     ? true
                     : !!parsed.snapshot.activation?.tempoControlUnlocked,
+                pitchShadowActive: !!parsed.snapshot.activation?.pitchShadowActive,
                 matchedTarget:
                   typeof parsed.snapshot.activation?.matchedTarget === "string"
                     ? parsed.snapshot.activation.matchedTarget
@@ -1267,6 +1443,24 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
               transport:
                 parsed.snapshot.transport && typeof parsed.snapshot.transport === "object"
                   ? {
+                      supportsTempo:
+                        typeof parsed.snapshot.transport.supportsTempo === "boolean"
+                          ? parsed.snapshot.transport.supportsTempo
+                          : null,
+                      supportsIndependentPitch:
+                        typeof parsed.snapshot.transport.supportsIndependentPitch === "boolean"
+                          ? parsed.snapshot.transport.supportsIndependentPitch
+                          : null,
+                      tempo:
+                        typeof parsed.snapshot.transport.tempo === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.tempo)
+                          ? parsed.snapshot.transport.tempo
+                          : null,
+                      pitchSemitones:
+                        typeof parsed.snapshot.transport.pitchSemitones === "number" &&
+                        Number.isFinite(parsed.snapshot.transport.pitchSemitones)
+                          ? parsed.snapshot.transport.pitchSemitones
+                          : null,
                       dataPlaneMode:
                         typeof parsed.snapshot.transport.dataPlaneMode === "string"
                           ? parsed.snapshot.transport.dataPlaneMode
@@ -1432,6 +1626,46 @@ function restoreAppendableRoutePilotReport(raw: string | null): AppendableRouteP
                         typeof parsed.snapshot.stress.reason === "string" ? parsed.snapshot.stress.reason : null,
                     }
                   : createAppendableRouteStressSnapshot(),
+              pitch:
+                parsed.snapshot.pitch && typeof parsed.snapshot.pitch === "object"
+                  ? {
+                      scenario:
+                        typeof parsed.snapshot.pitch.scenario === "string" ? parsed.snapshot.pitch.scenario : null,
+                      shadowEnabled: !!parsed.snapshot.pitch.shadowEnabled,
+                      supportsTempo:
+                        typeof parsed.snapshot.pitch.supportsTempo === "boolean"
+                          ? parsed.snapshot.pitch.supportsTempo
+                          : null,
+                      supportsIndependentPitch:
+                        typeof parsed.snapshot.pitch.supportsIndependentPitch === "boolean"
+                          ? parsed.snapshot.pitch.supportsIndependentPitch
+                          : null,
+                      targetTempo:
+                        typeof parsed.snapshot.pitch.targetTempo === "number" &&
+                        Number.isFinite(parsed.snapshot.pitch.targetTempo)
+                          ? parsed.snapshot.pitch.targetTempo
+                          : null,
+                      observedTempo:
+                        typeof parsed.snapshot.pitch.observedTempo === "number" &&
+                        Number.isFinite(parsed.snapshot.pitch.observedTempo)
+                          ? parsed.snapshot.pitch.observedTempo
+                          : null,
+                      targetPitchSemitones:
+                        typeof parsed.snapshot.pitch.targetPitchSemitones === "number" &&
+                        Number.isFinite(parsed.snapshot.pitch.targetPitchSemitones)
+                          ? parsed.snapshot.pitch.targetPitchSemitones
+                          : null,
+                      observedPitchSemitones:
+                        typeof parsed.snapshot.pitch.observedPitchSemitones === "number" &&
+                        Number.isFinite(parsed.snapshot.pitch.observedPitchSemitones)
+                          ? parsed.snapshot.pitch.observedPitchSemitones
+                          : null,
+                      passed:
+                        typeof parsed.snapshot.pitch.passed === "boolean" ? parsed.snapshot.pitch.passed : null,
+                      reason:
+                        typeof parsed.snapshot.pitch.reason === "string" ? parsed.snapshot.pitch.reason : null,
+                    }
+                  : createAppendableRoutePitchSnapshot(),
               rollout:
                 parsed.snapshot.rollout && typeof parsed.snapshot.rollout === "object"
                   ? {
@@ -2869,6 +3103,9 @@ export default function MultiTrackPlayer({
         "rr_audio_appendable_queue_continuation_chunks_pilot"
       )
   )
+  const [appendableQueueShadowPitchEnabled] = useState(() =>
+    hasClientStorageFlag("rr_audio_appendable_queue_shadow_pitch_enabled")
+  )
   const [appendableActivationStorageRevision, setAppendableActivationStorageRevision] = useState(0)
   const appendablePilotActivation = useMemo(
     () =>
@@ -2883,6 +3120,11 @@ export default function MultiTrackPlayer({
     appendableQueuePilotEnabled || appendableSafeRolloutImplicitFlagsEnabled
   const effectiveAppendableQueueMultistemPilotEnabled =
     appendableQueueMultistemPilotEnabled || appendableSafeRolloutImplicitFlagsEnabled
+  const appendableRoutePitchShadowActive =
+    appendableQueueShadowPitchEnabled &&
+    appendablePilotActivation.activationMode !== "safe_rollout" &&
+    appendableQueuePilotEnabled &&
+    appendableQueueMultistemPilotEnabled
   const [appendableQueueRuntimeProbeSnapshot, setAppendableQueueRuntimeProbeSnapshot] = useState<AppendableQueueRuntimeProbeSnapshot>(
     () => createAppendableQueueRuntimeProbeSnapshot()
   )
@@ -3839,6 +4081,19 @@ export default function MultiTrackPlayer({
 
   const buildAppendableRoutePilotSnapshot = useCallback((): AppendableRoutePilotReportSnapshot => {
     const capturedAt = new Date().toISOString()
+    const probe = cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot)
+    if (probe.supportsTempo == null) {
+      probe.supportsTempo = activeEngineCapabilities.supportsTempo
+    }
+    if (probe.supportsIndependentPitch == null) {
+      probe.supportsIndependentPitch = activeEngineCapabilities.supportsIndependentPitch
+    }
+    if (probe.tempo == null) {
+      probe.tempo = Number(tempoRef.current.toFixed(3))
+    }
+    if (probe.pitchSemitones == null) {
+      probe.pitchSemitones = Number(pitchSemiRef.current.toFixed(3))
+    }
     return {
       capturedAt,
       trackScopeId,
@@ -3852,27 +4107,32 @@ export default function MultiTrackPlayer({
         appendableQueueMultistemPilotEnabled: effectiveAppendableQueueMultistemPilotEnabled,
         appendableQueueStartupHeadPilotEnabled,
         appendableQueueContinuationChunksPilotEnabled,
+        appendableQueueShadowPitchEnabled,
       },
       activation: {
         configured: appendablePilotActivation.activationConfigured,
         allowed: appendablePilotActivation.activationAllowed,
         mode: appendablePilotActivation.activationMode,
         tempoControlUnlocked: appendablePilotActivation.tempoControlUnlocked,
+        pitchShadowActive: appendableRoutePitchShadowActive,
         matchedTarget: appendablePilotActivation.matchedTarget,
         currentTargets: appendablePilotActivation.currentTargets.slice(),
         configuredTargets: appendablePilotActivation.configuredTargets.slice(),
         targetedPilotConfiguredTargets: appendablePilotActivation.targetedPilotConfiguredTargets.slice(),
         safeRolloutConfiguredTargets: appendablePilotActivation.safeRolloutConfiguredTargets.slice(),
       },
-      probe: cloneAppendableQueueRuntimeProbeSnapshot(appendableQueueRuntimeProbeSnapshot),
+      probe,
       sourceProgress: cloneAppendableQueueSourceProgressSnapshot(appendableQueueSourceProgressSnapshot),
       transport: createAppendableRouteTransportSnapshot(),
       qualification: createAppendableRouteQualificationSnapshot(),
       stress: createAppendableRouteStressSnapshot(),
+      pitch: createAppendableRoutePitchSnapshot(),
       rollout: createAppendableRouteRolloutSnapshot(),
     }
   }, [
     activeEngineMode,
+    activeEngineCapabilities.supportsIndependentPitch,
+    activeEngineCapabilities.supportsTempo,
     appendablePilotActivation.activationAllowed,
     appendablePilotActivation.activationConfigured,
     appendablePilotActivation.activationMode,
@@ -3888,6 +4148,8 @@ export default function MultiTrackPlayer({
     effectiveAppendableQueuePilotEnabled,
     appendableQueueStartupHeadPilotEnabled,
     appendableQueueContinuationChunksPilotEnabled,
+    appendableQueueShadowPitchEnabled,
+    appendableRoutePitchShadowActive,
     appendableQueueRuntimeProbeSnapshot,
     appendableQueueSourceProgressSnapshot,
     trackScopeId,
@@ -4461,6 +4723,64 @@ export default function MultiTrackPlayer({
       tempoPitchSmoothRafRef.current = window.requestAnimationFrame(tick)
     },
     [applyTempoPitchToEngines, cancelTempoPitchSmoothing]
+  )
+
+  const setAppendableRouteDebugTempo = useCallback(
+    (tempo: number) => {
+      const safeTempo = Math.min(4, Math.max(0.25, Number.isFinite(tempo) ? tempo : tempoRef.current))
+      if (
+        recording ||
+        countInBeat != null ||
+        guestTransportLinkedRef.current ||
+        !activeEngineCapabilities.supportsTempo
+      ) {
+        setRecordError(t.tempoLocked)
+        return {
+          tempo: Number(tempoRef.current.toFixed(3)),
+          pitchSemitones: Number(pitchSemiRef.current.toFixed(3)),
+        }
+      }
+      setSpeed(safeTempo)
+      tempoRef.current = safeTempo
+      applyTempoPitchToEngines(safeTempo, pitchSemiRef.current)
+      return {
+        tempo: Number(safeTempo.toFixed(3)),
+        pitchSemitones: Number(pitchSemiRef.current.toFixed(3)),
+      }
+    },
+    [activeEngineCapabilities.supportsTempo, applyTempoPitchToEngines, countInBeat, recording, t.tempoLocked]
+  )
+
+  const setAppendableRouteDebugPitchSemitones = useCallback(
+    (semi: number) => {
+      const safeSemi = Math.min(12, Math.max(-12, Math.round(Number.isFinite(semi) ? semi : pitchSemiRef.current)))
+      if (
+        recording ||
+        countInBeat != null ||
+        guestTransportLinkedRef.current ||
+        !activeEngineCapabilities.supportsIndependentPitch
+      ) {
+        setRecordError(t.pitchLocked)
+        return {
+          tempo: Number(tempoRef.current.toFixed(3)),
+          pitchSemitones: Number(pitchSemiRef.current.toFixed(3)),
+        }
+      }
+      setPitchSemi(safeSemi)
+      pitchSemiRef.current = safeSemi
+      applyTempoPitchToEngines(tempoRef.current, safeSemi)
+      return {
+        tempo: Number(tempoRef.current.toFixed(3)),
+        pitchSemitones: safeSemi,
+      }
+    },
+    [
+      activeEngineCapabilities.supportsIndependentPitch,
+      applyTempoPitchToEngines,
+      countInBeat,
+      recording,
+      t.pitchLocked,
+    ]
   )
 
   useEffect(() => {
@@ -5927,7 +6247,9 @@ export default function MultiTrackPlayer({
               startupHeadMode: appendableStartupHeadRuntimeRef.current?.mode ?? "full_buffer",
             })
             const engine = await promiseWithTimeout(
-              createAppendableQueueEngine(ctx, source),
+              createAppendableQueueEngine(ctx, source, {
+                enableIndependentPitch: appendableRoutePitchShadowActive,
+              }),
               RINGBUFFER_ENGINE_INIT_TIMEOUT_MS,
               "appendable queue engine #0"
             )
@@ -5957,7 +6279,10 @@ export default function MultiTrackPlayer({
                 startupHeadMode: appendableStartupHeadRuntimeRef.current?.mode ?? "full_buffer",
               })
               const engine = await promiseWithTimeout(
-                createAppendableQueueEngine(ctx, source, { externalTick: true }),
+                createAppendableQueueEngine(ctx, source, {
+                  externalTick: true,
+                  enableIndependentPitch: appendableRoutePitchShadowActive,
+                }),
                 RINGBUFFER_ENGINE_INIT_TIMEOUT_MS,
                 `appendable queue engine #${i}`
               )
@@ -6246,6 +6571,7 @@ export default function MultiTrackPlayer({
         appendableQueuePilotEnabled: effectiveAppendableQueuePilotEnabled,
         appendableActivationMode: appendablePilotActivation.activationMode,
         appendableTempoUnlocked: appendablePilotActivation.tempoControlUnlocked,
+        appendablePitchShadowActive: appendableRoutePitchShadowActive,
         ringBufferPilotEnabled,
         streamingBufferPilotEnabled,
         soundtouchBufferSize,
@@ -6515,6 +6841,7 @@ export default function MultiTrackPlayer({
     effectiveAppendableQueueMultistemPilotEnabled,
     effectiveAppendableQueuePilotEnabled,
     appendableQueueContinuationChunksPilotEnabled,
+    appendableRoutePitchShadowActive,
     appendableQueueStartupHeadPilotEnabled,
     disposeTrackAudioGraph,
     persistOnUnmount,
@@ -7607,6 +7934,32 @@ export default function MultiTrackPlayer({
             .filter((value): value is boolean => value != null)
         )
       )
+      const supportsTempoStates = Array.from(
+        new Set(debugStates.map((state) => readOptionalBoolean(state.supportsTempo)).filter((value): value is boolean => value != null))
+      )
+      const supportsIndependentPitchStates = Array.from(
+        new Set(
+          debugStates
+            .map((state) => readOptionalBoolean(state.supportsIndependentPitch))
+            .filter((value): value is boolean => value != null)
+        )
+      )
+      const tempoStates = Array.from(
+        new Set(
+          debugStates
+            .map((state) => readOptionalFiniteNumber(state.tempo))
+            .filter((value): value is number => value != null)
+            .map((value) => Number(value.toFixed(3)))
+        )
+      )
+      const pitchSemitoneStates = Array.from(
+        new Set(
+          debugStates
+            .map((state) => readOptionalFiniteNumber(state.pitchSemitones))
+            .filter((value): value is number => value != null)
+            .map((value) => Number(value.toFixed(3)))
+        )
+      )
       const sabRequirements = Array.from(
         new Set(
           debugStates
@@ -7657,6 +8010,15 @@ export default function MultiTrackPlayer({
         sampleAtMs: nowMs,
         currentSec: Number(positionSecRef.current.toFixed(3)),
         transportSec: snapshot.transportSec,
+        supportsTempo:
+          supportsTempoStates.length === 1 ? supportsTempoStates[0] : activeEngineCapabilities.supportsTempo,
+        supportsIndependentPitch:
+          supportsIndependentPitchStates.length === 1
+            ? supportsIndependentPitchStates[0]
+            : activeEngineCapabilities.supportsIndependentPitch,
+        tempo: tempoStates.length === 1 ? tempoStates[0] : Number(tempoRef.current.toFixed(3)),
+        pitchSemitones:
+          pitchSemitoneStates.length === 1 ? pitchSemitoneStates[0] : Number(pitchSemiRef.current.toFixed(3)),
         dataPlaneMode:
           dataPlaneModes.length === 1 ? dataPlaneModes[0] : dataPlaneModes.length ? dataPlaneModes.join(",") : null,
         controlPlaneMode:
@@ -7750,7 +8112,12 @@ export default function MultiTrackPlayer({
       }
       appendableQueueRuntimeProbeCleanSinceMsRef.current = null
     }
-  }, [activeEngineMode, isPlaying])
+  }, [
+    activeEngineCapabilities.supportsIndependentPitch,
+    activeEngineCapabilities.supportsTempo,
+    activeEngineMode,
+    isPlaying,
+  ])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -9063,6 +9430,109 @@ export default function MultiTrackPlayer({
     ]
   )
 
+  const runAppendableRoutePitchShadowPilot = useCallback(
+    async (
+      tempo: number | null = 1.06,
+      pitchSemitones: number | null = 4,
+      settleMs: number | null = 1400
+    ) => {
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, ms)
+        })
+      const readState = () =>
+        (typeof window !== "undefined" ? window.__rrAppendableRoutePilotDebug?.getState() : null) ??
+        getAppendableRoutePilotDebugState()
+      const safeTempo =
+        typeof tempo === "number" && Number.isFinite(tempo) ? Math.min(4, Math.max(0.25, tempo)) : null
+      const safePitchSemitones =
+        typeof pitchSemitones === "number" && Number.isFinite(pitchSemitones)
+          ? Math.min(12, Math.max(-12, Math.round(pitchSemitones)))
+          : null
+      const safeSettleMs =
+        typeof settleMs === "number" && Number.isFinite(settleMs) ? Math.max(200, Math.min(5000, settleMs)) : 1400
+
+      setAppendableRouteQuickPilotMessage(
+        uiLang === "ru"
+          ? `идет pitch shadow proof (${safeTempo?.toFixed(2) ?? "—"} / ${safePitchSemitones ?? "—"})...`
+          : `pitch shadow proof running (${safeTempo?.toFixed(2) ?? "—"} / ${safePitchSemitones ?? "—"})...`
+      )
+      await play("route_pitch_shadow_pilot")
+      await wait(2200)
+
+      const previousTempo = Number(tempoRef.current.toFixed(3))
+      const previousPitchSemitones = Number(pitchSemiRef.current.toFixed(3))
+      try {
+        if (safeTempo != null) {
+          setAppendableRouteDebugTempo(safeTempo)
+        }
+        if (safePitchSemitones != null) {
+          setAppendableRouteDebugPitchSemitones(safePitchSemitones)
+        }
+        await wait(safeSettleMs)
+
+        let finalState = readState()
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          finalState = readState()
+          if (
+            finalState.runtimeProbe.active &&
+            (safeTempo == null ||
+              (finalState.runtimeProbe.tempo != null &&
+                Math.abs(finalState.runtimeProbe.tempo - safeTempo) <= 0.02)) &&
+            (safePitchSemitones == null ||
+              (finalState.runtimeProbe.pitchSemitones != null &&
+                Math.abs(finalState.runtimeProbe.pitchSemitones - safePitchSemitones) <= 0.02))
+          ) {
+            break
+          }
+          await wait(200)
+        }
+
+        const settledSnapshot = withAppendableRoutePitchSnapshot(
+          buildAppendableRoutePilotSnapshotFromDebugState(finalState),
+          {
+            scenario: "route_shadow_manual_pitch",
+            shadowEnabled: appendableRoutePitchShadowActive,
+            targetTempo: safeTempo,
+            targetPitchSemitones: safePitchSemitones,
+          }
+        )
+        const nextReport = buildAppendableRoutePilotReportWithSnapshot(settledSnapshot, { autoStatus: true })
+        commitAppendableRoutePilotReport(nextReport)
+        finalState = {
+          ...finalState,
+          report: cloneAppendableRoutePilotReport(nextReport),
+        }
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru"
+            ? `pitch shadow proof: ${settledSnapshot.pitch.passed ? "pass" : "fail"}`
+            : `pitch shadow proof: ${settledSnapshot.pitch.passed ? "pass" : "fail"}`
+        )
+        return finalState
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "pitch_shadow_pilot_failed"
+        setAppendableRouteQuickPilotMessage(
+          uiLang === "ru" ? `pitch shadow proof error: ${message}` : `pitch shadow proof error: ${message}`
+        )
+        throw error
+      } finally {
+        setAppendableRouteDebugPitchSemitones(previousPitchSemitones)
+        setAppendableRouteDebugTempo(previousTempo)
+      }
+    },
+    [
+      appendableRoutePitchShadowActive,
+      buildAppendableRoutePilotReportWithSnapshot,
+      buildAppendableRoutePilotSnapshotFromDebugState,
+      commitAppendableRoutePilotReport,
+      getAppendableRoutePilotDebugState,
+      play,
+      setAppendableRouteDebugPitchSemitones,
+      setAppendableRouteDebugTempo,
+      uiLang,
+    ]
+  )
+
   const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
     const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot, { autoStatus: true })
@@ -9108,6 +9578,8 @@ export default function MultiTrackPlayer({
         seekTo(sec)
         return positionSecRef.current
       },
+      setTempo: (tempo: number) => setAppendableRouteDebugTempo(tempo),
+      setPitchSemitones: (semi: number) => setAppendableRouteDebugPitchSemitones(semi),
       captureReport: () => captureAppendableRoutePilotSnapshot(),
       saveCurrentDiagnostics: () => {
         saveCurrentAppendableRouteDiagnostics()
@@ -9132,6 +9604,8 @@ export default function MultiTrackPlayer({
       runSoakPilot: (durationSec?: number | null) => runAppendableRouteSoakPilot(durationSec ?? null),
       runQualificationPilot: (durationSec?: number | null) => runAppendableRouteQualificationPilot(durationSec ?? null),
       runStressPilot: (holdSec?: number | null) => runAppendableRouteStressPilot(holdSec ?? null),
+      runPitchShadowPilot: (tempo?: number | null, pitchSemitones?: number | null, settleMs?: number | null) =>
+        runAppendableRoutePitchShadowPilot(tempo ?? null, pitchSemitones ?? null, settleMs ?? null),
     }
     return () => {
       window.__rrAppendableRoutePilotDebug = undefined
@@ -9144,12 +9618,15 @@ export default function MultiTrackPlayer({
     markAppendableRoutePilotReport,
     pause,
     play,
+    runAppendableRoutePitchShadowPilot,
     runAppendableRouteQualificationPilot,
     runAppendableRouteStressPilot,
     resetAppendableRoutePilotReport,
     runAppendableRouteQuickPilot,
     runAppendableRouteSoakPilot,
     saveCurrentAppendableRouteDiagnostics,
+    setAppendableRouteDebugPitchSemitones,
+    setAppendableRouteDebugTempo,
     seekTo,
   ])
 
@@ -11859,6 +12336,10 @@ export default function MultiTrackPlayer({
                             appendable continuation chunks flag: {appendableQueueContinuationChunksPilotEnabled ? "on" : "off"}
                           </div>
                           <div>
+                            appendable shadow pitch flag: {appendableQueueShadowPitchEnabled ? "on" : "off"} / active=
+                            {appendableRoutePitchShadowActive ? "on" : "off"}
+                          </div>
+                          <div>
                             appendable continuation qualification: {appendableQueueSourceProgressSnapshot.continuationQualification}
                             {appendableQueueSourceProgressSnapshot.continuationQualificationReason
                               ? ` (${appendableQueueSourceProgressSnapshot.continuationQualificationReason})`
@@ -11895,6 +12376,22 @@ export default function MultiTrackPlayer({
                           </div>
                           <div>
                             appendable control plane: {appendableQueueRuntimeProbeSnapshot.controlPlaneMode ?? "—"}
+                          </div>
+                          <div>
+                            appendable runtime tempo/pitch: support=
+                            {appendableQueueRuntimeProbeSnapshot.supportsTempo == null
+                              ? "—"
+                              : appendableQueueRuntimeProbeSnapshot.supportsTempo
+                                ? "tempo"
+                                : "locked"}{" "}
+                            / pitch=
+                            {appendableQueueRuntimeProbeSnapshot.supportsIndependentPitch == null
+                              ? "—"
+                              : appendableQueueRuntimeProbeSnapshot.supportsIndependentPitch
+                                ? "enabled"
+                                : "locked"}{" "}
+                            / tempo={formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.tempo)} / semitones=
+                            {formatOptionalFixed(appendableQueueRuntimeProbeSnapshot.pitchSemitones)}
                           </div>
                           <div>
                             appendable preferred data plane:{" "}
@@ -12220,11 +12717,13 @@ export default function MultiTrackPlayer({
                                 flags: appendable={appendableRoutePilotReport.snapshot.flags.appendableQueuePilotEnabled ? "on" : "off"} / multistem=
                                 {appendableRoutePilotReport.snapshot.flags.appendableQueueMultistemPilotEnabled ? "on" : "off"} / startup=
                                 {appendableRoutePilotReport.snapshot.flags.appendableQueueStartupHeadPilotEnabled ? "on" : "off"} / chunks=
-                                {appendableRoutePilotReport.snapshot.flags.appendableQueueContinuationChunksPilotEnabled ? "on" : "off"}
+                                {appendableRoutePilotReport.snapshot.flags.appendableQueueContinuationChunksPilotEnabled ? "on" : "off"} / shadow_pitch=
+                                {appendableRoutePilotReport.snapshot.flags.appendableQueueShadowPitchEnabled ? "on" : "off"}
                               </div>
                               <div>
                                 activation: mode={appendableRoutePilotReport.snapshot.activation.mode} / tempo=
-                                {appendableRoutePilotReport.snapshot.activation.tempoControlUnlocked ? "unlocked" : "locked"} / match=
+                                {appendableRoutePilotReport.snapshot.activation.tempoControlUnlocked ? "unlocked" : "locked"} / shadow=
+                                {appendableRoutePilotReport.snapshot.activation.pitchShadowActive ? "active" : "off"} / match=
                                 {appendableRoutePilotReport.snapshot.activation.matchedTarget ?? "—"}
                               </div>
                               <div>
@@ -12283,6 +12782,28 @@ export default function MultiTrackPlayer({
                                   ? ` (${appendableRoutePilotReport.snapshot.stress.reason})`
                                   : ""}
                               </div>
+                              <div data-testid="appendable-route-pilot-report-pitch">
+                                pitch shadow: {appendableRoutePilotReport.snapshot.pitch.passed == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.pitch.passed
+                                    ? "pass"
+                                    : "fail"}{" "}
+                                / shadow={appendableRoutePilotReport.snapshot.pitch.shadowEnabled ? "on" : "off"} / support=
+                                {appendableRoutePilotReport.snapshot.pitch.supportsIndependentPitch == null
+                                  ? "—"
+                                  : appendableRoutePilotReport.snapshot.pitch.supportsIndependentPitch
+                                    ? "on"
+                                    : "off"} / tempo=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.pitch.observedTempo)} / pitch=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.pitch.observedPitchSemitones)}
+                                {appendableRoutePilotReport.snapshot.pitch.targetTempo != null ||
+                                appendableRoutePilotReport.snapshot.pitch.targetPitchSemitones != null
+                                  ? ` / target=${formatOptionalFixed(appendableRoutePilotReport.snapshot.pitch.targetTempo)}/${formatOptionalFixed(appendableRoutePilotReport.snapshot.pitch.targetPitchSemitones)}`
+                                  : ""}
+                                {appendableRoutePilotReport.snapshot.pitch.reason
+                                  ? ` (${appendableRoutePilotReport.snapshot.pitch.reason})`
+                                  : ""}
+                              </div>
                               <div data-testid="appendable-route-pilot-report-rollout">
                                 rollout: {appendableRoutePilotReport.snapshot.rollout.status} / gate=
                                 {appendableRoutePilotReport.snapshot.rollout.gateReady ? "ready" : "not_ready"} / transport=
@@ -12311,6 +12832,8 @@ export default function MultiTrackPlayer({
                                 {appendableRoutePilotReport.snapshot.probe.sampleRates.length
                                   ? appendableRoutePilotReport.snapshot.probe.sampleRates.join(", ")
                                   : "—"}
+                                / tempo={formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.tempo)} / pitch=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.probe.pitchSemitones)}
                                 / preferred={appendableRoutePilotReport.snapshot.probe.preferredDataPlaneMode ?? "—"} / sab=
                                 {appendableRoutePilotReport.snapshot.probe.sabReady == null
                                   ? "—"
@@ -12330,6 +12853,8 @@ export default function MultiTrackPlayer({
                                   ? appendableRoutePilotReport.snapshot.transport.sampleRates.join(", ")
                                   : "—"} / append=
                                 {appendableRoutePilotReport.snapshot.transport.appendMessageCount}
+                                / tempo={formatOptionalFixed(appendableRoutePilotReport.snapshot.transport.tempo)} / pitch=
+                                {formatOptionalFixed(appendableRoutePilotReport.snapshot.transport.pitchSemitones)}
                                 / preferred={appendableRoutePilotReport.snapshot.transport.preferredDataPlaneMode ?? "—"} / sab=
                                 {appendableRoutePilotReport.snapshot.transport.sabReady == null
                                   ? "—"

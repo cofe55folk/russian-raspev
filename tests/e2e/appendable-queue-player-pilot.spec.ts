@@ -62,6 +62,7 @@ async function openPlayerWithAppendableFlags(
     multistem?: boolean
     startupHead?: boolean
     continuationChunks?: boolean
+    shadowPitch?: boolean
     preserveStoredReport?: boolean
     ringbuffer?: boolean
     streaming?: boolean
@@ -77,6 +78,7 @@ async function openPlayerWithAppendableFlags(
     localStorage.removeItem("rr_audio_appendable_queue_multistem_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_startup_head_pilot")
     localStorage.removeItem("rr_audio_appendable_queue_continuation_chunks_pilot")
+    localStorage.removeItem("rr_audio_appendable_queue_shadow_pitch_enabled")
     localStorage.removeItem("rr_audio_appendable_queue_activation_targets")
     localStorage.removeItem("rr_audio_appendable_queue_safe_rollout_targets")
     if (!nextFlags.preserveStoredReport) {
@@ -90,6 +92,7 @@ async function openPlayerWithAppendableFlags(
     if (nextFlags.multistem) localStorage.setItem("rr_audio_appendable_queue_multistem_pilot", "1")
     if (nextFlags.startupHead) localStorage.setItem("rr_audio_appendable_queue_startup_head_pilot", "1")
     if (nextFlags.continuationChunks) localStorage.setItem("rr_audio_appendable_queue_continuation_chunks_pilot", "1")
+    if (nextFlags.shadowPitch) localStorage.setItem("rr_audio_appendable_queue_shadow_pitch_enabled", "1")
     if (nextFlags.activationTargets) {
       const values = Array.isArray(nextFlags.activationTargets) ? nextFlags.activationTargets : [nextFlags.activationTargets]
       localStorage.setItem("rr_audio_appendable_queue_activation_targets", values.join(","))
@@ -123,6 +126,9 @@ async function openPlayerWithAppendableFlags(
         if (nextFlags.multistem && localStorage.getItem("rr_audio_appendable_queue_multistem_pilot") !== "1") return false
         if (nextFlags.startupHead && localStorage.getItem("rr_audio_appendable_queue_startup_head_pilot") !== "1") return false
         if (nextFlags.continuationChunks && localStorage.getItem("rr_audio_appendable_queue_continuation_chunks_pilot") !== "1") {
+          return false
+        }
+        if (nextFlags.shadowPitch && localStorage.getItem("rr_audio_appendable_queue_shadow_pitch_enabled") !== "1") {
           return false
         }
         if (
@@ -430,6 +436,89 @@ test("multistem appendable pilot runs on the normal player route when both flags
   await expect(page.getByTestId("appendable-route-debug-save-current-diagnostics")).toBeVisible()
   await expect(page.getByTestId("appendable-route-debug-run-quick-pilot-save")).toBeVisible()
   await page.getByRole("button", { name: "Пауза", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
+})
+
+test("hidden shadow pitch flag enables manual route shadow proof on the normal appendable route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable shadow pitch flag: on / active=on")
+  await waitForPlayerText(page, "audio mode: appendable_queue_worklet")
+  await waitForPlayerText(page, "tempo: on / pitch: on")
+  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeEnabled()
+  await expect(page.getByRole("slider", { name: "Pitch" })).toBeEnabled()
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForAppendablePilotDebugMethod(page, "setTempo")
+  await waitForAppendablePilotDebugMethod(page, "setPitchSemitones")
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const shadowState = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          report: {
+            snapshot:
+              | {
+                  flags: { appendableQueueShadowPitchEnabled: boolean }
+                  activation: { pitchShadowActive: boolean }
+                  transport: {
+                    supportsIndependentPitch: boolean | null
+                    tempo: number | null
+                    pitchSemitones: number | null
+                  }
+                  pitch: {
+                    shadowEnabled: boolean
+                    supportsIndependentPitch: boolean | null
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runPitchShadowPilot(1.06, 4, 1000)
+  })
+
+  expect(shadowState).not.toBeNull()
+  expect(shadowState?.report.snapshot).not.toBeNull()
+  expect(shadowState?.report.snapshot?.flags.appendableQueueShadowPitchEnabled).toBe(true)
+  expect(shadowState?.report.snapshot?.activation.pitchShadowActive).toBe(true)
+  expect(shadowState?.report.snapshot?.transport.supportsIndependentPitch).toBe(true)
+  expect(shadowState?.report.snapshot?.transport.tempo).toBe(1.06)
+  expect(shadowState?.report.snapshot?.transport.pitchSemitones).toBe(4)
+  expect(shadowState?.report.snapshot?.pitch.shadowEnabled).toBe(true)
+  expect(shadowState?.report.snapshot?.pitch.supportsIndependentPitch).toBe(true)
+  expect(shadowState?.report.snapshot?.pitch.targetTempo).toBe(1.06)
+  expect(shadowState?.report.snapshot?.pitch.observedTempo).toBe(1.06)
+  expect(shadowState?.report.snapshot?.pitch.targetPitchSemitones).toBe(4)
+  expect(shadowState?.report.snapshot?.pitch.observedPitchSemitones).toBe(4)
+  expect(shadowState?.report.snapshot?.pitch.passed).toBe(true)
+  expect(shadowState?.report.snapshot?.pitch.reason).toBeNull()
+  await waitForPlayerText(page, "pitch shadow: pass / shadow=on / support=on / tempo=1.060 / pitch=4.000 / target=1.060/4.000")
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
   await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
@@ -772,6 +861,53 @@ test("safe appendable rollout keeps route on appendable mode while tempo stays l
   await waitForPlayerText(page, "appendable total discontinuity: 0")
   await waitForPlayerText(page, "appendable ready threshold sec: 3.000")
   await waitForChecklistStatus(page, "идет runtime soak")
+})
+
+test("hidden shadow pitch flag does not change safe-rollout route policy", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, { safeRolloutTargets: SLUG, shadowPitch: true })
+  await openRuntimeProbe(page)
+
+  await waitForPlayerText(page, "appendable activation mode: safe_rollout")
+  await waitForPlayerText(page, "appendable shadow pitch flag: on / active=off")
+  await waitForPlayerText(page, "tempo: off / pitch: off")
+  await expect(page.getByRole("slider", { name: "Скорость воспроизведения" })).toBeDisabled()
+  await expect(page.getByRole("slider", { name: "Pitch" })).toBeDisabled()
+
+  await page.getByRole("button", { name: "Воспроизвести", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Пауза", exact: true })).toBeVisible({ timeout: 15000 })
+  await waitForPlayerText(page, "appendable queue probe: active")
+  await waitForPlayerText(page, "appendable runtime tempo/pitch: support=tempo / pitch=locked / tempo=1.000 / semitones=0.000")
+
+  const shadowPolicyState = await evaluateWithRetry(page, () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        captureReport: () => {
+          flags: { appendableQueueShadowPitchEnabled: boolean }
+          activation: { mode: string; pitchShadowActive: boolean }
+          transport: { supportsIndependentPitch: boolean | null; pitchSemitones: number | null }
+        }
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    const report = api.captureReport()
+    return {
+      flags: report.flags,
+      activation: report.activation,
+      transport: report.transport,
+    }
+  })
+
+  expect(shadowPolicyState).not.toBeNull()
+  expect(shadowPolicyState?.flags.appendableQueueShadowPitchEnabled).toBe(true)
+  expect(shadowPolicyState?.activation.mode).toBe("safe_rollout")
+  expect(shadowPolicyState?.activation.pitchShadowActive).toBe(false)
+  expect(shadowPolicyState?.transport.supportsIndependentPitch).toBe(false)
+  expect(shadowPolicyState?.transport.pitchSemitones).toBe(0)
+
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } }).__rrAppendableRoutePilotDebug?.pause()
+  })
+  await expect(page.getByRole("button", { name: "Воспроизвести", exact: true })).toBeVisible({ timeout: 10000 })
 })
 
 test("safe appendable rollout auto-enables qualified continuation ingest without manual startup flags", async ({ page }) => {
@@ -1795,6 +1931,168 @@ test("saved appendable route report rehydrates after reload with the same cumula
     expectedStoredReport?.snapshot.rollout.reason ?? expectedRolloutReason
   )
   expect(persistedAfterReload?.stored).toBe(expectedStored)
+})
+
+test("pitch shadow report evidence rehydrates after reload on the normal route", async ({ page }) => {
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+    preserveStoredReport: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+
+  const persistedBeforeReload = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot:
+              | {
+                  capturedAt: string
+                  flags: { appendableQueueShadowPitchEnabled: boolean }
+                  activation: { pitchShadowActive: boolean }
+                  transport: {
+                    supportsIndependentPitch: boolean | null
+                    tempo: number | null
+                    pitchSemitones: number | null
+                  }
+                  pitch: {
+                    shadowEnabled: boolean
+                    supportsIndependentPitch: boolean | null
+                    targetTempo: number | null
+                    observedTempo: number | null
+                    targetPitchSemitones: number | null
+                    observedPitchSemitones: number | null
+                    passed: boolean | null
+                    reason: string | null
+                  }
+                }
+              | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    const finalState = await api.runPitchShadowPilot(1.06, 4, 1000)
+    const storageKey = `rr_appendable_route_pilot_report:${finalState.trackScopeId}:v1`
+    return {
+      trackScopeId: finalState.trackScopeId,
+      report: finalState.report,
+      storageKey,
+      stored: localStorage.getItem(storageKey),
+    }
+  })
+
+  expect(persistedBeforeReload).not.toBeNull()
+  expect(persistedBeforeReload?.report.snapshot).not.toBeNull()
+  expect(persistedBeforeReload?.report.snapshot?.flags.appendableQueueShadowPitchEnabled).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.activation.pitchShadowActive).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.transport.supportsIndependentPitch).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.transport.tempo).toBe(1.06)
+  expect(persistedBeforeReload?.report.snapshot?.transport.pitchSemitones).toBe(4)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.shadowEnabled).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.supportsIndependentPitch).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.targetTempo).toBe(1.06)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.observedTempo).toBe(1.06)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.targetPitchSemitones).toBe(4)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.observedPitchSemitones).toBe(4)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.passed).toBe(true)
+  expect(persistedBeforeReload?.report.snapshot?.pitch.reason).toBeNull()
+  expect(persistedBeforeReload?.stored).not.toBeNull()
+
+  const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
+  const expectedCapturedAt = persistedBeforeReload?.report.snapshot?.capturedAt ?? ""
+  const expectedStatus = persistedBeforeReload?.report.status ?? "pending"
+
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+
+  const persistedAfterReload = await evaluateWithRetry(page, () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        getState: () => {
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot: {
+              capturedAt: string
+              trackScopeId: string
+              flags: { appendableQueueShadowPitchEnabled: boolean }
+              activation: { pitchShadowActive: boolean }
+              transport: {
+                supportsIndependentPitch: boolean | null
+                tempo: number | null
+                pitchSemitones: number | null
+              }
+              pitch: {
+                shadowEnabled: boolean
+                supportsIndependentPitch: boolean | null
+                targetTempo: number | null
+                observedTempo: number | null
+                targetPitchSemitones: number | null
+                observedPitchSemitones: number | null
+                passed: boolean | null
+                reason: string | null
+              }
+            } | null
+          }
+        }
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    const state = api.getState()
+    const storageKey = `rr_appendable_route_pilot_report:${state.trackScopeId}:v1`
+    return {
+      trackScopeId: state.trackScopeId,
+      report: state.report,
+      stored: localStorage.getItem(storageKey),
+    }
+  })
+
+  expect(persistedAfterReload).not.toBeNull()
+  expect(persistedAfterReload?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.status).toBe(expectedStatus)
+  expect(persistedAfterReload?.report.snapshot?.capturedAt).toBe(expectedCapturedAt)
+  expect(persistedAfterReload?.report.snapshot?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.snapshot?.flags.appendableQueueShadowPitchEnabled).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.activation.pitchShadowActive).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.transport.supportsIndependentPitch).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.transport.tempo).toBe(1.06)
+  expect(persistedAfterReload?.report.snapshot?.transport.pitchSemitones).toBe(4)
+  expect(persistedAfterReload?.report.snapshot?.pitch.shadowEnabled).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.pitch.supportsIndependentPitch).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.pitch.targetTempo).toBe(1.06)
+  expect(persistedAfterReload?.report.snapshot?.pitch.observedTempo).toBe(1.06)
+  expect(persistedAfterReload?.report.snapshot?.pitch.targetPitchSemitones).toBe(4)
+  expect(persistedAfterReload?.report.snapshot?.pitch.observedPitchSemitones).toBe(4)
+  expect(persistedAfterReload?.report.snapshot?.pitch.passed).toBe(true)
+  expect(persistedAfterReload?.report.snapshot?.pitch.reason).toBeNull()
+  expect(persistedAfterReload?.stored).not.toBeNull()
+  expect(
+    JSON.parse(persistedAfterReload?.stored ?? "null") as {
+      status?: string
+      snapshot?: { capturedAt?: string; pitch?: { passed?: boolean | null; targetPitchSemitones?: number | null } }
+    }
+  ).toMatchObject({
+    status: expectedStatus,
+    snapshot: {
+      capturedAt: expectedCapturedAt,
+      pitch: {
+        passed: true,
+        targetPitchSemitones: 4,
+      },
+    },
+  })
 })
 
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {

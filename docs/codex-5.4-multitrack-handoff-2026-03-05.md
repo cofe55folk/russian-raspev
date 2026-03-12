@@ -3124,3 +3124,55 @@ Suggested opening prompt for the next window:
    - the next pitch-focused window does not need to invent its own gates or re-litigate what counts as “good enough”
    - Chromium now has a real semitone/tempo qualification matrix
    - WebKit has a compact but explicit tempo+pitch proof instead of tempo-only evidence alone
+
+## 8.176 The normal `/sound/...` route now has a hidden pitch-shadow path and pitch-aware report persistence, while safe-rollout policy still keeps pitch off
+1. This slice still does not widen pitch for ordinary users.
+2. Instead, the normal route now has a hidden debug-only gate:
+   - localStorage key: `rr_audio_appendable_queue_shadow_pitch_enabled`
+   - it only becomes active when explicit `appendable queue` + `appendable multistem` pilot flags are enabled
+   - it is forcibly inactive when appendable activation mode is `safe_rollout`
+3. That means the route-side policy boundary is now explicit:
+   - targeted/manual appendable pilot can exercise worklet-local pitch on the real `/sound/...` surface
+   - safe-rollout remains `tempo: off / pitch: off`
+   - the hidden flag does not silently widen rollout behavior
+4. Route runtime/report evidence is now pitch-aware:
+   - runtime probe snapshot carries `supportsTempo`, `supportsIndependentPitch`, `tempo`, `pitchSemitones`
+   - route transport snapshot persists the same fields
+   - route report now has a dedicated `pitch` block with:
+     - `scenario`
+     - `shadowEnabled`
+     - target vs observed tempo/pitch
+     - `passed`
+     - `reason`
+5. Route debug tooling was widened just enough for shadow qualification:
+   - `window.__rrAppendableRoutePilotDebug.setTempo(...)`
+   - `window.__rrAppendableRoutePilotDebug.setPitchSemitones(...)`
+   - `window.__rrAppendableRoutePilotDebug.runPitchShadowPilot(...)`
+6. The new route-shadow pilot records a concrete scenario name:
+   - `route_shadow_manual_pitch`
+   - this keeps lab proof and normal-route proof distinguishable in persisted reports/downloaded packets
+7. New executable route-side proof entrypoints now exist:
+   - Chromium route-shadow proof:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route"`
+   - Chromium safe-rollout guardrail:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "hidden shadow pitch flag does not change safe-rollout route policy"`
+   - Chromium report persistence proof:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "pitch shadow report evidence rehydrates after reload on the normal route"`
+   - WebKit route-side proof:
+     - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|hidden shadow pitch flag does not change safe-rollout route policy"`
+8. Verification completed locally:
+   - `npx tsc --noEmit`
+   - `npm run build`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|hidden shadow pitch flag does not change safe-rollout route policy|pitch shadow report evidence rehydrates after reload on the normal route"` → `3/3`
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit -g "hidden shadow pitch flag enables manual route shadow proof on the normal appendable route|hidden shadow pitch flag does not change safe-rollout route policy"` → `2/2`
+9. Residual verification note:
+   - a full Chromium sweep of `tests/e2e/appendable-queue-player-pilot.spec.ts` advanced to `24/34` before an older non-shadow cumulative packet scenario failed:
+     - `saved appendable packet preserves cumulative rollout evidence after qualification then stress`
+   - the failure was not on the new shadow route path:
+     - failing snapshot had `appendable shadow pitch flag: off / active=off`
+     - it reproduced large `transport.totalUnderrunFrames` on the legacy postmessage route stress path
+   - targeted rerun reproduced that same old failure on this host, so treat it as a residual route-stress issue outside the newly added shadow proof itself
+10. Practical consequence after `8.176`:
+   - the repository now has a real route-surface pitch shadow path instead of lab-only pitch evidence
+   - report persistence can now carry route-side pitch proof without changing rollout policy
+   - the next window can decide whether to fix the older postmessage route stress instability or widen pitch evidence further, without re-opening the shadow-path contract
