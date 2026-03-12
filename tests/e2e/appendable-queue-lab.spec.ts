@@ -19,6 +19,7 @@ type AppendableQueueLabStemState = {
     controlPlaneMode: string
     preferredDataPlaneMode: string | null
     sabReady: boolean | null
+    supportsIndependentPitch: boolean
     appendMessageCount: number
     appendedBytes: number
     underrunFrames: number
@@ -35,6 +36,7 @@ type AppendableQueueLabStemState = {
     lowWaterSec: number
     highWaterSec: number
     refillTriggerSec: number
+    pitchSemitones: number
   } | null
 }
 
@@ -42,6 +44,8 @@ type AppendableQueueLabState = {
   ready: boolean
   playing: boolean
   tempo: number
+  pitchSemitones: number
+  supportsIndependentPitch: boolean
   dataPlaneMode: string | null
   controlPlaneMode: string | null
   preferredDataPlaneMode: string | null
@@ -144,6 +148,8 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
           ready: false,
           playing: false,
           tempo: 1,
+          pitchSemitones: 0,
+          supportsIndependentPitch: false,
           dataPlaneMode: null,
           controlPlaneMode: null,
           sampleRates: [],
@@ -187,6 +193,8 @@ async function getHarnessState(page: Page): Promise<AppendableQueueLabState> {
         ready: false,
         playing: false,
         tempo: 1,
+        pitchSemitones: 0,
+        supportsIndependentPitch: false,
         dataPlaneMode: null,
         controlPlaneMode: null,
         sampleRates: [],
@@ -375,6 +383,17 @@ async function setHarnessTempo(page: Page, tempo: number) {
   expect(applied).toBeCloseTo(tempo, 3)
 }
 
+async function setHarnessPitchSemitones(page: Page, semitones: number) {
+  const applied = await page.evaluate((nextSemitones) => {
+    const api =
+      (window as Window & { __rrAppendableQueueDebug?: { setPitchSemitones: (semitones: number) => number } })
+        .__rrAppendableQueueDebug
+    if (!api) throw new Error("appendable queue debug API unavailable")
+    return api.setPitchSemitones(nextSemitones)
+  }, semitones)
+  expect(applied).toBe(semitones)
+}
+
 function expectCleanFinalState(finalState: AppendableQueueLabState) {
   expect(finalState.sync.totalUnderrunFrames).toBe(0)
   expect(finalState.sync.totalDiscontinuityCount).toBe(0)
@@ -529,6 +548,50 @@ test("tempo-only mode keeps appendable multistem playback aligned", async ({ pag
   expect(finalState.sync.stemDriftSec).toBeLessThan(0.04)
   expect(finalState.sync.totalDiscontinuityCount).toBe(0)
   expectSabRingTelemetry(finalState)
+})
+
+test("lab-gated worklet-local pitch changes preserve sab_ring sync", async ({ page }) => {
+  await waitForHarness(page)
+  await waitForAllFullDecoded(page)
+  await appendAllFullRemainder(page)
+
+  const initialState = await getHarnessState(page)
+  expect(initialState.supportsIndependentPitch).toBe(true)
+  expect(initialState.pitchSemitones).toBe(0)
+  expect(initialState.stems.every((stem) => stem.stats?.supportsIndependentPitch === true)).toBe(true)
+
+  await setHarnessPitchSemitones(page, 4)
+  await expect
+    .poll(async () => {
+      const state = await getHarnessState(page)
+      return state.pitchSemitones === 4 && state.stems.every((stem) => stem.stats?.pitchSemitones === 4)
+    })
+    .toBe(true)
+
+  await page.getByRole("button", { name: "Play", exact: true }).click()
+  await expect.poll(async () => (await getHarnessState(page)).transportSec, { timeout: 5000 }).toBeGreaterThan(1.6)
+
+  await setHarnessPitchSemitones(page, -3)
+  await expect
+    .poll(async () => {
+      const state = await getHarnessState(page)
+      return state.pitchSemitones === -3 && state.stems.every((stem) => stem.stats?.pitchSemitones === -3)
+    })
+    .toBe(true)
+
+  await expect
+    .poll(async () => (await getHarnessState(page)).transportSec, { timeout: 8000 })
+    .toBeGreaterThan(3.2)
+
+  const finalState = await getHarnessState(page)
+  expect(finalState.supportsIndependentPitch).toBe(true)
+  expect(finalState.pitchSemitones).toBe(-3)
+  expect(finalState.stems.every((stem) => stem.stats?.supportsIndependentPitch === true)).toBe(true)
+  expect(finalState.stems.every((stem) => stem.stats?.pitchSemitones === -3)).toBe(true)
+  expect(finalState.sync.transportDriftSec).toBeLessThan(0.08)
+  expect(finalState.sync.stemDriftSec).toBeLessThan(0.04)
+  expectSabRingTelemetry(finalState)
+  expectCleanFinalState(finalState)
 })
 
 test("late per-stem append still clears the boundary without seam telemetry", async ({ page }) => {

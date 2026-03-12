@@ -58,6 +58,8 @@ type AppendableQueueLabSnapshot = {
   ready: boolean
   playing: boolean
   tempo: number
+  pitchSemitones: number
+  supportsIndependentPitch: boolean
   dataPlaneMode: string | null
   controlPlaneMode: string | null
   preferredDataPlaneMode: string | null
@@ -129,6 +131,7 @@ type AppendableQueueDebugApi = {
   play: () => Promise<void>
   pause: () => void
   setTempo: (tempo: number) => number
+  setPitchSemitones: (semitones: number) => number
   seek: (sec: number) => number
   rebase: (sec: number) => number
   suspendContext: () => Promise<AudioContextState | "unavailable">
@@ -273,6 +276,8 @@ function createUnavailableSnapshot(error: string | null = null): AppendableQueue
     ready: false,
     playing: false,
     tempo: 1,
+    pitchSemitones: 0,
+    supportsIndependentPitch: false,
     dataPlaneMode: null,
     controlPlaneMode: null,
     preferredDataPlaneMode: null,
@@ -518,6 +523,8 @@ export default function AppendableQueueLabPage() {
       ready: true,
       playing: coordinatorSnapshot.playing,
       tempo: coordinatorSnapshot.tempo,
+      pitchSemitones: coordinatorSnapshot.pitchSemitones,
+      supportsIndependentPitch: coordinatorSnapshot.supportsIndependentPitch,
       dataPlaneMode: coordinatorSnapshot.dataPlaneMode,
       controlPlaneMode: coordinatorSnapshot.controlPlaneMode,
       preferredDataPlaneMode: coordinatorSnapshot.preferredDataPlaneMode,
@@ -645,6 +652,7 @@ export default function AppendableQueueLabPage() {
           const outputGain = ctx.createGain()
           outputGain.gain.value = STEM_OUTPUT_GAIN
           const engine = await createAppendableQueueEngine(ctx, sourceController.source, {
+            enableIndependentPitch: true,
             externalTick: true,
             onStats: (stats) => {
               const current = harnessRef.current
@@ -840,6 +848,14 @@ export default function AppendableQueueLabPage() {
           const appliedTempo = current.coordinator.setTempo(nextTempo)
           syncSnapshot()
           return appliedTempo
+        }
+
+        const setPitchSemitones = (nextPitchSemitones: number) => {
+          const current = harnessRef.current
+          if (!current) return 0
+          const appliedPitchSemitones = current.coordinator.setPitchSemitones(nextPitchSemitones)
+          syncSnapshot()
+          return appliedPitchSemitones
         }
 
         const seekCommon = (sec: number, mode: "seek" | "rebase") => {
@@ -1121,6 +1137,7 @@ export default function AppendableQueueLabPage() {
           play,
           pause,
           setTempo,
+          setPitchSemitones,
           seek: (sec) => seekCommon(sec, "seek"),
           rebase: (sec) => seekCommon(sec, "rebase"),
           suspendContext,
@@ -1163,6 +1180,8 @@ export default function AppendableQueueLabPage() {
               ready: true,
               playing: coordinatorSnapshot.playing,
               tempo: coordinatorSnapshot.tempo,
+              pitchSemitones: coordinatorSnapshot.pitchSemitones,
+              supportsIndependentPitch: coordinatorSnapshot.supportsIndependentPitch,
               dataPlaneMode: coordinatorSnapshot.dataPlaneMode,
               controlPlaneMode: coordinatorSnapshot.controlPlaneMode,
               preferredDataPlaneMode: coordinatorSnapshot.preferredDataPlaneMode,
@@ -1249,6 +1268,8 @@ export default function AppendableQueueLabPage() {
       ["context", snapshot.contextState],
       ["playing", snapshot.playing ? "yes" : "no"],
       ["tempo", formatNumber(snapshot.tempo)],
+      ["pitchSemi", formatNumber(snapshot.pitchSemitones)],
+      ["supportsPitch", snapshot.supportsIndependentPitch ? "yes" : "no"],
       ["dataPlane", snapshot.dataPlaneMode ?? "-"],
       ["controlPlane", snapshot.controlPlaneMode ?? "-"],
       ["preferredDataPlane", snapshot.preferredDataPlaneMode ?? "-"],
@@ -1564,6 +1585,27 @@ export default function AppendableQueueLabPage() {
                 className="rounded-md border border-[#34506b] px-4 py-2 text-sm text-[#d7e2ee]"
               >
                 Pause
+              </button>
+              <button
+                type="button"
+                onClick={() => window.__rrAppendableQueueDebug?.setPitchSemitones(-4)}
+                className="rounded-md border border-[#34506b] px-4 py-2 text-sm text-[#d7e2ee]"
+              >
+                Pitch -4
+              </button>
+              <button
+                type="button"
+                onClick={() => window.__rrAppendableQueueDebug?.setPitchSemitones(0)}
+                className="rounded-md border border-[#34506b] px-4 py-2 text-sm text-[#d7e2ee]"
+              >
+                Pitch 0
+              </button>
+              <button
+                type="button"
+                onClick={() => window.__rrAppendableQueueDebug?.setPitchSemitones(4)}
+                className="rounded-md border border-[#34506b] px-4 py-2 text-sm text-[#d7e2ee]"
+              >
+                Pitch +4
               </button>
               <button
                 type="button"

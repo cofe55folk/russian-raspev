@@ -4979,3 +4979,57 @@ Recommendation order после review:
 1. Manifest-qualified appendable continuation cohort теперь покрывает уже `10` реальных route.
 2. Safe-rollout operator flow подтверждён не только на старом наборе, но и на новых Talbakul/Kemerov representatives.
 3. Следующее окно можно уже тратить либо на ещё более реальный widening, либо на `independent pitch inside worklet`, не возвращаясь к packaging groundwork.
+
+## 9.122 Groundwork для `independent pitch inside worklet` теперь реально существует, но остаётся lab-gated и не меняет route rollout policy
+
+Что сделано:
+1. Следующий slice после `9.121` не стал включать pitch в production-facing `/sound/...` appendable path.
+2. Вместо этого в `createAppendableQueueEngine` добавлен явный opt-in `enableIndependentPitch`:
+   - default по-прежнему `false`
+   - normal route/player path поэтому сохраняет `supportsIndependentPitch = false`
+   - isolated `/appendable-queue-lab` стал единственным местом, где новый contract реально включён
+3. Сам pitch contract реализован внутри того же appendable worklet runtime:
+   - control change идёт через тот же `message_port`, что и tempo/playing команды
+   - per-stem processor остаётся long-lived
+   - новый main-thread DSP domain не появился
+   - rebuild/reinit processor на pitch change не вводился
+4. Lab/debug/report surface теперь несут явное pitch evidence:
+   - top-level snapshot: `supportsIndependentPitch`, `pitchSemitones`
+   - stem-level stats: те же поля
+   - debug API получил `window.__rrAppendableQueueDebug.setPitchSemitones(...)`
+   - UI lab page получила быстрые manual controls `Pitch -4 / 0 / +4`
+
+Исполняемые qualification/spec entrypoints:
+1. WebKit SAB activation proof:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry"`
+2. WebKit + Chromium proof для нового worklet-local pitch contract:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=webkit --project=chromium -g "lab-gated worklet-local pitch changes preserve sab_ring sync"`
+3. Chromium steady-state stress entrypoints:
+   - `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "longer sab_ring soak stays inside clean steady-state watermarks|interruption-like suspend/resume loop preserves sab_ring sync and telemetry"`
+4. Chromium fallback guardrail для обычного route surface:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium`
+
+Почему это важно:
+1. До `9.122` `independent pitch inside worklet` существовал у нас скорее как architectural intent и Web Pro recommendation.
+2. После `9.122` это уже не абстрактная рекомендация:
+   - есть реальный engine opt-in
+   - есть worklet-level control path
+   - есть telemetry/snapshot evidence
+   - есть проходящий WebKit/Chromium e2e на isolated harness
+3. Одновременно safety bar не снижен:
+   - route rollout policy не менялась
+   - обычный appendable runner по-прежнему живёт с conservative `supportsIndependentPitch = false`
+   - значит следующий window сможет расширять pitch уже как отдельное decision point, а не как hidden side-effect
+
+Проверка:
+1. `npx tsc --noEmit` — pass
+2. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium -g "lab-gated worklet-local pitch changes preserve sab_ring sync"` — `1/1`
+3. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=chromium` — `12/12`
+4. `npx playwright test tests/e2e/appendable-queue-lab.spec.ts --project=webkit -g "cross-origin isolated harness activates sab_ring transport with explicit telemetry|lab-gated worklet-local pitch changes preserve sab_ring sync"` — `2/2`
+5. `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium` — `31/31`
+6. `npm run build` — pass
+
+Итог после `9.122`:
+1. Репозиторий теперь уже содержит реальный worklet-local pitch groundwork для appendable path.
+2. Safari/WebKit qualification matrix зафиксирован не только текстом, но и точными spec entrypoints, которые можно запускать без повторной интерпретации handoff notes.
+3. Следующее окно может либо widen’ить pitch criteria/range, либо переносить qualification на более реальный route surface, не начиная этот контракт с нуля.
