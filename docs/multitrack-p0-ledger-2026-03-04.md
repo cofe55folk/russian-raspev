@@ -5615,3 +5615,85 @@ Residual note по verification:
 1. Route-side reload lifecycle теперь явно отражён в persisted report через `pagehide/pageshow`.
 2. Latest pitch shadow proof сохраняется через reload корректно и больше не откатывается к предыдущему шагу из-за timing race.
 3. Следующий автономный слой работы действительно смещается из bookkeeping в platform-dependent background/interruption/session behavior.
+
+## 9.136 Route-side background-aware pitch proof теперь покрывает hidden/pagehide/pageshow churn и через reload, и через exports
+
+Что добавлено:
+1. В route debug API появился debug-only synthetic lifecycle cycle:
+   - hidden-state visibility nudge
+   - `pagehide` persistence edge
+   - delayed `pageshow`
+   - visible-state restore + focus return
+2. Это не OS-level background simulation, а управляемый route-side harness для проверки persistence/export contracts на Chromium и WebKit.
+3. В `tests/e2e/appendable-queue-player-pilot.spec.ts` появился новый background-aware matrix:
+   - `runPitchShadowPilot(1.04, 2, 800)`
+   - synthetic hidden/pagehide/pageshow cycle
+   - `runPitchShadowPilot(0.96, -1, 900)`
+   - ещё один synthetic background cycle
+   - `runPitchShadowPilot(1.08, 5, 900)`
+4. Этот matrix теперь отдельно доказан для четырёх surface:
+   - reload/hydration
+   - direct `downloadReport()`
+   - direct `downloadPacket()`
+   - `saveCurrentDiagnostics()`
+5. Persisted route evidence при этом обязан хранить:
+   - `visibilityHiddenCount`
+   - `visibilityVisibleCount`
+   - `hiddenWhilePlayingCount`
+   - `pageHideCount`
+   - `pageShowCount`
+
+Почему это важно:
+1. Route-side qualification вышел за пределы pure focus churn и теперь уже покрывает deterministic hidden/pagehide/pageshow transitions.
+2. Проверка идёт не только на live state, но и на reload/report/packet/save surfaces.
+3. Это именно тот слой, который нужен до реальных Safari/iPhone background/interruption решений.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "background-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest background-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest background-aware route proof on the normal route|save-current diagnostics preserves the latest background-aware pitch shadow proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "background-aware pitch shadow matrix rehydrates with the latest route proof on the normal route|downloaded pitch shadow report preserves the latest background-aware route proof on the normal route|downloaded pitch shadow packet preserves the latest background-aware route proof on the normal route|save-current diagnostics preserves the latest background-aware pitch shadow proof on the normal route"`
+
+Проверка:
+1. Chromium background-aware route proof — `4/4`
+2. WebKit background-aware route proof — `4/4`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.136`:
+1. Route-side hidden pitch proof теперь держит deterministic background-like lifecycle churn, а не только focus churn.
+2. Persisted route evidence и exports корректно переносят hidden/pagehide/pageshow telemetry.
+3. Следующий слой можно сдвигать к interruption-adjacent behavior.
+
+## 9.137 Route-side pause-hidden-resume checkpoint теперь доказан как interruption-adjacent reload proof
+
+Что добавлено:
+1. Поверх `9.136` добавлен ещё один более жёсткий, но всё ещё автономный сценарий:
+   - `runPitchShadowPilot(1.01, 2, 800)`
+   - explicit `pause()`
+   - synthetic hidden/pagehide/pageshow cycle
+   - explicit `play()`
+   - final `runPitchShadowPilot(1.03, 4, 900)`
+2. Это не real `AudioContext.interrupted`, а interruption-adjacent route proof:
+   - pause-background-resume sequence
+   - latest proof after resume must survive reload
+   - hidden/pagehide/pageshow counters must сохраниться вместе с этим latest proof
+
+Почему это важно:
+1. Этот checkpoint уже ближе к interruption territory, чем pure background churn.
+2. При этом он всё ещё не требует product decision по `Audio Session` и не притворяется реальным Safari/iPhone interruption parity.
+3. Он даёт следующий кусок evidence перед совместным решением о platform-level shipping criteria.
+
+Исполняемые spec entrypoints:
+1. Chromium:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=chromium --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+2. WebKit:
+   - `npx playwright test tests/e2e/appendable-queue-player-pilot.spec.ts --project=webkit --workers=1 -g "pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route"`
+
+Проверка:
+1. Chromium pause-hidden-resume route proof — `1/1`
+2. WebKit pause-hidden-resume route proof — `1/1`
+3. `npx tsc --noEmit` — pass
+
+Итог после `9.137`:
+1. Route-side qualification теперь имеет уже и interruption-adjacent reload checkpoint, а не только background-like lifecycle proof.
+2. До реального shipping решения остаётся уже именно platform-dependent слой, а не недостающая route-side bookkeeping mechanics.

@@ -312,6 +312,7 @@ type AppendableRoutePilotDebugApi = {
   runSoakPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runQualificationPilot: (durationSec?: number | null) => Promise<AppendableRoutePilotDebugState>
   runStressPilot: (holdSec?: number | null) => Promise<AppendableRoutePilotDebugState>
+  runSyntheticVisibilityCycle: (holdMs?: number | null) => Promise<AppendableRoutePilotDebugState>
   runPitchShadowPilot: (
     tempo?: number | null,
     pitchSemitones?: number | null,
@@ -7997,10 +7998,11 @@ export default function MultiTrackPlayer({
   const recordAppendableRouteVisibilityEvent = useCallback(
     (
       event: "window:blur" | "window:focus" | "window:pagehide" | "window:pageshow" | "document:visibility",
-      options?: { persistReport?: boolean }
+      options?: { persistReport?: boolean; stateOverride?: AppendableRouteVisibilityState }
     ) => {
       if (typeof document === "undefined") return
-      const visibilityState: AppendableRouteVisibilityState = document.visibilityState === "hidden" ? "hidden" : "visible"
+      const visibilityState: AppendableRouteVisibilityState =
+        options?.stateOverride ?? (document.visibilityState === "hidden" ? "hidden" : "visible")
       const persistedEvent: AppendableRouteVisibilityEvent =
         event === "document:visibility" ? `document:${visibilityState}` : event
       const current = appendableRouteVisibilitySnapshotRef.current
@@ -9872,6 +9874,30 @@ export default function MultiTrackPlayer({
     ]
   )
 
+  const runAppendableRouteSyntheticVisibilityCycle = useCallback(async (holdMs: number | null = 900) => {
+    const wait = (ms: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, ms)
+      })
+    const safeHoldMs = typeof holdMs === "number" && Number.isFinite(holdMs) ? Math.max(200, Math.min(5000, holdMs)) : 900
+
+    recordAppendableRouteVisibilityEvent("window:blur", { stateOverride: "hidden" })
+    recordAppendableRouteVisibilityEvent("document:visibility", { stateOverride: "hidden" })
+    recordAppendableRouteVisibilityEvent("window:pagehide", {
+      persistReport: true,
+      stateOverride: "hidden",
+    })
+    await wait(safeHoldMs)
+    recordAppendableRouteVisibilityEvent("window:pageshow", {
+      persistReport: true,
+      stateOverride: "visible",
+    })
+    recordAppendableRouteVisibilityEvent("document:visibility", { stateOverride: "visible" })
+    recordAppendableRouteVisibilityEvent("window:focus", { stateOverride: "visible" })
+
+    return getAppendableRoutePilotDebugState()
+  }, [getAppendableRoutePilotDebugState, recordAppendableRouteVisibilityEvent])
+
   const saveCurrentAppendableRouteDiagnostics = useCallback(() => {
     const snapshot = buildAppendableRoutePilotSnapshot()
     const nextReport = buildAppendableRoutePilotReportWithSnapshot(snapshot, { autoStatus: true })
@@ -9943,6 +9969,7 @@ export default function MultiTrackPlayer({
       runSoakPilot: (durationSec?: number | null) => runAppendableRouteSoakPilot(durationSec ?? null),
       runQualificationPilot: (durationSec?: number | null) => runAppendableRouteQualificationPilot(durationSec ?? null),
       runStressPilot: (holdSec?: number | null) => runAppendableRouteStressPilot(holdSec ?? null),
+      runSyntheticVisibilityCycle: (holdMs?: number | null) => runAppendableRouteSyntheticVisibilityCycle(holdMs ?? null),
       runPitchShadowPilot: (tempo?: number | null, pitchSemitones?: number | null, settleMs?: number | null) =>
         runAppendableRoutePitchShadowPilot(tempo ?? null, pitchSemitones ?? null, settleMs ?? null),
     }
@@ -9959,6 +9986,7 @@ export default function MultiTrackPlayer({
     play,
     runAppendableRoutePitchShadowPilot,
     runAppendableRouteQualificationPilot,
+    runAppendableRouteSyntheticVisibilityCycle,
     runAppendableRouteStressPilot,
     resetAppendableRoutePilotReport,
     runAppendableRouteQuickPilot,

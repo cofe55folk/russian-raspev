@@ -249,6 +249,10 @@ const ROUTE_PITCH_SHADOW_PAUSE_MATRIX_FINAL_TEMPO = 1.07
 const ROUTE_PITCH_SHADOW_PAUSE_MATRIX_FINAL_PITCH_SEMITONES = 5
 const ROUTE_PITCH_SHADOW_FOCUS_MATRIX_FINAL_TEMPO = 1.09
 const ROUTE_PITCH_SHADOW_FOCUS_MATRIX_FINAL_PITCH_SEMITONES = 6
+const ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_TEMPO = 1.08
+const ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_PITCH_SEMITONES = 5
+const ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_TEMPO = 1.03
+const ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_PITCH_SEMITONES = 4
 
 type RoutePitchShadowMatrixSnapshot = {
   capturedAt?: string
@@ -591,6 +595,132 @@ async function runRoutePitchShadowFocusMatrix(page: Page): Promise<RoutePitchSha
   }
 }
 
+async function runSyntheticVisibilityCycle(page: Page, holdMs = 900) {
+  await page.evaluate(async (nextHoldMs) => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runSyntheticVisibilityCycle: (holdMs?: number | null) => Promise<unknown>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) throw new Error("appendable route pilot debug API unavailable")
+    await api.runSyntheticVisibilityCycle(nextHoldMs)
+  }, holdMs)
+}
+
+async function runRoutePitchShadowVisibilityMatrix(page: Page): Promise<RoutePitchShadowMatrixRun | null> {
+  await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<unknown>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runPitchShadowPilot(1.04, 2, 800)
+  })
+  await runSyntheticVisibilityCycle(page, 900)
+  await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<unknown>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runPitchShadowPilot(0.96, -1, 900)
+  })
+  await runSyntheticVisibilityCycle(page, 1100)
+  const finalState = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot: RoutePitchShadowMatrixSnapshot | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runPitchShadowPilot(1.08, 5, 900)
+  })
+  if (!finalState) return null
+  const storageKey = `rr_appendable_route_pilot_report:${finalState.trackScopeId}:v1`
+  const stored = await page.evaluate((key) => localStorage.getItem(key), storageKey)
+  return {
+    trackScopeId: finalState.trackScopeId,
+    report: finalState.report,
+    storageKey,
+    stored,
+  }
+}
+
+async function runRoutePitchShadowResumeMatrix(page: Page): Promise<RoutePitchShadowMatrixRun | null> {
+  await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<unknown>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runPitchShadowPilot(1.01, 2, 800)
+  })
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { pause: () => void } })
+      .__rrAppendableRoutePilotDebug?.pause()
+  })
+  await page.waitForTimeout(400)
+  await runSyntheticVisibilityCycle(page, 900)
+  await page.evaluate(async () => {
+    await (window as Window & { __rrAppendableRoutePilotDebug?: { play: () => Promise<void> } })
+      .__rrAppendableRoutePilotDebug?.play()
+  })
+  await page.waitForTimeout(1200)
+  const finalState = await evaluateWithRetry(page, async () => {
+    const api = (window as Window & {
+      __rrAppendableRoutePilotDebug?: {
+        runPitchShadowPilot: (
+          tempo?: number | null,
+          pitchSemitones?: number | null,
+          settleMs?: number | null
+        ) => Promise<{
+          trackScopeId: string
+          report: {
+            status: string
+            snapshot: RoutePitchShadowMatrixSnapshot | null
+          }
+        }>
+      }
+    }).__rrAppendableRoutePilotDebug
+    if (!api) return null
+    return await api.runPitchShadowPilot(1.03, 4, 900)
+  })
+  if (!finalState) return null
+  const storageKey = `rr_appendable_route_pilot_report:${finalState.trackScopeId}:v1`
+  const stored = await page.evaluate((key) => localStorage.getItem(key), storageKey)
+  return {
+    trackScopeId: finalState.trackScopeId,
+    report: finalState.report,
+    storageKey,
+    stored,
+  }
+}
+
 function expectRoutePitchShadowFocusMatrixSnapshot(snapshot: RoutePitchShadowMatrixSnapshot | null | undefined) {
   expectRoutePitchShadowMatrixSnapshot(
     snapshot,
@@ -620,6 +750,38 @@ function expectRoutePitchShadowFocusLifecycleSnapshot(snapshot: RoutePitchShadow
   expect(snapshot?.visibility?.lostForeground).toBe(true)
   expect(snapshot?.visibility?.pageHideCount ?? 0).toBeGreaterThanOrEqual(1)
   expect(snapshot?.visibility?.pageShowCount ?? 0).toBeGreaterThanOrEqual(1)
+}
+
+function expectRoutePitchShadowVisibilityMatrixSnapshot(snapshot: RoutePitchShadowMatrixSnapshot | null | undefined) {
+  expectRoutePitchShadowMatrixSnapshot(
+    snapshot,
+    ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_TEMPO,
+    ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_PITCH_SEMITONES
+  )
+  expect(snapshot?.visibility?.currentState).toBe("visible")
+  expect(snapshot?.visibility?.lostForeground).toBe(true)
+  expect(snapshot?.visibility?.visibilityHiddenCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.visibilityVisibleCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.hiddenWhilePlayingCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.pageHideCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.pageShowCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.lastEvent).toBeTruthy()
+  expect(snapshot?.visibility?.lastEventAt).toBeTruthy()
+}
+
+function expectRoutePitchShadowResumeMatrixSnapshot(snapshot: RoutePitchShadowMatrixSnapshot | null | undefined) {
+  expectRoutePitchShadowMatrixSnapshot(
+    snapshot,
+    ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_TEMPO,
+    ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_PITCH_SEMITONES
+  )
+  expect(snapshot?.visibility?.currentState).toBe("visible")
+  expect(snapshot?.visibility?.lostForeground).toBe(true)
+  expect(snapshot?.visibility?.visibilityHiddenCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.pageHideCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.pageShowCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(snapshot?.visibility?.lastEvent).toBeTruthy()
+  expect(snapshot?.visibility?.lastEventAt).toBeTruthy()
 }
 
 test("appendable route pilot stays off when the current track set is not targeted for rollout", async ({ page }) => {
@@ -4197,6 +4359,310 @@ test("save-current diagnostics preserves the latest focus-aware pitch shadow pro
   expect(packet.report.status).toBe(expectedReportBeforeDownload?.report.status ?? "pending")
   expect(packet.checklist.status).toBe(packet.report.snapshot?.gate?.status)
   expectRoutePitchShadowFocusMatrixSnapshot(packet.report.snapshot)
+})
+
+test("background-aware pitch shadow matrix rehydrates with the latest route proof on the normal route", async ({
+  page,
+}) => {
+  test.slow()
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+    preserveStoredReport: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+  await waitForAppendablePilotDebugMethod(page, "runSyntheticVisibilityCycle")
+
+  const persistedBeforeReload = await runRoutePitchShadowVisibilityMatrix(page)
+
+  expect(persistedBeforeReload).not.toBeNull()
+  expectRoutePitchShadowVisibilityMatrixSnapshot(persistedBeforeReload?.report.snapshot)
+  expect(persistedBeforeReload?.stored).not.toBeNull()
+
+  const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
+
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+
+  let persistedAfterReload: {
+    trackScopeId: string
+    report: {
+      status: string
+      snapshot: RoutePitchShadowMatrixSnapshot | null
+    }
+    stored: string | null
+  } | null = null
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const candidate = await page.evaluate(() => {
+      const api = (window as Window & {
+        __rrAppendableRoutePilotDebug?: {
+          getState: () => {
+            trackScopeId: string
+            report: {
+              status: string
+              snapshot: RoutePitchShadowMatrixSnapshot | null
+            }
+          }
+        }
+      }).__rrAppendableRoutePilotDebug
+      if (!api) return null
+      const state = api.getState()
+      const storageKey = `rr_appendable_route_pilot_report:${state.trackScopeId}:v1`
+      return {
+        trackScopeId: state.trackScopeId,
+        report: state.report,
+        stored: localStorage.getItem(storageKey),
+      }
+    })
+    const snapshot = candidate?.report.snapshot
+    if (
+      snapshot?.pitch?.scenario === "route_shadow_manual_pitch" &&
+      snapshot.pitch?.passed === true &&
+      snapshot.pitch?.targetTempo === ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_TEMPO &&
+      snapshot.pitch?.targetPitchSemitones === ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_PITCH_SEMITONES &&
+      (snapshot.visibility?.visibilityHiddenCount ?? 0) >= 1 &&
+      (snapshot.visibility?.hiddenWhilePlayingCount ?? 0) >= 1 &&
+      (snapshot.visibility?.pageHideCount ?? 0) >= 1 &&
+      (snapshot.visibility?.pageShowCount ?? 0) >= 1
+    ) {
+      persistedAfterReload = candidate
+      break
+    }
+    await page.waitForTimeout(250)
+  }
+
+  expect(persistedAfterReload).not.toBeNull()
+  expect(persistedAfterReload?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.snapshot?.trackScopeId).toBe(expectedTrackScopeId)
+  expectRoutePitchShadowVisibilityMatrixSnapshot(persistedAfterReload?.report.snapshot)
+  expect(persistedAfterReload?.stored).not.toBeNull()
+  const storedAfterReload = JSON.parse(persistedAfterReload?.stored ?? "null") as {
+    snapshot?: {
+      visibility?: {
+        visibilityHiddenCount?: number
+        hiddenWhilePlayingCount?: number
+        pageHideCount?: number
+        pageShowCount?: number
+      }
+      pitch?: {
+        passed?: boolean | null
+        targetTempo?: number | null
+        targetPitchSemitones?: number | null
+      }
+    }
+  }
+  expect(storedAfterReload).toMatchObject({
+    snapshot: {
+      pitch: {
+        passed: true,
+        targetTempo: ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_TEMPO,
+        targetPitchSemitones: ROUTE_PITCH_SHADOW_VISIBILITY_MATRIX_FINAL_PITCH_SEMITONES,
+      },
+    },
+  })
+  expect(storedAfterReload.snapshot?.visibility?.visibilityHiddenCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(storedAfterReload.snapshot?.visibility?.hiddenWhilePlayingCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(storedAfterReload.snapshot?.visibility?.pageHideCount ?? 0).toBeGreaterThanOrEqual(1)
+  expect(storedAfterReload.snapshot?.visibility?.pageShowCount ?? 0).toBeGreaterThanOrEqual(1)
+})
+
+test("downloaded pitch shadow report preserves the latest background-aware route proof on the normal route", async ({
+  page,
+}) => {
+  test.slow()
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+  await waitForAppendablePilotDebugMethod(page, "runSyntheticVisibilityCycle")
+
+  const expectedReportBeforeDownload = await runRoutePitchShadowVisibilityMatrix(page)
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadReport")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadReport: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadReport()
+  })
+  const download = await downloadPromise
+  const report = await readJsonDownload<{
+    status: string
+    trackScopeId: string
+    checklistStatus: string
+    snapshot: RoutePitchShadowMatrixSnapshot | null
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-")
+  expect(expectedReportBeforeDownload?.report.snapshot).not.toBeNull()
+  expect(report.status).toBe(expectedReportBeforeDownload?.report.status ?? "pending")
+  expect(report.trackScopeId).toBe(expectedReportBeforeDownload?.trackScopeId ?? SLUG)
+  expect(report.checklistStatus).toBe(expectedReportBeforeDownload?.report.snapshot?.gate?.status ?? "pending")
+  expectRoutePitchShadowVisibilityMatrixSnapshot(report.snapshot)
+})
+
+test("downloaded pitch shadow packet preserves the latest background-aware route proof on the normal route", async ({
+  page,
+}) => {
+  test.slow()
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+  await waitForAppendablePilotDebugMethod(page, "runSyntheticVisibilityCycle")
+
+  const expectedReportBeforeDownload = await runRoutePitchShadowVisibilityMatrix(page)
+
+  const downloadPromise = page.waitForEvent("download")
+  await waitForAppendablePilotDebugMethod(page, "downloadPacket")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { downloadPacket: () => void } })
+      .__rrAppendableRoutePilotDebug?.downloadPacket()
+  })
+  const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot: RoutePitchShadowMatrixSnapshot | null
+    }
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  expect(expectedReportBeforeDownload?.report.snapshot).not.toBeNull()
+  expect(packet.report.status).toBe(expectedReportBeforeDownload?.report.status ?? "pending")
+  expect(packet.checklist.status).toBe(expectedReportBeforeDownload?.report.snapshot?.gate?.status ?? "pending")
+  expectRoutePitchShadowVisibilityMatrixSnapshot(packet.report.snapshot)
+})
+
+test("save-current diagnostics preserves the latest background-aware pitch shadow proof on the normal route", async ({
+  page,
+}) => {
+  test.slow()
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+  await waitForAppendablePilotDebugMethod(page, "runSyntheticVisibilityCycle")
+  await waitForAppendablePilotDebugMethod(page, "saveCurrentDiagnostics")
+
+  const expectedReportBeforeDownload = await runRoutePitchShadowVisibilityMatrix(page)
+
+  const downloadPromise = page.waitForEvent("download")
+  await page.evaluate(() => {
+    ;(window as Window & { __rrAppendableRoutePilotDebug?: { saveCurrentDiagnostics: () => void } })
+      .__rrAppendableRoutePilotDebug?.saveCurrentDiagnostics()
+  })
+  const download = await downloadPromise
+  const packet = await readJsonDownload<{
+    checklist: { status: string }
+    report: {
+      status: string
+      snapshot: RoutePitchShadowMatrixSnapshot | null
+    }
+  }>(download)
+
+  expect(download.suggestedFilename()).toContain("appendable-route-pilot-packet-")
+  expect(expectedReportBeforeDownload?.report.snapshot).not.toBeNull()
+  expect(packet.report.status).toBe(expectedReportBeforeDownload?.report.status ?? "pending")
+  expect(packet.checklist.status).toBe(packet.report.snapshot?.gate?.status)
+  expectRoutePitchShadowVisibilityMatrixSnapshot(packet.report.snapshot)
+})
+
+test("pause-hidden-resume pitch shadow matrix rehydrates with the latest route proof on the normal route", async ({
+  page,
+}) => {
+  test.slow()
+  await openPlayerWithAppendableFlags(page, {
+    appendable: true,
+    multistem: true,
+    activationTargets: SLUG,
+    shadowPitch: true,
+    preserveStoredReport: true,
+  })
+  await openRuntimeProbe(page)
+  await waitForAppendablePilotDebugMethod(page, "runPitchShadowPilot")
+  await waitForAppendablePilotDebugMethod(page, "runSyntheticVisibilityCycle")
+  await waitForAppendablePilotDebugMethod(page, "pause")
+  await waitForAppendablePilotDebugMethod(page, "play")
+
+  const persistedBeforeReload = await runRoutePitchShadowResumeMatrix(page)
+
+  expect(persistedBeforeReload).not.toBeNull()
+  expectRoutePitchShadowResumeMatrixSnapshot(persistedBeforeReload?.report.snapshot)
+  expect(persistedBeforeReload?.stored).not.toBeNull()
+
+  const expectedTrackScopeId = persistedBeforeReload?.trackScopeId ?? ""
+
+  await waitForPlayerRouteReachable(page, 10000)
+  await page.reload({ waitUntil: "domcontentloaded" })
+  await expect(page.locator("[data-testid='multitrack-root']")).toBeVisible({ timeout: 30000 })
+
+  let persistedAfterReload: {
+    trackScopeId: string
+    report: {
+      status: string
+      snapshot: RoutePitchShadowMatrixSnapshot | null
+    }
+    stored: string | null
+  } | null = null
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const candidate = await page.evaluate(() => {
+      const api = (window as Window & {
+        __rrAppendableRoutePilotDebug?: {
+          getState: () => {
+            trackScopeId: string
+            report: {
+              status: string
+              snapshot: RoutePitchShadowMatrixSnapshot | null
+            }
+          }
+        }
+      }).__rrAppendableRoutePilotDebug
+      if (!api) return null
+      const state = api.getState()
+      const storageKey = `rr_appendable_route_pilot_report:${state.trackScopeId}:v1`
+      return {
+        trackScopeId: state.trackScopeId,
+        report: state.report,
+        stored: localStorage.getItem(storageKey),
+      }
+    })
+    const snapshot = candidate?.report.snapshot
+    if (
+      snapshot?.pitch?.scenario === "route_shadow_manual_pitch" &&
+      snapshot.pitch?.passed === true &&
+      snapshot.pitch?.targetTempo === ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_TEMPO &&
+      snapshot.pitch?.targetPitchSemitones === ROUTE_PITCH_SHADOW_RESUME_MATRIX_FINAL_PITCH_SEMITONES &&
+      (snapshot.visibility?.visibilityHiddenCount ?? 0) >= 1 &&
+      (snapshot.visibility?.pageHideCount ?? 0) >= 1 &&
+      (snapshot.visibility?.pageShowCount ?? 0) >= 1
+    ) {
+      persistedAfterReload = candidate
+      break
+    }
+    await page.waitForTimeout(250)
+  }
+
+  expect(persistedAfterReload).not.toBeNull()
+  expect(persistedAfterReload?.trackScopeId).toBe(expectedTrackScopeId)
+  expect(persistedAfterReload?.report.snapshot?.trackScopeId).toBe(expectedTrackScopeId)
+  expectRoutePitchShadowResumeMatrixSnapshot(persistedAfterReload?.report.snapshot)
 })
 
 test("current appendable diagnostics can be saved from the debug area without quick pilot", async ({ page }) => {
